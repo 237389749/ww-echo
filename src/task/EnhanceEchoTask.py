@@ -8,7 +8,7 @@ from qfluentwidgets import FluentIcon
 from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
-from src.echo_stats import snap_to_tier, get_mean
+from src.echo_stats import snap_to_tier, get_mean  # noqa
 from src.echo_set_templates import get_expected_stats, get_all_set_names, get_set_weights
 from src.task.BaseEchoTask import BaseEchoTask
 
@@ -61,20 +61,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             # 评分模式（通用）
             '启用评分模式': False,
             '最低得分>=': 3.0,
-            # 词条权重（UI 可调）
-            '暴击权重': 1.0,
-            '暴击伤害权重': 1.0,
-            '百分比攻击权重': 1.0,
-            '固定攻击权重': 1.0,
-            '百分比生命权重': 1.0,
-            '固定生命权重': 1.0,
-            '百分比防御权重': 1.0,
-            '固定防御权重': 1.0,
-            '共鸣效率权重': 1.0,
-            '普攻加成权重': 1.0,
-            '重击加成权重': 1.0,
-            '解放加成权重': 1.0,
-            '技能加成权重': 1.0,
         })
         self.config_type["有效词条"] = {'type': "multi_selection",
                                         'options': ['暴击伤害', '暴击', '攻击百分比', '生命百分比', '防御百分比',
@@ -100,19 +86,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             # 评分模式
             '启用评分模式': '启用"均值归一化"评分系统。渐进式策略下自动启用',
             '最低得分>=': '评分模式下，声骸总分 >= 此值才保留',
-            '暴击权重': '暴击词条在评分中的权重系数',
-            '暴击伤害权重': '暴击伤害词条在评分中的权重系数',
-            '百分比攻击权重': '攻击百分比词条的权重',
-            '固定攻击权重': '固定攻击(小攻击)词条的权重',
-            '百分比生命权重': '生命百分比词条的权重',
-            '固定生命权重': '固定生命(小生命)词条的权重',
-            '百分比防御权重': '防御百分比词条的权重',
-            '固定防御权重': '固定防御(小防御)词条的权重',
-            '共鸣效率权重': '共鸣效率词条的权重',
-            '普攻加成权重': '普攻伤害加成词条的权重',
-            '重击加成权重': '重击伤害加成词条的权重',
-            '解放加成权重': '共鸣解放伤害加成词条的权重',
-            '技能加成权重': '共鸣技能伤害加成词条的权重',
         }
 
     def find_echo_enhance(self):
@@ -438,45 +411,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
         return True
 
-    # UI 权重配置键 → echo_stats 档位表名
-    _WEIGHT_CONFIG_TO_TIER: dict[str, str] = {
-        '暴击权重': '暴击率',
-        '暴击伤害权重': '暴击伤害',
-        '百分比攻击权重': '百分比攻击',
-        '固定攻击权重': '固定数值攻击',
-        '百分比生命权重': '百分比生命',
-        '固定生命权重': '固定数值生命',
-        '百分比防御权重': '百分比防御',
-        '固定防御权重': '固定数值防御',
-        '共鸣效率权重': '共鸣效率',
-        '普攻加成权重': '普攻伤害加成',
-        '重击加成权重': '重击伤害加成',
-        '解放加成权重': '共鸣解放伤害加成',
-        '技能加成权重': '共鸣技能伤害加成',
-    }
-
-    def _build_weights_dict(self) -> dict[str, float]:
-        """从 UI 配置项构建 {tier_name: weight} 字典。"""
-        return {
-            tier_name: float(self.config.get(ui_key, 1.0))
-            for ui_key, tier_name in self._WEIGHT_CONFIG_TO_TIER.items()
-        }
-
     def compute_weighted_score(self, paired_stats, valid_stats):
         """
         计算声骸的加权词条得分。
 
-        paired_stats: [(归一化属性名, 数值字符串), ...]
-        valid_stats: 用户配置的有效词条列表
-
-        权重优先级: 套装模板权重 > UI滑块权重 > 默认 1.0
+        权重来源: 套装 JSON 模板 > 通用模式(全1.0)
+        有效性判断: 套装模板的键(选中套装时) > UI有效词条列表(通用时)
 
         返回: (总分, 各词条得分详情)
-              总分 = Σ(档位修正值 / 均值 × 权重)，无效词条贡献 0
         """
         set_name = self.config.get('当前套装', '通用')
         set_weights = get_set_weights(set_name if set_name != '通用' else None)
-        ui_weights = self._build_weights_dict()
 
         total = 0.0
         details = []
@@ -488,7 +433,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 details.append(f'{stat_name}={v} 未知词条')
                 continue
 
-            # 有效性判断: 有套装模板用模板, 否则用UI有效词条列表
+            # 有效性判断
             if set_weights is not None:
                 is_valid = stat_name in set_weights
             else:
@@ -504,16 +449,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 details.append(f'{stat_name}={v} 无档位数据')
                 continue
 
-            # 权重: 套装模板 > UI滑块 > 默认1.0
-            if set_weights is not None:
-                weight = set_weights.get(stat_name, 0.0)
-            else:
-                weight = ui_weights.get(tier_name, 1.0)
-
+            # 权重: 套装模板 > 通用1.0
+            weight = set_weights.get(stat_name, 1.0) if set_weights else 1.0
             contribution = (tier_val / mean_val) * weight
             total += contribution
-            source = '套装' if set_weights else '通用'
-            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}[{source}]={contribution:.2f}')
+            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}={contribution:.2f}')
 
         return total, details
 
