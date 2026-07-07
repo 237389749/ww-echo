@@ -8,8 +8,26 @@ from qfluentwidgets import FluentIcon
 from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
+from src.echo_stats import snap_to_tier, get_mean, DEFAULT_WEIGHTS
 from src.scene.WWScene import WWScene
 from src.task.BaseWWTask import BaseWWTask
+
+# OCR 归一化名 -> echo_stats 档位表名
+_OCR_TO_TIER_NAME: dict[str, str] = {
+    '暴击': '暴击率',
+    '暴击伤害': '暴击伤害',
+    '攻击百分比': '百分比攻击',
+    '生命百分比': '百分比生命',
+    '防御百分比': '百分比防御',
+    '攻击': '固定数值攻击',
+    '生命': '固定数值生命',
+    '防御': '固定数值防御',
+    '共鸣效率': '共鸣效率',
+    '普攻伤害加成': '普攻伤害加成',
+    '重击伤害加成': '重击伤害加成',
+    '共鸣解放伤害加成': '共鸣解放伤害加成',
+    '共鸣技能伤害加成': '共鸣技能伤害加成',
+}
 
 logger = Logger.get_logger(__name__)
 
@@ -37,6 +55,10 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             '第一条必须为有效词条': True,
             '有效词条': ['暴击', '暴击伤害', '攻击百分比'],
             'Pause after Success': True,
+            # 评分模式
+            '启用评分模式': False,
+            '最低得分>=': 3.0,
+            '词条权重': DEFAULT_WEIGHTS.copy(),
         })
         self.config_type["有效词条"] = {'type': "multi_selection",
                                         'options': ['暴击伤害', '暴击', '攻击百分比', '生命百分比', '防御百分比',
@@ -53,6 +75,9 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             '第一条必须为有效词条': '如果开启，第一个副词条必须在有效词条列表中且符合数值要求，否则直接丢弃',
             '有效词条': '定义哪些属性被视为有效',
             'Pause after Success': 'When a success occurs, send notification and pause task',
+            '启用评分模式': '启用"均值归一化"评分系统，替代传统规则。默认关闭以兼容旧配置',
+            '最低得分>=': '评分模式下，声骸总分 >= 此值才保留。默认 3.0 = 3个平均有效词条',
+            '词条权重': '每个词条的权重系数，默认全部为 1.0。调整可反映词条实际价值',
         }
 
     def find_echo_enhance(self):
@@ -271,7 +296,57 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             self.log_info(f'剩余孔位不足以达到设定的有效词条数量, 丢弃')
             return False
 
+        # 评分模式：计算加权词条得分
+        if self.config.get('启用评分模式'):
+            score, detail_lines = self.compute_weighted_score(paired_stats, valid_stats)
+            self.info_set('声骸得分', f'{score:.2f}')
+            self.log_info(f'评分详情: {" | ".join(detail_lines)}')
+            self.log_info(f'声骸总分: {score:.2f}')
+            if score < self.config.get('最低得分>='):
+                self.fail_reason = f'得分不足_{score:.2f}'
+                self.log_info(f'总分 {score:.2f} < {self.config.get("最低得分>=")} 丢弃')
+                return False
+
         return True
+
+    def compute_weighted_score(self, paired_stats, valid_stats):
+        """
+        计算声骸的加权词条得分。
+
+        paired_stats: [(归一化属性名, 数值字符串), ...]
+        valid_stats: 用户配置的有效词条列表
+
+        返回: (总分, 各词条得分详情)
+              总分 = Σ(档位修正值 / 均值 × 权重)，无效词条贡献 0
+        """
+        weights = self.config.get('词条权重', DEFAULT_WEIGHTS)
+        total = 0.0
+        details = []
+
+        for stat_name, value_str in paired_stats:
+            v = parse_number(value_str)
+            tier_name = _OCR_TO_TIER_NAME.get(stat_name)
+            if tier_name is None:
+                details.append(f'{stat_name}={v} 未知词条')
+                continue
+
+            is_valid = stat_name in valid_stats
+            if not is_valid:
+                details.append(f'{stat_name}={v} 无效(0)')
+                continue
+
+            tier_val = snap_to_tier(tier_name, v)
+            mean_val = get_mean(tier_name)
+            if tier_val is None or mean_val is None:
+                details.append(f'{stat_name}={v} 无档位数据')
+                continue
+
+            weight = weights.get(tier_name, 1.0)
+            contribution = (tier_val / mean_val) * weight
+            total += contribution
+            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}={contribution:.2f}')
+
+        return total, details
 
     def find_add_mat(self):
         return self.wait_ocr(0.09, 0.6, 0.38, 0.86, match=['阶段放入'], time_out=1)
