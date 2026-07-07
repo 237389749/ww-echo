@@ -72,6 +72,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                         'options': ['传统', '渐进式']}
         self.config_type['当前套装'] = {'type': "drop_down",
                                         'options': ['通用'] + get_all_set_names()}
+        # 给所有配置显式声明 type，避免被框架收进折叠组
+        self.config_type['必须有双爆'] = {'type': "switch"}
+        self.config_type['双爆出现之前必须全有效词条'] = {'type': "switch"}
+        self.config_type['第一条必须为有效词条'] = {'type': "switch"}
+        self.config_type['Pause after Success'] = {'type': "switch"}
+        self.config_type['启用评分模式'] = {'type': "switch"}
         self.config_description = {
             '必须有双爆': '如果开启，声骸最终必须同时拥有暴击和暴击伤害。如果剩余孔位不足以凑齐双爆，则丢弃',
             '双爆出现之前必须全有效词条': '开启后，在暴击或暴击伤害词条出现之前，前面的所有词条必须都在有效词条列表中',
