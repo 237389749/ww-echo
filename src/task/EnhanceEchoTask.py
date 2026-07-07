@@ -8,7 +8,7 @@ from qfluentwidgets import FluentIcon
 from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
-from src.echo_stats import snap_to_tier, get_mean, DEFAULT_WEIGHTS
+from src.echo_stats import snap_to_tier, get_mean
 from src.echo_set_templates import get_expected_stats, ALL_SET_NAMES
 from src.scene.WWScene import WWScene
 from src.task.BaseWWTask import BaseWWTask
@@ -62,7 +62,20 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             # 评分模式（通用）
             '启用评分模式': False,
             '最低得分>=': 3.0,
-            '词条权重': DEFAULT_WEIGHTS.copy(),
+            # 词条权重（UI 可调）
+            '暴击权重': 1.0,
+            '暴击伤害权重': 1.0,
+            '百分比攻击权重': 1.0,
+            '固定攻击权重': 1.0,
+            '百分比生命权重': 1.0,
+            '固定生命权重': 1.0,
+            '百分比防御权重': 1.0,
+            '固定防御权重': 1.0,
+            '共鸣效率权重': 1.0,
+            '普攻加成权重': 1.0,
+            '重击加成权重': 1.0,
+            '解放加成权重': 1.0,
+            '技能加成权重': 1.0,
         })
         self.config_type["有效词条"] = {'type': "multi_selection",
                                         'options': ['暴击伤害', '暴击', '攻击百分比', '生命百分比', '防御百分比',
@@ -88,7 +101,19 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             # 评分模式
             '启用评分模式': '启用"均值归一化"评分系统。渐进式策略下自动启用',
             '最低得分>=': '评分模式下，声骸总分 >= 此值才保留',
-            '词条权重': '每个词条的权重系数，默认全部为 1.0',
+            '暴击权重': '暴击词条在评分中的权重系数',
+            '暴击伤害权重': '暴击伤害词条在评分中的权重系数',
+            '百分比攻击权重': '攻击百分比词条的权重',
+            '固定攻击权重': '固定攻击(小攻击)词条的权重',
+            '百分比生命权重': '生命百分比词条的权重',
+            '固定生命权重': '固定生命(小生命)词条的权重',
+            '百分比防御权重': '防御百分比词条的权重',
+            '固定防御权重': '固定防御(小防御)词条的权重',
+            '共鸣效率权重': '共鸣效率词条的权重',
+            '普攻加成权重': '普攻伤害加成词条的权重',
+            '重击加成权重': '重击伤害加成词条的权重',
+            '解放加成权重': '共鸣解放伤害加成词条的权重',
+            '技能加成权重': '共鸣技能伤害加成词条的权重',
         }
 
     def find_echo_enhance(self):
@@ -414,6 +439,30 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
 
         return True
 
+    # UI 权重配置键 → echo_stats 档位表名
+    _WEIGHT_CONFIG_TO_TIER: dict[str, str] = {
+        '暴击权重': '暴击率',
+        '暴击伤害权重': '暴击伤害',
+        '百分比攻击权重': '百分比攻击',
+        '固定攻击权重': '固定数值攻击',
+        '百分比生命权重': '百分比生命',
+        '固定生命权重': '固定数值生命',
+        '百分比防御权重': '百分比防御',
+        '固定防御权重': '固定数值防御',
+        '共鸣效率权重': '共鸣效率',
+        '普攻加成权重': '普攻伤害加成',
+        '重击加成权重': '重击伤害加成',
+        '解放加成权重': '共鸣解放伤害加成',
+        '技能加成权重': '共鸣技能伤害加成',
+    }
+
+    def _build_weights_dict(self) -> dict[str, float]:
+        """从 UI 配置项构建 {tier_name: weight} 字典。"""
+        return {
+            tier_name: float(self.config.get(ui_key, 1.0))
+            for ui_key, tier_name in self._WEIGHT_CONFIG_TO_TIER.items()
+        }
+
     def compute_weighted_score(self, paired_stats, valid_stats):
         """
         计算声骸的加权词条得分。
@@ -424,7 +473,7 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
         返回: (总分, 各词条得分详情)
               总分 = Σ(档位修正值 / 均值 × 权重)，无效词条贡献 0
         """
-        weights = self.config.get('词条权重', DEFAULT_WEIGHTS)
+        weights = self._build_weights_dict()
         total = 0.0
         details = []
 
