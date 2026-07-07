@@ -1,8 +1,11 @@
 # EnhanceEchoTask.py
+import json
 import re
+import shutil
 import time
 import os
 
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 from qfluentwidgets import FluentIcon
 
 from ok import FindFeature, Logger
@@ -89,6 +92,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                         'options': ['传统', '渐进式']}
         self.config_type['当前套装'] = {'type': "drop_down",
                                         'options': ['通用'] + get_all_set_names()}
+        self.config_type['导出模板'] = {
+            'type': 'button',
+            'buttons': [{'text': '导出 | Export', 'callback': self._export_template}]
+        }
+        self.config_type['导入模板'] = {
+            'type': 'button',
+            'buttons': [{'text': '导入 | Import', 'callback': self._import_template}]
+        }
         self.config_description = {
             '必须有双爆': '如果开启，声骸最终必须同时拥有暴击和暴击伤害。如果剩余孔位不足以凑齐双爆，则丢弃',
             '双爆出现之前必须全有效词条': '开启后，在暴击或暴击伤害词条出现之前，前面的所有词条必须都在有效词条列表中',
@@ -100,6 +111,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
             '强化策略': '传统: 满级后一次性判断\n渐进式: Lv5首条须在预期中→Lv10跳过→Lv15得分≥1.5→Lv20≥2.25→Lv25≥3.75, 不及格即停',
             '当前套装': '套装词条&权重在assets/echo_set_templates.json\n选套装→用JSON配置, 选通用→用有效词条(权重1.0)',
+            '导出模板': '弹出保存对话框, 将当前套装模板导出为JSON副本',
+            '导入模板': '弹出选择对话框, 从JSON文件导入套装模板(自动备份旧文件)',
             # 评分模式
             '启用评分模式': '均值归一化: 单词条=档位值/均值\n暴击最低6.3%→6.3/8.4=0.75词条, 最高10.5%→10.5/8.4=1.25词条\n无效词条(不在有效列表)=0分不计入\n5词条总分3.75~6.25\n传统满级后检查, 渐进式自动启用',
             '最低得分>=': '传统模式满级5词条后总分>=此值保留\n渐进式用内置阈值(T3=1.5/T4=2.25/T5=3.75)不受影响',
@@ -473,6 +486,57 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}={contribution:.2f}')
 
         return total, details
+
+    # ── 模板导入/导出 ──
+
+    _TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
+
+    def _export_template(self):
+        path, _ = QFileDialog.getSaveFileName(
+            None, "导出套装模板 | Export Template",
+            "echo_set_templates.json",
+            "JSON (*.json);;所有文件 (*)",
+        )
+        if path:
+            try:
+                shutil.copy(self._TEMPLATE_PATH, path)
+                self.log_info(f"模板已导出到: {path}", notify=True)
+            except Exception as e:
+                self.log_error(f"导出失败: {e}")
+
+    def _import_template(self):
+        path, _ = QFileDialog.getOpenFileName(
+            None, "导入套装模板 | Import Template",
+            "", "JSON (*.json);;所有文件 (*)",
+        )
+        if not path:
+            return
+        try:
+            # 校验 JSON
+            with open(path, "r", encoding="utf-8") as f:
+                json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            QMessageBox.warning(None, "导入失败 | Import Failed", f"文件格式错误: {e}")
+            return
+
+        reply = QMessageBox.question(
+            None, "确认导入 | Confirm Import",
+            f"将用所选文件替换当前模板\n(旧文件备份为 .bak)\n\n{path}",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            if os.path.exists(self._TEMPLATE_PATH):
+                shutil.copy(self._TEMPLATE_PATH, self._TEMPLATE_PATH + ".bak")
+            os.makedirs(os.path.dirname(self._TEMPLATE_PATH) or ".", exist_ok=True)
+            shutil.copy(path, self._TEMPLATE_PATH)
+            from src.echo_set_templates import load_templates
+            load_templates(force=True)
+            self.log_info("模板已导入, 重新选择套装生效", notify=True)
+        except Exception as e:
+            self.log_error(f"导入失败: {e}")
 
     def find_add_mat(self):
         return self.wait_ocr(0.09, 0.6, 0.38, 0.86, match=['阶段放入'], time_out=1)

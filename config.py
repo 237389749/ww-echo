@@ -108,7 +108,6 @@ config = {
 """,
     'screenshots_folder': "screenshots",
     'gui_title': 'OK-Echo',
-    'custom_tabs': [["src.gui.TemplateConfigTab", "TemplateConfigTab"]],
     'log_file': 'logs/ok-echo.log',
     'error_log_file': 'logs/ok-echo_error.log',
     'launcher_log_file': 'logs/launcher.log',
