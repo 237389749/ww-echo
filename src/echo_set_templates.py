@@ -1,84 +1,112 @@
 """
-声骸套装模板 — 定义每个套装的预期有效词条。
+声骸套装模板 — 从 JSON 文件加载套装预期词条及其权重。
 
-"预期词条" 是该套装角色通常需要的词条，用于：
-1. 第一条词条校验：第一条必须是预期词条之一
-2. 评分时仅预期词条计入（非预期 = 0 分）
-
-预期来自主流角色配装，可按自己需求修改。
-"""
-
-# 每个套装的预期词条列表
-SET_EXPECTED_STATS: dict[str, list[str]] = {
-    # ===== 属性伤害套装 (4+3+3+1+1 标准C位) =====
-    "凝夜白霜": [
-        "暴击", "暴击伤害", "攻击百分比", "共鸣技能伤害加成"
-    ],
-    "熔山裂谷": [
-        "暴击", "暴击伤害", "攻击百分比", "共鸣解放伤害加成", "共鸣技能伤害加成"
-    ],
-    "彻空冥雷": [
-        "暴击", "暴击伤害", "攻击百分比", "共鸣解放伤害加成",
-    ],
-    "啸谷长风": [
-        "暴击", "暴击伤害", "攻击百分比", "重击伤害加成",
-    ],
-    "浮星祛暗": [
-        "暴击", "暴击伤害", "攻击百分比", "共鸣技能伤害加成",
-    ],
-    "沉日劫明": [
-        "暴击", "暴击伤害", "攻击百分比", "普攻伤害加成",
-    ],
-
-    # ===== 辅助/充能套装 =====
-    "隐世回光": [
-        "生命百分比", "共鸣效率", "攻击百分比",
-    ],
-    "轻云出月": [
-        "共鸣效率", "攻击百分比", "暴击", "暴击伤害",
-    ],
-
-    # ===== 泛用攻击套装 =====
-    "不绝余音": [
-        "攻击百分比", "暴击", "暴击伤害",
-    ],
-
-    # ===== 新套装 (2.0+) =====
-    "凌冽决断之心": [
-        "共鸣效率", "攻击百分比", "暴击", "暴击伤害",
-    ],
-    "此间永驻之光": [
-        "暴击", "暴击伤害", "攻击百分比",
-    ],
-    "幽夜隐匿之帷": [
-        "暴击", "暴击伤害", "攻击百分比",
-    ],
-    "高天共奏之曲": [
-        "攻击百分比", "共鸣效率", "暴击", "暴击伤害",
-    ],
-    "无惧浪涛之勇": [
-        "共鸣效率", "攻击百分比", "生命百分比",
-    ],
-    "流云逝尽之空": [
-        "暴击", "暴击伤害", "攻击百分比",
-    ],
-    "愿戴荣光之旅": [
-        "暴击", "暴击伤害", "攻击百分比",
-    ],
-    "奔狼燎原之焰": [
-        "暴击", "暴击伤害", "攻击百分比", "共鸣解放伤害加成",
-    ],
+JSON 格式 (assets/echo_set_templates.json):
+{
+  "version": 1,
+  "sets": {
+    "套装名": { "词条名": 权重, ... },
+    ...
+  }
 }
 
-# 所有可选的套装名（用于配置下拉框）
-ALL_SET_NAMES = list(SET_EXPECTED_STATS.keys())
+每个套装的权重字典同时定义:
+1. 预期有效词条列表 (字典的键)
+2. 各词条的独立权重 (字典的值, 渐进式评分时使用)
+"""
 
-# 默认有效词条列表（当套装选择"通用"时使用）
-DEFAULT_EXPECTED_STATS = ["暴击", "暴击伤害", "攻击百分比", "攻击", "共鸣效率"]
+import json
+import os
+from pathlib import Path
+
+from ok import Logger
+
+logger = Logger.get_logger(__name__)
+
+# JSON 模板文件路径
+_TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
+
+# 缓存
+_template_cache: dict | None = None
+_cache_mtime: float = 0
+
+
+def _get_template_path() -> str:
+    """获取模板文件绝对路径（支持打包后的 exe 和源码运行）。"""
+    # 尝试相对于当前工作目录
+    if os.path.exists(_TEMPLATE_PATH):
+        return _TEMPLATE_PATH
+    # 尝试相对于源码目录
+    src_dir = Path(__file__).parent.parent
+    alt_path = src_dir / "assets" / "echo_set_templates.json"
+    if alt_path.exists():
+        return str(alt_path)
+    return _TEMPLATE_PATH
+
+
+def load_templates(force: bool = False) -> dict[str, dict[str, float]]:
+    """加载套装模板, 返回 {套装名: {词条名: 权重, ...}}。"""
+    global _template_cache, _cache_mtime
+
+    path = _get_template_path()
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = 0
+
+    if not force and _template_cache is not None and mtime == _cache_mtime:
+        return _template_cache
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        _template_cache = data.get("sets", {})
+        _cache_mtime = mtime
+        logger.info(f"加载套装模板: {len(_template_cache)} 个套装 from {path}")
+        return _template_cache
+    except FileNotFoundError:
+        logger.warning(f"套装模板文件不存在: {path}, 使用空配置")
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"套装模板 JSON 解析失败: {e}, 使用空配置")
+        return {}
+
+
+def get_all_set_names() -> list[str]:
+    """获取所有套装名列表。"""
+    templates = load_templates()
+    return list(templates.keys())
+
+
+def get_set_weights(set_name: str | None) -> dict[str, float] | None:
+    """
+    获取指定套装的 {词条名: 权重} 字典。
+    返回 None 表示使用通用配置。
+    """
+    if not set_name or set_name == "通用":
+        return None
+    templates = load_templates()
+    return templates.get(set_name)
 
 
 def get_expected_stats(set_name: str | None) -> list[str]:
-    """获取指定套装的预期词条列表。"""
-    if set_name and set_name in SET_EXPECTED_STATS:
-        return SET_EXPECTED_STATS[set_name]
-    return DEFAULT_EXPECTED_STATS
+    """
+    获取指定套装的预期词条列表（即权重字典的键）。
+    用于渐进式 T1 校验。
+    """
+    weights = get_set_weights(set_name)
+    if weights:
+        return list(weights.keys())
+    # 通用默认
+    return ["暴击", "暴击伤害", "攻击百分比", "攻击", "共鸣效率"]
+
+
+def get_stat_weight(set_name: str | None, stat_name: str) -> float:
+    """
+    获取某套装下某词条的权重。
+    先查套装模板, 没有则返回 1.0。
+    """
+    weights = get_set_weights(set_name)
+    if weights:
+        return weights.get(stat_name, 0.0)  # 不在模板中 = 无效词条(权重0)
+    return 1.0  # 通用模式由 UI 滑块控制

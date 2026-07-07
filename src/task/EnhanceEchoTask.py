@@ -9,7 +9,7 @@ from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
 from src.echo_stats import snap_to_tier, get_mean
-from src.echo_set_templates import get_expected_stats, ALL_SET_NAMES
+from src.echo_set_templates import get_expected_stats, get_all_set_names, get_set_weights
 from src.scene.WWScene import WWScene
 from src.task.BaseWWTask import BaseWWTask
 
@@ -86,7 +86,7 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
         self.config_type['强化策略'] = {'type': "drop_down",
                                         'options': ['传统', '渐进式']}
         self.config_type['当前套装'] = {'type': "drop_down",
-                                        'options': ['通用'] + ALL_SET_NAMES}
+                                        'options': ['通用'] + get_all_set_names()}
         self.config_description = {
             '必须有双爆': '如果开启，声骸最终必须同时拥有暴击和暴击伤害。如果剩余孔位不足以凑齐双爆，则丢弃',
             '双爆出现之前必须全有效词条': '开启后，在暴击或暴击伤害词条出现之前，前面的所有词条必须都在有效词条列表中',
@@ -470,10 +470,15 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
         paired_stats: [(归一化属性名, 数值字符串), ...]
         valid_stats: 用户配置的有效词条列表
 
+        权重优先级: 套装模板权重 > UI滑块权重 > 默认 1.0
+
         返回: (总分, 各词条得分详情)
               总分 = Σ(档位修正值 / 均值 × 权重)，无效词条贡献 0
         """
-        weights = self._build_weights_dict()
+        set_name = self.config.get('当前套装', '通用')
+        set_weights = get_set_weights(set_name if set_name != '通用' else None)
+        ui_weights = self._build_weights_dict()
+
         total = 0.0
         details = []
 
@@ -484,7 +489,12 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
                 details.append(f'{stat_name}={v} 未知词条')
                 continue
 
-            is_valid = stat_name in valid_stats
+            # 有效性判断: 有套装模板用模板, 否则用UI有效词条列表
+            if set_weights is not None:
+                is_valid = stat_name in set_weights
+            else:
+                is_valid = stat_name in valid_stats
+
             if not is_valid:
                 details.append(f'{stat_name}={v} 无效(0)')
                 continue
@@ -495,10 +505,16 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
                 details.append(f'{stat_name}={v} 无档位数据')
                 continue
 
-            weight = weights.get(tier_name, 1.0)
+            # 权重: 套装模板 > UI滑块 > 默认1.0
+            if set_weights is not None:
+                weight = set_weights.get(stat_name, 0.0)
+            else:
+                weight = ui_weights.get(tier_name, 1.0)
+
             contribution = (tier_val / mean_val) * weight
             total += contribution
-            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}={contribution:.2f}')
+            source = '套装' if set_weights else '通用'
+            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}[{source}]={contribution:.2f}')
 
         return total, details
 
