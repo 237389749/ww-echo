@@ -31,7 +31,10 @@ class BaseWWTask(BaseTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.monthly_card_config = self.get_global_config('Monthly Card Config')
-        self.char_config = self.get_global_config('Character Config')
+        try:
+            self.char_config = self.get_global_config('Character Config')
+        except RuntimeError:
+            self.char_config = {}
         self.key_config = self.get_global_config('Game Hotkey')  # 游戏热键配置
         self.next_monthly_card_start = 0
         self.scene: WWScene | None = None
