@@ -54,7 +54,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '有效词条>=': 3,
             '第一条必须为有效词条': True,
             '有效词条': ['暴击', '暴击伤害', '攻击百分比', '攻击', '共鸣效率'],
-            'Pause after Success': True,
+            '成功后暂停': True,
             # 强化策略
             '强化策略': '渐进式',
             '当前套装': '通用',
@@ -80,12 +80,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '有效词条>=': '声骸满级时需达到的有效词条数量，若剩余孔位无法凑齐该数量，则停止强化并丢弃',
             '第一条必须为有效词条': '如果开启，第一个副词条必须在有效词条列表中且符合数值要求，否则直接丢弃',
             '有效词条': '定义哪些属性被视为有效',
-            'Pause after Success': 'When a success occurs, send notification and pause task',
+            '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
             '强化策略': '传统: 满级后一次判断 | 渐进式: 每开一个词条就评估，不达标立即停',
             '当前套装': '选择正在强化的声骸套装，决定第一条词条的预期。选"通用"则使用有效词条列表',
             # 评分模式
-            '启用评分模式': '均值归一化: 单词条得分=档位值/均值, 范围0.75(最低档)~1.25(最高档), 5词条总分3.75~6.25。传统模式下满级后检查，渐进式自动启用',
-            '最低得分>=': '传统模式: 5词条满级后总分>=此值才保留(建议3.0~5.0)。渐进式使用内置档位阈值(T3=1.5/T4=2.25/T5=3.75)不受此项影响',
+            '启用评分模式': '均值归一化评分。例: 暴击8档均值8.4%, 最低6.3%→6.3/8.4=0.75词条, 最高10.5%→10.5/8.4=1.25词条。无效词条(不在有效列表=0分)不计入。5词条总分范围3.75~6.25。传统模式满级后检查此项，渐进式自动启用',
+            '最低得分>=': '传统模式: 5词条满级后总分>=此值才保留。渐进式使用内置档位阈值(T3>=1.5/T4>=2.25/T5>=3.75),不受此项影响',
         }
 
     def find_echo_enhance(self):
@@ -516,7 +516,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             raise Exception('上锁失败!')
         self.screenshot_echo(f'success/{self.info_get("成功声骸数量")}')
         self.log_info('成功并上锁')
-        if self.config.get('Pause after Success'):
+        if self.config.get('成功后暂停'):
             self.log_info('符合条件的声骸，已暂停任务', notify=True)
             self.pause()
         self.esc()
