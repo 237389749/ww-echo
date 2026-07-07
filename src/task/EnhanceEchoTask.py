@@ -1,11 +1,8 @@
 # EnhanceEchoTask.py
-import json
 import re
-import shutil
 import time
 import os
 
-from PySide6.QtWidgets import QFileDialog, QMessageBox
 from qfluentwidgets import FluentIcon
 
 from ok import FindFeature, Logger
@@ -48,7 +45,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.group_name = "批量强化声骸"
         self.group_icon = FluentIcon.ADD
         self.fail_reason = ""
-        self._syncing = False  # 防止 JSON↔UI 双向同步时递归
         self.supported_languages = ["zh_CN", "zh_TW"]
         self.instructions = (
             "套装词条&权重配置说明\n\n"
@@ -74,26 +70,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '第一条必须为有效词条': True,
             '有效词条': ['暴击', '暴击伤害', '攻击百分比', '攻击', '共鸣效率'],
             '成功后暂停': True,
-            # 强化策略
             '强化策略': '渐进式',
             '当前套装': '通用',
-            # 评分
             '启用评分模式': False,
             '最低得分>=': 3.0,
-            # 词条权重 — 选套装时与JSON双向同步, 通用模式直接使用
-            '暴击权重': 1.0,
-            '暴击伤害权重': 1.0,
-            '百分比攻击权重': 1.0,
-            '固定攻击权重': 1.0,
-            '百分比生命权重': 1.0,
-            '固定生命权重': 1.0,
-            '百分比防御权重': 1.0,
-            '固定防御权重': 1.0,
-            '共鸣效率权重': 1.0,
-            '普攻加成权重': 1.0,
-            '重击加成权重': 1.0,
-            '解放加成权重': 1.0,
-            '技能加成权重': 1.0,
         })
         self.config_type["有效词条"] = {'type': "multi_selection",
                                         'options': ['暴击伤害', '暴击', '攻击百分比', '生命百分比', '防御百分比',
@@ -105,14 +85,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                         'options': ['传统', '渐进式']}
         self.config_type['当前套装'] = {'type': "drop_down",
                                         'options': ['通用'] + get_all_set_names()}
-        self.config_type['导出模板'] = {
-            'type': 'button',
-            'buttons': [{'text': '导出 | Export', 'callback': self._export_template}]
-        }
-        self.config_type['导入模板'] = {
-            'type': 'button',
-            'buttons': [{'text': '导入 | Import', 'callback': self._import_template}]
-        }
         self.config_description = {
             '必须有双爆': '如果开启，声骸最终必须同时拥有暴击和暴击伤害。如果剩余孔位不足以凑齐双爆，则丢弃',
             '双爆出现之前必须全有效词条': '开启后，在暴击或暴击伤害词条出现之前，前面的所有词条必须都在有效词条列表中',
@@ -123,100 +95,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '有效词条': '定义哪些属性被视为有效',
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
             '强化策略': '传统: 满级后一次性判断\n渐进式: Lv5首条须在预期中→Lv10跳过→Lv15得分≥1.5→Lv20≥2.25→Lv25≥3.75, 不及格即停',
-            '当前套装': '套装词条&权重在assets/echo_set_templates.json\n选套装→用JSON配置, 选通用→用有效词条(权重1.0)',
-            '导出模板': '弹出保存对话框, 将当前套装模板导出为JSON副本',
-            '导入模板': '弹出选择对话框, 从JSON文件导入套装模板(自动备份旧文件)',
-            # 评分模式
-            '暴击权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '暴击伤害权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '百分比攻击权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '固定攻击权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '百分比生命权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '固定生命权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '百分比防御权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '固定防御权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '共鸣效率权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '普攻加成权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '重击加成权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '解放加成权重': '选套装: 与JSON双向同步; 通用: 直接使用',
-            '技能加成权重': '选套装: 与JSON双向同步; 通用: 直接使用',
+            '当前套装': '在"套装配置"tab中管理词条和权重',
             '启用评分模式': '均值归一化: 单词条=档位值/均值\n暴击最低6.3%→6.3/8.4=0.75词条, 最高10.5%→10.5/8.4=1.25词条\n无效词条(不在有效列表)=0分不计入\n5词条总分3.75~6.25\n传统满级后检查, 渐进式自动启用',
             '最低得分>=': '传统模式满级5词条后总分>=此值保留\n渐进式用内置阈值(T3=1.5/T4=2.25/T5=3.75)不受影响',
         }
-
-    # UI 权重键 → JSON 词条名
-    _WEIGHT_KEY_TO_STAT: dict[str, str] = {
-        '暴击权重': '暴击', '暴击伤害权重': '暴击伤害',
-        '百分比攻击权重': '攻击百分比', '固定攻击权重': '攻击',
-        '百分比生命权重': '生命百分比', '固定生命权重': '生命',
-        '百分比防御权重': '防御百分比', '固定防御权重': '防御',
-        '共鸣效率权重': '共鸣效率',
-        '普攻加成权重': '普攻伤害加成', '重击加成权重': '重击伤害加成',
-        '解放加成权重': '共鸣解放伤害加成', '技能加成权重': '共鸣技能伤害加成',
-    }
-
-    def validate(self, key, value):
-        """配置变更钩子: 选套装→加载JSON到UI, 改权重→写回JSON。"""
-        if self._syncing or self.config is None:
-            return True, None
-        self._syncing = True
-        try:
-            if key == '当前套装':
-                self._sync_set_to_ui(value)
-            elif key in self._WEIGHT_KEY_TO_STAT or key == '有效词条':
-                self._sync_ui_to_set()
-        finally:
-            self._syncing = False
-        return True, None
-
-    def _sync_set_to_ui(self, set_name):
-        """套装切换: 从 JSON 加载词条&权重到 UI 控件。"""
-        if set_name == '通用':
-            return
-        weights = get_set_weights(set_name)
-        if not weights:
-            return
-        # 同步有效词条多选
-        self.config['有效词条'] = list(weights.keys())
-        # 同步各权重滑块
-        for ui_key, stat_name in self._WEIGHT_KEY_TO_STAT.items():
-            w = weights.get(stat_name, 1.0)
-            self.config[ui_key] = w
-
-    def _sync_ui_to_set(self):
-        """保存: 将当前 UI 的词条&权重写回 JSON。"""
-        set_name = self.config.get('当前套装', '通用')
-        if set_name == '通用':
-            return
-        stat_weights: dict[str, float] = {}
-        for ui_key, stat_name in self._WEIGHT_KEY_TO_STAT.items():
-            w = float(self.config.get(ui_key, 1.0))
-            if w > 0:
-                stat_weights[stat_name] = w
-        # 也纳入未勾选为权重的有效词条(来自多选)
-        valid_stats = self.config.get('有效词条', [])
-        for s in valid_stats:
-            if s not in stat_weights:
-                stat_weights[s] = 1.0
-        self._write_set_to_json(set_name, stat_weights)
-
-    def _write_set_to_json(self, set_name, stat_weights):
-        """写入 JSON 文件。"""
-        import json
-        path = os.path.join("assets", "echo_set_templates.json")
-        try:
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            else:
-                data = {"version": 1, "sets": {}}
-            data["sets"][set_name] = stat_weights
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            from src.echo_set_templates import load_templates
-            load_templates(force=True)
-        except Exception as e:
-            self.log_error(f"保存套装模板失败: {e}")
 
     def find_echo_enhance(self):
         return self.ocr(0.82, 0.86, 0.97, 0.96, match='培养')
@@ -543,11 +425,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def compute_weighted_score(self, paired_stats, valid_stats):
         """
-        权重来源: UI 滑块 (选套装时已与JSON双向同步, 通用模式直接使用)
-        有效性: 选套装 → 权重>0的为有效; 通用 → 用有效词条列表
+        权重来源: 套装 JSON (通过 get_set_weights), 通用模式用有效词条(权重1.0)
+        有效性: 套装→权重>0的为有效; 通用→用有效词条列表
         """
         set_name = self.config.get('当前套装', '通用')
-        using_set = set_name != '通用'
+        set_weights = get_set_weights(set_name if set_name != '通用' else None)
 
         total = 0.0
         details = []
@@ -559,18 +441,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 details.append(f'{stat_name}={v} 未知词条')
                 continue
 
-            # 查权重 (从UI滑块取, 已自动同步)
-            weight = float(self.config.get(self._stat_to_weight_key(stat_name), 1.0))
-
-            # 有效性: 权重>0 = 有效
-            if weight <= 0:
-                details.append(f'{stat_name}={v} 无效(0)')
-                continue
-
-            if using_set:
+            if set_weights is not None:
+                weight = set_weights.get(stat_name, 0.0)
                 is_valid = weight > 0
             else:
                 is_valid = stat_name in valid_stats
+                weight = 1.0 if is_valid else 0.0
 
             if not is_valid:
                 details.append(f'{stat_name}={v} 无效(0)')
@@ -587,65 +463,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}={contribution:.2f}')
 
         return total, details
-
-    @classmethod
-    def _stat_to_weight_key(cls, stat_name: str) -> str:
-        """词条名 → 权重滑块键 (反向映射)。"""
-        for ui_key, s in cls._WEIGHT_KEY_TO_STAT.items():
-            if s == stat_name:
-                return ui_key
-        return '暴击权重'  # fallback
-
-    # ── 模板导入/导出 ──
-
-    _TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
-
-    def _export_template(self):
-        path, _ = QFileDialog.getSaveFileName(
-            None, "导出套装模板 | Export Template",
-            "echo_set_templates.json",
-            "JSON (*.json);;所有文件 (*)",
-        )
-        if path:
-            try:
-                shutil.copy(self._TEMPLATE_PATH, path)
-                self.log_info(f"模板已导出到: {path}", notify=True)
-            except Exception as e:
-                self.log_error(f"导出失败: {e}")
-
-    def _import_template(self):
-        path, _ = QFileDialog.getOpenFileName(
-            None, "导入套装模板 | Import Template",
-            "", "JSON (*.json);;所有文件 (*)",
-        )
-        if not path:
-            return
-        try:
-            # 校验 JSON
-            with open(path, "r", encoding="utf-8") as f:
-                json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            QMessageBox.warning(None, "导入失败 | Import Failed", f"文件格式错误: {e}")
-            return
-
-        reply = QMessageBox.question(
-            None, "确认导入 | Confirm Import",
-            f"将用所选文件替换当前模板\n(旧文件备份为 .bak)\n\n{path}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        try:
-            if os.path.exists(self._TEMPLATE_PATH):
-                shutil.copy(self._TEMPLATE_PATH, self._TEMPLATE_PATH + ".bak")
-            os.makedirs(os.path.dirname(self._TEMPLATE_PATH) or ".", exist_ok=True)
-            shutil.copy(path, self._TEMPLATE_PATH)
-            from src.echo_set_templates import load_templates
-            load_templates(force=True)
-            self.log_info("模板已导入, 重新选择套装生效", notify=True)
-        except Exception as e:
-            self.log_error(f"导入失败: {e}")
 
     def find_add_mat(self):
         return self.wait_ocr(0.09, 0.6, 0.38, 0.86, match=['阶段放入'], time_out=1)
