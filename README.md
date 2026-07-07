@@ -66,20 +66,28 @@
 
 ### 评分系统 | Scoring System
 
-采用 **均值归一化** 评分：每个词条得分 = `实际档位值 / 该词条全部档位均值 × 权重`，无效词条贡献 0。
+采用 **均值归一化** 评分。每个词条有 4~8 个档位（从低到高），均值为所有档位的平均值。
 
-*Mean-normalized scoring: each stat's contribution = `tier value / mean of all tiers × weight`. Invalid stats contribute 0.*
+**单词条公式:** `得分 = 档位修正值 / 该词条均值 × 权重`
+
+*Single stat formula: `score = tier value / mean × weight`*
 
 ```
-暴击值 6.3%  →  最低档 / min  →  6.3/8.4  = 0.75 词条当量 / stat-equivalents
-暴击值 10.5% →  最高档 / max  →  10.5/8.4 = 1.25 词条当量 / stat-equivalents
+暴击档位: [6.3, 6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5]  均值 = 8.4
 
-5全最低 / all min = 3.75 | 5全平均 / all avg = 5.0 | 5全最高 / all max = 6.25
+最低档 6.3  →  6.3/8.4 = 0.75 词条当量  (单条最低分)
+最高档 10.5 → 10.5/8.4 = 1.25 词条当量  (单条最高分)
+
+5条全最低 → 5×0.75 = 3.75   (理论下限)
+5条全平均 → 5×1.0  = 5.0    (中等水平)
+5条全最高 → 5×1.25 = 6.25   (理论上限)
 ```
 
-**词条权重** 在 GUI 中独立调整，共 13 个滑块，全部默认 1.0。
+*Each stat contributes 0.75 (worst tier) to 1.25 (best tier) stat-equivalents. A full echo ranges from 3.75 (all worst) to 6.25 (all perfect), with 5.0 being all-average.*
 
-*Weights are individually adjustable via 13 sliders in the GUI, all defaulting to 1.0.*
+**权重** 来自套装 JSON 模板（`assets/echo_set_templates.json`），每个套装的每个词条可独立设置权重。选中套装时自动应用，通用模式所有词条权重为 1.0。
+
+*Weights come from the set JSON template. Each set can define per-stat weights. Copy the JSON file to save/import/export configurations.*
 
 ---
 
