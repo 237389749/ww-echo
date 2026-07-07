@@ -43,6 +43,10 @@ class EchoConfigTab(CustomTab):
     def name(self):
         return "套装配置 | Sets"
 
+    @property
+    def icon(self):
+        return FluentIcon.SAVE
+
     def _setup_ui(self):
         # ── 顶部: 套装选择 ──
         top = QWidget()
