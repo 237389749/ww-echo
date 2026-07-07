@@ -157,7 +157,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def validate(self, key, value):
         """配置变更钩子: 选套装→加载JSON到UI, 改权重→写回JSON。"""
-        if self._syncing:
+        if self._syncing or self.config is None:
             return True, None
         self._syncing = True
         try:
