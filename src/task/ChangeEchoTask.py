@@ -22,8 +22,8 @@ class ChangeEchoTask(BaseWWTask, FindFeature):
         self.name = "批量修改声骸主属性(仅支持简中游戏语言)"
         self.description = "点击B进入背包, 在过滤器中选择需要修改主属性的声骸, 并按照等级从0排序后开始."
         self.icon = FluentIcon.CUT
-        self.group_name = "强化声骸"
-        self.group_icon = FluentIcon.ADD
+        self.group_name = "批量修改主属性"
+        self.group_icon = FluentIcon.CUT
         self.supported_languages = ["zh_CN"]
         self.fail_reason = ""
         self.add_text_fix(
