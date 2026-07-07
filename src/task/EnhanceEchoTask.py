@@ -9,6 +9,7 @@ from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
 from src.echo_stats import snap_to_tier, get_mean, DEFAULT_WEIGHTS
+from src.echo_set_templates import get_expected_stats, ALL_SET_NAMES
 from src.scene.WWScene import WWScene
 from src.task.BaseWWTask import BaseWWTask
 
@@ -55,7 +56,10 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             '第一条必须为有效词条': True,
             '有效词条': ['暴击', '暴击伤害', '攻击百分比'],
             'Pause after Success': True,
-            # 评分模式
+            # 强化策略
+            '强化策略': '渐进式',
+            '当前套装': '通用',
+            # 评分模式（通用）
             '启用评分模式': False,
             '最低得分>=': 3.0,
             '词条权重': DEFAULT_WEIGHTS.copy(),
@@ -66,6 +70,10 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
                                                     '共鸣效率', '普攻伤害加成',
                                                     '重击伤害加成', '共鸣解放伤害加成',
                                                     '共鸣技能伤害加成']}
+        self.config_type['强化策略'] = {'type': "drop_down",
+                                        'options': ['传统', '渐进式']}
+        self.config_type['当前套装'] = {'type': "drop_down",
+                                        'options': ['通用'] + ALL_SET_NAMES}
         self.config_description = {
             '必须有双爆': '如果开启，声骸最终必须同时拥有暴击和暴击伤害。如果剩余孔位不足以凑齐双爆，则丢弃',
             '双爆出现之前必须全有效词条': '开启后，在暴击或暴击伤害词条出现之前，前面的所有词条必须都在有效词条列表中',
@@ -75,9 +83,12 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             '第一条必须为有效词条': '如果开启，第一个副词条必须在有效词条列表中且符合数值要求，否则直接丢弃',
             '有效词条': '定义哪些属性被视为有效',
             'Pause after Success': 'When a success occurs, send notification and pause task',
-            '启用评分模式': '启用"均值归一化"评分系统，替代传统规则。默认关闭以兼容旧配置',
-            '最低得分>=': '评分模式下，声骸总分 >= 此值才保留。默认 3.0 = 3个平均有效词条',
-            '词条权重': '每个词条的权重系数，默认全部为 1.0。调整可反映词条实际价值',
+            '强化策略': '传统: 满级后一次判断 | 渐进式: 每开一个词条就评估，不达标立即停',
+            '当前套装': '选择正在强化的声骸套装，决定第一条词条的预期。选"通用"则使用有效词条列表',
+            # 评分模式
+            '启用评分模式': '启用"均值归一化"评分系统。渐进式策略下自动启用',
+            '最低得分>=': '评分模式下，声骸总分 >= 此值才保留',
+            '词条权重': '每个词条的权重系数，默认全部为 1.0',
         }
 
     def find_echo_enhance(self):
@@ -162,9 +173,14 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
                 self.info_set('属性', properties)
                 self.info_set('值', values)
 
-                if not self.check_echo_stats(properties, values):
-                    self.trash_and_esc()
-                    break
+                if self.config.get('强化策略') == '渐进式':
+                    if not self.check_echo_progressive(properties, values):
+                        self.trash_and_esc()
+                        break
+                else:
+                    if not self.check_echo_stats(properties, values):
+                        self.trash_and_esc()
+                        break
 
                 if len(properties) >= 5:
                     self.lock_and_esc()
@@ -306,6 +322,95 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
                 self.fail_reason = f'得分不足_{score:.2f}'
                 self.log_info(f'总分 {score:.2f} < {self.config.get("最低得分>=")} 丢弃')
                 return False
+
+        return True
+
+    def check_echo_progressive(self, properties, values):
+        """
+        渐进式强化判断：
+          Lv5  第一条 → 必须在套装预期词条中
+          Lv10 第二条 → 不判断，继续
+          Lv15 第三条 → 加权得分 >= 1.5，否则停
+          Lv20 第四条 → 加权得分 >= 2.25，否则停
+          Lv25 第五条 → 加权得分 >= 3.75，否则丢弃
+        """
+        self.fail_reason = ""
+
+        # 1. 配对属性名和数值（与 check_echo_stats 相同逻辑）
+        paired_stats = []
+        unmatched_values = values.copy()
+        for prop in properties:
+            matched_val_text = "0"
+            if unmatched_values:
+                closest_val = min(unmatched_values, key=lambda v: abs(prop.y - v.y))
+                matched_val_text = closest_val.name
+                unmatched_values.remove(closest_val)
+            paired_stats.append((prop.name, matched_val_text))
+
+        tier = len(paired_stats)
+
+        # 2. 归一化属性名
+        normalized = []
+        for p_raw, v_str in paired_stats:
+            p = p_raw
+            if '暴击伤害' in p:
+                p = '暴击伤害'
+            elif '暴击' in p:
+                p = '暴击'
+            elif '攻击' in p:
+                p = '攻击' + ('百分比' if '%' in v_str or '％' in v_str else '')
+            elif '生命' in p:
+                p = '生命' + ('百分比' if '%' in v_str or '％' in v_str else '')
+            elif '防御' in p:
+                p = '防御' + ('百分比' if '%' in v_str or '％' in v_str else '')
+            elif '效率' in p:
+                p = '共鸣效率'
+            elif '普攻' in p:
+                p = '普攻伤害加成'
+            elif '重击' in p:
+                p = '重击伤害加成'
+            elif '解放' in p:
+                p = '共鸣解放伤害加成'
+            elif '技能' in p:
+                p = '共鸣技能伤害加成'
+            v = parse_number(v_str)
+            normalized.append((p, v))
+
+        # 3. 确定预期词条列表
+        set_name = self.config.get('当前套装', '通用')
+        expected_stats = get_expected_stats(set_name if set_name != '通用' else None)
+
+        # 4. 渐进式判断
+        # Tier 1: 第一条必须在预期词条中
+        if tier >= 1:
+            first_name, first_val = normalized[0]
+            if first_name not in expected_stats:
+                self.fail_reason = f'首条非预期_{first_name}'
+                self.log_info(f'[渐进T1] 首条 {first_name}={first_val} 不在套装预期 {expected_stats} 中, 丢弃')
+                return False
+            self.log_info(f'[渐进T1] 首条 {first_name}={first_val} ✅ 符合预期')
+
+        # Tier 2: 不做判断
+        if tier == 2:
+            self.log_info(f'[渐进T2] 第二条不做判断, 继续')
+            return True
+
+        # Tier 3-5: 按累积得分判断
+        score_thresholds = {3: 1.5, 4: 2.25, 5: 3.75}
+        if tier in score_thresholds:
+            score, details = self.compute_weighted_score(
+                [(n, str(v)) for n, v in normalized], expected_stats
+            )
+            self.info_set('声骸得分', f'{score:.2f}')
+            self.log_info(f'[渐进T{tier}] 得分: {" | ".join(details)}')
+            self.log_info(f'[渐进T{tier}] 总分: {score:.2f}')
+
+            threshold = score_thresholds[tier]
+            if score < threshold:
+                self.fail_reason = f'T{tier}得分不足_{score:.2f}<{threshold}'
+                self.log_info(f'[渐进T{tier}] {score:.2f} < {threshold}, 停止强化')
+                return False
+            self.log_info(f'[渐进T{tier}] {score:.2f} >= {threshold} ✅ 继续')
 
         return True
 
