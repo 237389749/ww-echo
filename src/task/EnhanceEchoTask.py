@@ -50,21 +50,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.fail_reason = ""
         self.supported_languages = ["zh_CN", "zh_TW"]
         self.instructions = (
-            "💡 套装词条 & 权重配置说明\n\n"
+            "套装词条&权重配置说明\n\n"
             "配置文件: assets/echo_set_templates.json\n"
-            "打开方式: 任意文本编辑器 (记事本/VSCode)\n\n"
-            "━━━ 如何修改套装词条和权重 ━━━\n\n"
-            "1. 找到你的套装名 (如 "凝夜白霜")\n"
-            "2. 修改词条和权重, 格式:\n"
+            "用记事本或VSCode打开编辑\n\n"
+            "=== 修改方法 ===\n\n"
+            '1. 找到套装名 (如 "凝夜白霜")\n'
+            "2. 修改词条和权重:\n"
             '   "暴击": 1.5,\n'
             '   "暴击伤害": 1.4,\n'
             '   "攻击百分比": 1.0\n\n'
-            "3. 保存文件 → 在UI重新选择套装即可生效\n\n"
-            "━━━ 保存/导入/导出 ━━━\n\n"
-            "保存: 编辑JSON后保存文件即可\n"
-            "导出: 复制 assets/echo_set_templates.json\n"
-            "导入: 替换 assets/echo_set_templates.json\n\n"
-            "可以新增/删除词条, 不限制数量 (最多13个合法词条)"
+            "3. 保存后在UI重新选择套装生效\n\n"
+            "=== 导入/导出 ===\n\n"
+            "使用下方按钮导入导出JSON文件\n"
+            "导出=备份副本, 导入=替换当前模板"
         )
         self.default_config.update({
             '必须有双爆': True,
