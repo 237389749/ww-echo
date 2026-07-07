@@ -23,6 +23,17 @@ from ok import Logger
 
 logger = Logger.get_logger(__name__)
 
+# 游戏中实际存在的 13 个副词条名称（白名单）
+VALID_STAT_NAMES: frozenset[str] = frozenset({
+    "暴击", "暴击伤害",
+    "攻击百分比", "攻击",
+    "生命百分比", "生命",
+    "防御百分比", "防御",
+    "共鸣效率",
+    "普攻伤害加成", "重击伤害加成",
+    "共鸣解放伤害加成", "共鸣技能伤害加成",
+})
+
 # JSON 模板文件路径
 _TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
 
@@ -44,8 +55,43 @@ def _get_template_path() -> str:
     return _TEMPLATE_PATH
 
 
+def _validate_and_filter(sets: dict) -> dict[str, dict[str, float]]:
+    """校验并过滤套装模板: 去除非白名单词条, 去重, 报告无效条目。"""
+    cleaned: dict[str, dict[str, float]] = {}
+    total_dropped = 0
+
+    for set_name, stats in sets.items():
+        if not isinstance(stats, dict):
+            logger.warning(f"[模板校验] 套装 '{set_name}' 格式错误(非字典), 跳过")
+            continue
+
+        valid_stats: dict[str, float] = {}
+        for stat_name, weight in stats.items():
+            if stat_name not in VALID_STAT_NAMES:
+                logger.warning(
+                    f"[模板校验] 套装 '{set_name}' 中的 '{stat_name}' 不是合法词条, 已过滤"
+                )
+                total_dropped += 1
+                continue
+            if stat_name in valid_stats:
+                logger.warning(
+                    f"[模板校验] 套装 '{set_name}' 中的 '{stat_name}' 重复, 保留后者"
+                )
+            valid_stats[stat_name] = float(weight)
+
+        cleaned[set_name] = valid_stats
+
+    if total_dropped:
+        logger.warning(
+            f"[模板校验] 共过滤 {total_dropped} 个无效词条"
+            f" (合法词条共 {len(VALID_STAT_NAMES)} 个: {sorted(VALID_STAT_NAMES)})"
+        )
+    logger.info(f"[模板校验] {len(cleaned)} 个套装通过校验")
+    return cleaned
+
+
 def load_templates(force: bool = False) -> dict[str, dict[str, float]]:
-    """加载套装模板, 返回 {套装名: {词条名: 权重, ...}}。"""
+    """加载套装模板, 返回 {套装名: {词条名: 权重, ...}}。自动过滤无效词条。"""
     global _template_cache, _cache_mtime
 
     path = _get_template_path()
@@ -60,7 +106,8 @@ def load_templates(force: bool = False) -> dict[str, dict[str, float]]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        _template_cache = data.get("sets", {})
+        raw_sets = data.get("sets", {})
+        _template_cache = _validate_and_filter(raw_sets)
         _cache_mtime = mtime
         logger.info(f"加载套装模板: {len(_template_cache)} 个套装 from {path}")
         return _template_cache
