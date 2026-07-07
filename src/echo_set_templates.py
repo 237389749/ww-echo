@@ -74,7 +74,7 @@ SET_EXPECTED_STATS: dict[str, list[str]] = {
 ALL_SET_NAMES = list(SET_EXPECTED_STATS.keys())
 
 # 默认有效词条列表（当套装选择"通用"时使用）
-DEFAULT_EXPECTED_STATS = ["暴击", "暴击伤害", "攻击百分比"]
+DEFAULT_EXPECTED_STATS = ["暴击", "暴击伤害", "攻击百分比", "攻击", "共鸣效率"]
 
 
 def get_expected_stats(set_name: str | None) -> list[str]:

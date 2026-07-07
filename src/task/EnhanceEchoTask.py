@@ -54,7 +54,7 @@ class EnhanceEchoTask(BaseWWTask, FindFeature):
             '首条双爆>=': 6.9,
             '有效词条>=': 3,
             '第一条必须为有效词条': True,
-            '有效词条': ['暴击', '暴击伤害', '攻击百分比'],
+            '有效词条': ['暴击', '暴击伤害', '攻击百分比', '攻击', '共鸣效率'],
             'Pause after Success': True,
             # 强化策略
             '强化策略': '渐进式',
