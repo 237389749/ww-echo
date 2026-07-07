@@ -6,8 +6,7 @@ import os
 from qfluentwidgets import FluentIcon
 
 from ok import FindFeature, Logger
-from src.scene.WWScene import WWScene
-from src.task.BaseWWTask import BaseWWTask
+from src.task.BaseEchoTask import BaseEchoTask
 
 logger = Logger.get_logger(__name__)
 
@@ -15,7 +14,7 @@ number_pattern = re.compile(r"^[\d.%]+$")
 property_pattern = re.compile(r"^\D*$")
 
 
-class ChangeEchoTask(BaseWWTask, FindFeature):
+class ChangeEchoTask(BaseEchoTask, FindFeature):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

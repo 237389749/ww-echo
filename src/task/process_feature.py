@@ -1,4 +1,4 @@
-from src.task.BaseWWTask import convert_bw, binarize_for_matching, convert_dialog_icon
+from src.task.image_utils import convert_bw, binarize_for_matching, convert_dialog_icon
 
 
 def process_feature(feature_name, feature):

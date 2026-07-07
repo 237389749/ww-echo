@@ -10,8 +10,7 @@ from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
 from src.echo_stats import snap_to_tier, get_mean
 from src.echo_set_templates import get_expected_stats, get_all_set_names, get_set_weights
-from src.scene.WWScene import WWScene
-from src.task.BaseWWTask import BaseWWTask
+from src.task.BaseEchoTask import BaseEchoTask
 
 # OCR 归一化名 -> echo_stats 档位表名
 _OCR_TO_TIER_NAME: dict[str, str] = {
@@ -36,7 +35,7 @@ number_pattern = re.compile(r"^[\d.%％ ]+$")
 property_pattern = re.compile(r"[\u4e00-\u9fff]{2,}")
 
 
-class EnhanceEchoTask(BaseWWTask, FindFeature):
+class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

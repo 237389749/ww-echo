@@ -143,7 +143,7 @@ python main_debug.py  # Debug (shows detection overlays)
 
 ## TODO
 
-- [ ] 清理 BaseWWTask 中无需的战斗/刷图代码 / *Clean up unused combat/farming code in BaseWWTask*
+- [x] 清理 BaseWWTask 中无需的战斗/刷图代码 / *Clean up unused combat/farming code in BaseWWTask*
 - [ ] 套装模板热加载 / *Hot-load set templates from external file*
 
 ---
@@ -163,7 +163,9 @@ ww-echo/
 │   └── task/
 │       ├── EnhanceEchoTask.py      # ⭐ 批量强化声骸 / Echo enhancement
 │       ├── ChangeEchoTask.py       # 批量修改主属性 / Main stat change
-│       ├── BaseWWTask.py           # 任务基类 / Base task
+│       ├── BaseEchoTask.py         # 任务基类 (50行) / Base task
+│       ├── image_utils.py          # 图像预处理 / Image utils
+│       ├── process_feature.py      # 模板特征处理器
 │       ├── WWOneTimeTask.py        # 一次性任务 mixin
 │       └── MouseResetTask.py       # 鼠标防偏移 / Mouse drift fix
 └── assets/                         # 模板匹配资源 / Template assets
