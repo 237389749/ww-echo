@@ -46,6 +46,23 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.group_icon = FluentIcon.ADD
         self.fail_reason = ""
         self.supported_languages = ["zh_CN", "zh_TW"]
+        self.instructions = (
+            "💡 套装词条 & 权重配置说明\n\n"
+            "配置文件: assets/echo_set_templates.json\n"
+            "打开方式: 任意文本编辑器 (记事本/VSCode)\n\n"
+            "━━━ 如何修改套装词条和权重 ━━━\n\n"
+            "1. 找到你的套装名 (如 "凝夜白霜")\n"
+            "2. 修改词条和权重, 格式:\n"
+            '   "暴击": 1.5,\n'
+            '   "暴击伤害": 1.4,\n'
+            '   "攻击百分比": 1.0\n\n'
+            "3. 保存文件 → 在UI重新选择套装即可生效\n\n"
+            "━━━ 保存/导入/导出 ━━━\n\n"
+            "保存: 编辑JSON后保存文件即可\n"
+            "导出: 复制 assets/echo_set_templates.json\n"
+            "导入: 替换 assets/echo_set_templates.json\n\n"
+            "可以新增/删除词条, 不限制数量 (最多13个合法词条)"
+        )
         self.default_config.update({
             '必须有双爆': True,
             '双爆出现之前必须全有效词条': True,
@@ -82,7 +99,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '有效词条': '定义哪些属性被视为有效',
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
             '强化策略': '传统: 满级后一次性判断\n渐进式: Lv5首条须在预期中→Lv10跳过→Lv15得分≥1.5→Lv20≥2.25→Lv25≥3.75, 不及格即停',
-            '当前套装': '选择声骸套装决定T1预期词条\n"通用"使用有效词条列表',
+            '当前套装': '套装词条&权重在assets/echo_set_templates.json\n选套装→用JSON配置, 选通用→用有效词条(权重1.0)',
             # 评分模式
             '启用评分模式': '均值归一化: 单词条=档位值/均值\n暴击最低6.3%→6.3/8.4=0.75词条, 最高10.5%→10.5/8.4=1.25词条\n无效词条(不在有效列表)=0分不计入\n5词条总分3.75~6.25\n传统满级后检查, 渐进式自动启用',
             '最低得分>=': '传统模式满级5词条后总分>=此值保留\n渐进式用内置阈值(T3=1.5/T4=2.25/T5=3.75)不受影响',
