@@ -3,6 +3,7 @@ import re
 import time
 import os
 
+import cv2
 from qfluentwidgets import FluentIcon
 
 from ok import FindFeature, Logger
@@ -100,19 +101,21 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
         }
 
-    def evaluate_only(self):
+    def evaluate_only(self, on_done=None):
         """
-        评估模式: 遍历背包声骸, 仅读取词条打分。
-        按等级区间设不同阈值 (评估逻辑, 非强化逻辑):
-          0词条(Lv1-4)  → 跳过
-          1词条(Lv5-9)  → ≥0.75
-          2-3词条(Lv10-19) → ≥1.5
-          4词条(Lv20-24) → ≥2.25
-          5词条(Lv25)   → ≥3.75
+        评估模式: 遍历背包声骸, 截图+评分+判定, 输出JSON。
+        阈值: 0词条跳过 | 1条>=1.0 | 2-3条>=2.0 | 4条>=2.5 | 5条>=3.0
+        完成后调用 on_done(json_path, screenshot_dir)。
         """
-        self.info_set('评估数量', 0)
+        import json as _json, tempfile
+
         EVAL_THRESHOLDS = {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}
+        results: list[dict] = []
         evaluated = 0
+        tmp_dir = tempfile.mkdtemp(prefix="okecho_eval_")
+        ss_dir = os.path.join(tmp_dir, "screenshots")
+        os.makedirs(ss_dir, exist_ok=True)
+
         while True:
             enhance = self.find_echo_enhance()
             if not enhance:
@@ -137,7 +140,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
             if not properties:
                 self.log_info('无可评估声骸, 任务结束', notify=True)
-                return
+                break
 
             # 配对 & 归一化
             paired = []
@@ -153,69 +156,86 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             normalized = []
             for p_raw, v_str in paired:
                 p = p_raw
-                if '暴击伤害' in p:
-                    p = '暴击伤害'
-                elif '暴击' in p:
-                    p = '暴击'
-                elif '攻击' in p:
-                    p = '攻击' + ('百分比' if '%' in v_str or '％' in v_str else '')
-                elif '生命' in p:
-                    p = '生命' + ('百分比' if '%' in v_str or '％' in v_str else '')
-                elif '防御' in p:
-                    p = '防御' + ('百分比' if '%' in v_str or '％' in v_str else '')
-                elif '效率' in p:
-                    p = '共鸣效率'
-                elif '普攻' in p:
-                    p = '普攻伤害加成'
-                elif '重击' in p:
-                    p = '重击伤害加成'
-                elif '解放' in p:
-                    p = '共鸣解放伤害加成'
-                elif '技能' in p:
-                    p = '共鸣技能伤害加成'
+                if '暴击伤害' in p: p = '暴击伤害'
+                elif '暴击' in p: p = '暴击'
+                elif '攻击' in p: p = '攻击' + ('百分比' if '%' in v_str or '％' in v_str else '')
+                elif '生命' in p: p = '生命' + ('百分比' if '%' in v_str or '％' in v_str else '')
+                elif '防御' in p: p = '防御' + ('百分比' if '%' in v_str or '％' in v_str else '')
+                elif '效率' in p: p = '共鸣效率'
+                elif '普攻' in p: p = '普攻伤害加成'
+                elif '重击' in p: p = '重击伤害加成'
+                elif '解放' in p: p = '共鸣解放伤害加成'
+                elif '技能' in p: p = '共鸣技能伤害加成'
                 v = parse_number(v_str)
                 normalized.append((p, v))
 
             tier = len(normalized)
-
-            # 0词条跳过
             if tier == 0:
-                self.log_info(f"[评估#{evaluated + 1}] 0词条 → 跳过", notify=False)
+                self.log_info(f"[评估#{evaluated + 1}] 0词条 -> 跳过")
                 self.esc()
                 self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
                 continue
 
-            # 计算得分
             set_name = self.config.get('当前套装', '通用')
             valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
             score, details = self.compute_weighted_score(
                 [(n, str(v)) for n, v in normalized], valid_stats
             )
-            self.info_set('声骸得分', f'{score:.2f}')
 
             threshold = EVAL_THRESHOLDS.get(tier, 99)
             passed = score >= threshold
 
             if passed and tier < 5:
-                remaining = 5 - tier
-                projected = score + remaining * 0.75
-                verdict = f"⏳ 待强化(需≥{threshold}, 满级最低{projected:.1f})"
+                verdict = "pending"
+                verdict_cn = "待强化"
             elif passed:
-                verdict = f"✅ 达标(≥{threshold})"
+                verdict = "pass"
+                verdict_cn = "达标"
             else:
-                verdict = f"❌ 不达标(需≥{threshold})"
+                verdict = "fail"
+                verdict_cn = "不达标"
 
-            self.log_info(
-                f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict}",
-                notify=False
-            )
+            # 截图
+            ss_name = f"eval_{evaluated + 1:03d}_{verdict}_{score:.1f}.png"
+            ss_path = os.path.join(ss_dir, ss_name)
+            echo_img = self.box_of_screen(0.09, 0.09, 0.37, 0.55).crop_frame(self.frame)
+            cv2.imwrite(ss_path, echo_img)
 
+            entry = {
+                "index": evaluated + 1,
+                "tier": tier,
+                "score": round(score, 2),
+                "threshold": threshold,
+                "verdict": verdict,
+                "verdict_cn": verdict_cn,
+                "screenshot": ss_name,
+                "stats": [{"name": n, "value": v, "detail": d}
+                          for (n, v), d in zip(normalized, details)]
+            }
+            results.append(entry)
+
+            self.log_info(f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
             evaluated += 1
             self.info_set('评估数量', evaluated)
             self.esc()
             self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
 
+        # 汇总 JSON
+        set_name = self.config.get('当前套装', '通用')
+        output = {
+            "set": set_name,
+            "total": evaluated,
+            "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "results": results,
+        }
+        json_path = os.path.join(tmp_dir, "eval_result.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            _json.dump(output, f, ensure_ascii=False, indent=2)
+
         self.log_info(f'评估完成, 共{evaluated}个声骸', notify=True)
+
+        if on_done:
+            self.handler.post(lambda: on_done(json_path, ss_dir))
 
     def find_echo_enhance(self):
         return self.ocr(0.82, 0.86, 0.97, 0.96, match='培养')

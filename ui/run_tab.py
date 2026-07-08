@@ -300,16 +300,40 @@ class RunTab(QWidget):
             self._append_log("══════════ 开始评估 ══════════")
             self._append_log(f"套装: {task.config.get('当前套装')}  仅打分, 不修改声骸")
 
+            def _on_eval_done(json_path, ss_dir):
+                import shutil, subprocess
+                from PySide6.QtWidgets import QFileDialog, QMessageBox
+                save_path, _ = QFileDialog.getSaveFileName(
+                    None, "保存评估结果", "eval_result.json",
+                    "JSON (*.json)"
+                )
+                if save_path:
+                    try:
+                        shutil.copy(json_path, save_path)
+                        # 截图也复制到旁边
+                        dest_dir = os.path.dirname(save_path)
+                        ss_dest = os.path.join(dest_dir, "eval_screenshots")
+                        if os.path.exists(ss_dir):
+                            if os.path.exists(ss_dest):
+                                shutil.rmtree(ss_dest)
+                            shutil.copytree(ss_dir, ss_dest)
+                        if QMessageBox.question(None, "完成", f"已保存到:\n{save_path}\n\n打开文件夹?") == QMessageBox.Yes:
+                            subprocess.Popen(f'explorer /select,"{save_path}"')
+                    except Exception as e:
+                        self._append_log(f"[ERROR] 保存失败: {e}")
+                self._running = False
+                self.start_btn.setEnabled(True)
+                self.stop_btn.setEnabled(False)
+                self._append_log("══════════ 评估结束 ══════════")
+
             def _run_eval():
                 try:
-                    task.evaluate_only()
+                    task.evaluate_only(on_done=_on_eval_done)
                 except Exception as e:
                     self._append_log(f"[ERROR] {e}")
-                finally:
                     self._running = False
                     self.start_btn.setEnabled(True)
                     self.stop_btn.setEnabled(False)
-                    self._append_log("══════════ 评估结束 ══════════")
 
             self._thread = threading.Thread(target=_run_eval, daemon=True)
             self._thread.start()
