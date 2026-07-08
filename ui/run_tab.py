@@ -1,17 +1,15 @@
 """
-运行面板 — 策略/套装选择, 启停控制, 实时日志。
+运行面板 — 策略/套装选择, 启停控制, 实时状态, 日志。
 """
 import json
 import os
-import logging
 import threading
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
                                QPushButton, QTextEdit, QLabel, QFrame)
 
 from ok import og
-
-logger = logging.getLogger(__name__)
 
 
 class RunTab(QWidget):
@@ -21,10 +19,15 @@ class RunTab(QWidget):
         self._task = None
         self._running = False
         self._thread = None
+
         self._setup_ui()
 
-        # 日志桥接
         log_bridge.log_signal.connect(self._append_log)
+
+        # 定时刷新任务状态
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self._refresh_status)
+        self._status_timer.start(500)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -33,13 +36,12 @@ class RunTab(QWidget):
 
         # ── 控制行 ──
         ctrl = QHBoxLayout()
-
         ctrl.addWidget(QLabel("策略:"))
         self.strategy_combo = QComboBox()
         self.strategy_combo.addItems(["渐进式", "传统"])
         ctrl.addWidget(self.strategy_combo)
 
-        ctrl.addSpacing(16)
+        ctrl.addSpacing(12)
         ctrl.addWidget(QLabel("套装:"))
         self.set_combo = QComboBox()
         self.set_combo.setMinimumWidth(140)
@@ -61,7 +63,19 @@ class RunTab(QWidget):
 
         layout.addLayout(ctrl)
 
-        # ── 分隔 ──
+        # ── 状态栏 ──
+        status = QHBoxLayout()
+        self.success_label = QLabel("成功: 0")
+        self.fail_label = QLabel("失败: 0")
+        self.score_label = QLabel("得分: -")
+        self.tier_label = QLabel("进度: -")
+        for lbl in [self.success_label, self.fail_label, self.score_label, self.tier_label]:
+            lbl.setStyleSheet("font-weight: bold; font-size: 13px; padding: 2px 8px;")
+            status.addWidget(lbl)
+        status.addStretch()
+        layout.addLayout(status)
+
+        # 分隔
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -88,25 +102,36 @@ class RunTab(QWidget):
         self.set_combo.clear()
         self.set_combo.addItem("通用")
         self.set_combo.addItems(names)
-        if current and current in names:
+        if current in names:
             self.set_combo.setCurrentText(current)
 
     def _append_log(self, text):
         self.log_area.append(text)
-        # 自动滚到底部
         scrollbar = self.log_area.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
-    # ── 任务控制 ──
+    # ── 状态刷新 ──
+    def _refresh_status(self):
+        task = self._get_task()
+        if task is None:
+            return
+        try:
+            self.success_label.setText(f"成功: {task.info_get('成功声骸数量') or 0}")
+            self.fail_label.setText(f"失败: {task.info_get('失败声骸数量') or 0}")
+            score = task.info_get('声骸得分')
+            self.score_label.setText(f"得分: {score}" if score else "得分: -")
+        except Exception:
+            pass
+
+    # ── 启停 ──
     def _start(self):
         task = self._get_task()
         if task is None:
-            self._append_log("[ERROR] 任务未就绪, 请稍后重试")
+            self._append_log("[ERROR] 任务未就绪")
             return
         if self._running:
             return
 
-        # 同步 UI 配置到任务
         task.config['强化策略'] = self.strategy_combo.currentText()
         task.config['当前套装'] = self.set_combo.currentText()
 
@@ -115,10 +140,8 @@ class RunTab(QWidget):
         self.stop_btn.setEnabled(True)
 
         self._append_log("══════════ 开始强化 ══════════")
-        self._append_log(f"策略: {task.config.get('强化策略')}")
-        self._append_log(f"套装: {task.config.get('当前套装')}")
+        self._append_log(f"策略: {task.config.get('强化策略')}  套装: {task.config.get('当前套装')}")
 
-        # 在后台线程跑任务
         self._thread = threading.Thread(target=self._run_task, args=(task,), daemon=True)
         self._thread.start()
 
@@ -134,7 +157,6 @@ class RunTab(QWidget):
 
     def _run_task(self, task):
         try:
-            # 使用 ok-script 的 StartController 启动完整流程
             og.app.start_controller.start(task)
         except Exception as e:
             self._append_log(f"[ERROR] {e}")
@@ -142,15 +164,14 @@ class RunTab(QWidget):
             self._running = False
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
+            self._append_log("══════════ 任务结束 ══════════")
 
     def _get_task(self):
-        """获取 EnhanceEchoTask 实例。"""
         if self._task is not None:
             return self._task
         try:
             from src.task.EnhanceEchoTask import EnhanceEchoTask
             self._task = og.executor.get_task_by_class(EnhanceEchoTask)
             return self._task
-        except Exception as e:
-            logger.warning(f"获取任务失败: {e}")
+        except Exception:
             return None

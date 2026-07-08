@@ -48,8 +48,10 @@ def main():
     window = MainWindow(ok_engine, log_bridge)
     window.show()
 
-    # 5. 启动 ok-script (显示原窗口 + 启动截图)
+    # 5. 启动 ok-script 并隐藏它的主窗口
     ok_engine.start()
+    if hasattr(og.app, 'main_window') and og.app.main_window:
+        og.app.main_window.hide()
 
     sys.exit(app.exec())
 
