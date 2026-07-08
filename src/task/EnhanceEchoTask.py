@@ -102,17 +102,22 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def evaluate_only(self):
         """
-        评估模式: 遍历背包声骸, 仅读取词条打分, 不强化/不修改/不上锁/不丢弃。
-        使用均值归一化 + 渐进式逻辑。
+        评估模式: 遍历背包声骸, 仅读取词条打分。
+        按等级区间设不同阈值 (评估逻辑, 非强化逻辑):
+          0词条(Lv1-4)  → 跳过
+          1词条(Lv5-9)  → ≥0.75
+          2-3词条(Lv10-19) → ≥1.5
+          4词条(Lv20-24) → ≥2.25
+          5词条(Lv25)   → ≥3.75
         """
         self.info_set('评估数量', 0)
+        EVAL_THRESHOLDS = {1: 0.75, 2: 1.5, 3: 1.5, 4: 2.25, 5: 3.75}
         evaluated = 0
         while True:
             enhance = self.find_echo_enhance()
             if not enhance:
                 raise Exception('必须在背包声骸界面过滤后开始!')
 
-            # 点击培养进入
             start = time.time()
             while time.time() - start < 5:
                 if enhance:
@@ -121,7 +126,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if not enhance:
                     break
 
-            # 读取当前词条
             self.sleep(0.3)
             texts = self.ocr(0.09, 0.3, 0.40, 0.53)
             properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
@@ -135,21 +139,74 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_info('无可评估声骸, 任务结束', notify=True)
                 return
 
-            # 用渐进式逻辑评分
-            result = self.check_echo_progressive(properties, values)
-            score = self.info_get('声骸得分') or '-'
-            tier = len(properties)
-            if result and tier < 5:
+            # 配对 & 归一化
+            paired = []
+            unmatched = values.copy()
+            for prop in properties:
+                v_text = "0"
+                if unmatched:
+                    closest = min(unmatched, key=lambda v2: abs(prop.y - v2.y))
+                    v_text = closest.name
+                    unmatched.remove(closest)
+                paired.append((prop.name, v_text))
+
+            normalized = []
+            for p_raw, v_str in paired:
+                p = p_raw
+                if '暴击伤害' in p:
+                    p = '暴击伤害'
+                elif '暴击' in p:
+                    p = '暴击'
+                elif '攻击' in p:
+                    p = '攻击' + ('百分比' if '%' in v_str or '％' in v_str else '')
+                elif '生命' in p:
+                    p = '生命' + ('百分比' if '%' in v_str or '％' in v_str else '')
+                elif '防御' in p:
+                    p = '防御' + ('百分比' if '%' in v_str or '％' in v_str else '')
+                elif '效率' in p:
+                    p = '共鸣效率'
+                elif '普攻' in p:
+                    p = '普攻伤害加成'
+                elif '重击' in p:
+                    p = '重击伤害加成'
+                elif '解放' in p:
+                    p = '共鸣解放伤害加成'
+                elif '技能' in p:
+                    p = '共鸣技能伤害加成'
+                v = parse_number(v_str)
+                normalized.append((p, v))
+
+            tier = len(normalized)
+
+            # 0词条跳过
+            if tier == 0:
+                self.log_info(f"[评估#{evaluated + 1}] 0词条 → 跳过", notify=False)
+                self.esc()
+                self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
+                continue
+
+            # 计算得分
+            set_name = self.config.get('当前套装', '通用')
+            valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
+            score, details = self.compute_weighted_score(
+                [(n, str(v)) for n, v in normalized], valid_stats
+            )
+            self.info_set('声骸得分', f'{score:.2f}')
+
+            threshold = EVAL_THRESHOLDS.get(tier, 99)
+            passed = score >= threshold
+
+            if passed and tier < 5:
                 remaining = 5 - tier
-                # 剩余词条全按最低0.75预估
-                projected_min = float(score) + remaining * 0.75
-                verdict = f"⏳ 待强化(满级最低{projected_min:.1f})"
-            elif result:
-                verdict = "✅ 达标"
+                projected = score + remaining * 0.75
+                verdict = f"⏳ 待强化(需≥{threshold}, 满级最低{projected:.1f})"
+            elif passed:
+                verdict = f"✅ 达标(≥{threshold})"
             else:
-                verdict = "❌ 不达标"
+                verdict = f"❌ 不达标(需≥{threshold})"
+
             self.log_info(
-                f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score} | {verdict}",
+                f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict}",
                 notify=False
             )
 
