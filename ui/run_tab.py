@@ -169,6 +169,12 @@ class RunTab(QWidget):
         # ── 第3行: 启停按钮 ──
         row3 = QHBoxLayout()
 
+        self.eval_btn = QPushButton("📊 评估")
+        self.eval_btn.setMinimumWidth(80)
+        self.eval_btn.setToolTip("遍历背包声骸, 仅读取词条打分, 不强化不修改")
+        self.eval_btn.clicked.connect(self._evaluate)
+        row3.addWidget(self.eval_btn)
+
         self.start_btn = QPushButton("▶ 开始")
         self.start_btn.setMinimumWidth(100)
         self.start_btn.setStyleSheet("QPushButton { font-weight: bold; font-size: 14px; }")
@@ -313,6 +319,40 @@ class RunTab(QWidget):
         self._append_log(f"任务: {self.task_combo.currentText()}  策略: {task.config['强化策略']}  套装: {task.config['当前套装']}")
 
         self._thread = threading.Thread(target=self._run_task, args=(task,), daemon=True)
+        self._thread.start()
+
+    def _evaluate(self):
+        self._save_settings()
+        task = self._get_task()
+        if task is None:
+            self._append_log("[ERROR] 任务未就绪")
+            return
+        if self._running:
+            return
+
+        task.config['强化策略'] = self.strategy_combo.currentText()
+        task.config['当前套装'] = self.set_combo.currentText()
+
+        self._running = True
+        self.start_btn.setEnabled(False)
+        self.eval_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self._append_log("══════════ 开始评估 ══════════")
+        self._append_log(f"套装: {task.config.get('当前套装')}  仅读取打分, 不修改声骸")
+
+        def _run():
+            try:
+                task.evaluate_only()
+            except Exception as e:
+                self._append_log(f"[ERROR] {e}")
+            finally:
+                self._running = False
+                self.start_btn.setEnabled(True)
+                self.eval_btn.setEnabled(True)
+                self.stop_btn.setEnabled(False)
+                self._append_log("══════════ 评估结束 ══════════")
+
+        self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
 
     def _stop(self):

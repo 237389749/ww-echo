@@ -100,6 +100,58 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '最低得分>=': '传统模式满级5词条后总分>=此值保留\n渐进式用内置阈值(T3=1.5/T4=2.25/T5=3.75)不受影响',
         }
 
+    def evaluate_only(self):
+        """
+        评估模式: 遍历背包声骸, 仅读取词条打分, 不强化/不修改/不上锁/不丢弃。
+        使用均值归一化 + 渐进式逻辑。
+        """
+        self.info_set('评估数量', 0)
+        evaluated = 0
+        while True:
+            enhance = self.find_echo_enhance()
+            if not enhance:
+                raise Exception('必须在背包声骸界面过滤后开始!')
+
+            # 点击培养进入
+            start = time.time()
+            while time.time() - start < 5:
+                if enhance:
+                    self.click(enhance, after_sleep=0.5)
+                enhance = self.find_echo_enhance()
+                if not enhance:
+                    break
+
+            # 读取当前词条
+            self.sleep(0.3)
+            texts = self.ocr(0.09, 0.3, 0.40, 0.53)
+            properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
+            for p in properties:
+                match = property_pattern.search(p.name)
+                if match:
+                    p.name = match.group()
+            values = self.find_boxes(texts, match=number_pattern)
+
+            if not properties:
+                self.log_info('无可评估声骸, 任务结束', notify=True)
+                return
+
+            # 用渐进式逻辑评分
+            result = self.check_echo_progressive(properties, values)
+            score = self.info_get('声骸得分') or '-'
+            tier = len(properties)
+            verdict = "✅ 达标" if result else "❌ 不达标"
+            self.log_info(
+                f"[评估#{evaluated + 1}] {tier}/5词条 得分={score} {verdict}",
+                notify=False
+            )
+
+            evaluated += 1
+            self.info_set('评估数量', evaluated)
+            self.esc()
+            self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
+
+        self.log_info(f'评估完成, 共{evaluated}个声骸', notify=True)
+
     def find_echo_enhance(self):
         return self.ocr(0.82, 0.86, 0.97, 0.96, match='培养')
 
