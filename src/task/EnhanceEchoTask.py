@@ -139,9 +139,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             result = self.check_echo_progressive(properties, values)
             score = self.info_get('声骸得分') or '-'
             tier = len(properties)
-            verdict = "✅ 达标" if result else "❌ 不达标"
+            if result and tier < 5:
+                remaining = 5 - tier
+                # 剩余词条全按最低0.75预估
+                projected_min = float(score) + remaining * 0.75
+                verdict = f"⏳ 待强化(满级最低{projected_min:.1f})"
+            elif result:
+                verdict = "✅ 达标"
+            else:
+                verdict = "❌ 不达标"
             self.log_info(
-                f"[评估#{evaluated + 1}] {tier}/5词条 得分={score} {verdict}",
+                f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score} | {verdict}",
                 notify=False
             )
 
