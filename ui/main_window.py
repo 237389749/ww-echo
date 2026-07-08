@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QMainWindow, QTabWidget
 from ui.run_tab import RunTab
 from ui.set_config_tab import SetConfigTab
 from ui.settings_tab import SettingsTab
+from ui.hotkey_tab import HotkeyTab
 
 
 class MainWindow(QMainWindow):
@@ -19,6 +20,9 @@ class MainWindow(QMainWindow):
 
         self.settings_tab = SettingsTab()
         self.tabs.addTab(self.settings_tab, "设备设置")
+
+        self.hotkey_tab = HotkeyTab()
+        self.tabs.addTab(self.hotkey_tab, "热键设置")
 
         self.run_tab = RunTab(ok_engine, log_bridge)
         self.tabs.addTab(self.run_tab, "强化运行")
