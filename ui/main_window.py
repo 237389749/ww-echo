@@ -9,6 +9,7 @@ from ui.settings_tab import SettingsTab
 from ui.hotkey_tab import HotkeyTab
 from ui.debug_tab import DebugTab
 from ui.about_tab import AboutTab
+from ui.dev_tab import DevTab
 
 
 class MainWindow(QMainWindow):
@@ -35,6 +36,9 @@ class MainWindow(QMainWindow):
 
         self.debug_tab = DebugTab()
         self.tabs.addTab(self.debug_tab, "调试工具")
+
+        self.dev_tab = DevTab()
+        self.tabs.addTab(self.dev_tab, "开发者")
 
         self.about_tab = AboutTab()
         self.tabs.addTab(self.about_tab, "关于")
