@@ -73,6 +73,11 @@ class RunTab(QWidget):
         self.opt_first_must_valid.setChecked(True)
         trad.addWidget(self.opt_first_must_valid)
         trad.addSpacing(8)
+        self.opt_score_enable.setParent(self.traditional_opts)
+        trad.addWidget(self.opt_score_enable)
+        trad.addWidget(QLabel("最低得分≥"))
+        self.opt_score_min.setParent(self.traditional_opts)
+        trad.addWidget(self.opt_score_min)
         trad.addWidget(QLabel("首条双爆≥"))
         self.opt_first_crit = QComboBox()
         self.opt_first_crit.setMinimumWidth(60)
@@ -133,19 +138,13 @@ class RunTab(QWidget):
         row_gen.addStretch()
         layout.addLayout(row_gen)
 
-        # 传统模式额外选项: 评分
-        trad2 = QHBoxLayout()
+        # 传统模式额外选项: 评分 (只对传统有效)
         self.opt_score_enable = QCheckBox("启用评分模式")
-        trad2.addWidget(self.opt_score_enable)
-        trad2.addWidget(QLabel("最低得分≥"))
         self.opt_score_min = QComboBox()
         self.opt_score_min.setMinimumWidth(60)
-        for v in [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]:
+        for v in [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]:
             self.opt_score_min.addItem(str(v))
         self.opt_score_min.setCurrentText("3.0")
-        trad2.addWidget(self.opt_score_min)
-        trad2.addStretch()
-        layout.addLayout(trad2)
 
         # 修改主属性: 目标属性和策略行 (默认隐藏)
         self.change_opts = QWidget()
