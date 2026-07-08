@@ -14,7 +14,7 @@ from ok import og
 
 
 class RunTab(QWidget):
-    def __init__(self, ok_engine, log_bridge, log_area: QTextEdit, parent=None):
+    def __init__(self, ok_engine, log_bridge, log_area, parent=None):
         super().__init__(parent)
         self.ok_engine = ok_engine
         self.log_area = log_area
