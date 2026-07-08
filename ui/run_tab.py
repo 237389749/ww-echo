@@ -98,17 +98,31 @@ class RunTab(QWidget):
         self.strategy_combo.currentTextChanged.connect(
             lambda s: self.traditional_opts.setVisible(s == "传统"))
         self.strategy_combo.currentTextChanged.connect(
-            lambda s: self._update_info(s))
+            lambda s: self._update_strategy_info(s))
 
-        # 策略/评分说明
-        self.info_label = QLabel()
-        self.info_label.setWordWrap(True)
-        self.info_label.setStyleSheet(
-            "QLabel { color: #666; font-size: 11px; padding: 4px 8px; "
-            "background: rgba(128,128,128,0.08); border-radius: 4px; }"
+        # 策略说明
+        self.strategy_info = QLabel()
+        self.strategy_info.setWordWrap(True)
+        self.strategy_info.setStyleSheet(
+            "QLabel { color: #555; font-size: 11px; padding: 4px 8px; "
+            "background: rgba(128,128,128,0.06); border-radius: 4px; }"
         )
-        layout.addWidget(self.info_label)
-        self._update_info(self.strategy_combo.currentText())
+        layout.addWidget(self.strategy_info)
+
+        # 评分说明 (始终可见)
+        self.score_info = QLabel(
+            "评分: 均值归一化 — 单词条=档位值÷该词条均值×权重\n"
+            "暴击均值8.4%, 最低6.3%→0.75词条, 最高10.5%→1.25词条\n"
+            "无效词条(不在套装预期/有效列表)=0分不计入. 5词条总分3.75~6.25"
+        )
+        self.score_info.setWordWrap(True)
+        self.score_info.setStyleSheet(
+            "QLabel { color: #555; font-size: 11px; padding: 4px 8px; "
+            "background: rgba(128,128,128,0.06); border-radius: 4px; }"
+        )
+        layout.addWidget(self.score_info)
+
+        self._update_strategy_info(self.strategy_combo.currentText())
 
         # 通用选项
         row_gen = QHBoxLayout()
@@ -192,16 +206,23 @@ class RunTab(QWidget):
         )
         layout.addWidget(self.log_area, 1)
 
-    def _update_info(self, strategy):
+    def _update_strategy_info(self, strategy):
         if strategy == "渐进式":
-            self.info_label.setText(
-                "渐进式: Lv5首条须在套装预期中 → Lv10跳过 → Lv15得分≥1.5 → Lv20≥2.25 → Lv25≥3.75\n"
-                "评分=档位值÷均值×权重, 单条0.75~1.25词条, 5条3.75~6.25。无效词条=0分不计。"
+            self.strategy_info.setText(
+                "渐进式: 每级单独评估, 不达标即停丢\n"
+                "Lv5 首条 → 必须在套装预期词条中\n"
+                "Lv10    → 不做判断, 继续\n"
+                "Lv15    → 累积得分 ≥ 1.5\n"
+                "Lv20    → 累积得分 ≥ 2.25\n"
+                "Lv25    → 累积得分 ≥ 3.75, 达标上锁\n"
+                "未满级声骸: 已有词条先做渐进判断, 通过则继续强化"
             )
         else:
-            self.info_label.setText(
-                "传统: 满级后一次性判断(双爆+首条+总计+有效词条数量)\n"
-                "启用评分后: 均值归一化, 单条0.75~1.25, 总分低于设定值丢弃。"
+            self.strategy_info.setText(
+                "传统: 拉满到Lv25后一次性判断\n"
+                "判断条件: 必须有双爆 / 首条双爆≥阈值 / 双爆总计≥阈值\n"
+                "有效词条≥设定数量 / 第一条必须有效\n"
+                "未满级声骸: 继续强化至满级再判断"
             )
 
     def _on_task_changed(self, task_name):

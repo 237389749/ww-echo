@@ -103,8 +103,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
     def find_echo_enhance(self):
         return self.ocr(0.82, 0.86, 0.97, 0.96, match='培养')
 
-    def is_0_level(self):
-        return self.ocr(0.65, 0.35, 1, 0.57, match=re.compile('声骸技能'))
+    def is_max_level(self):
+        """已满级? 满级声骸没有'声骸技能'也没有'培养'按钮的强化界面。"""
+        return not self.ocr(0.65, 0.35, 1, 0.57, match=re.compile('声骸技能'))
 
     def run(self):
         self.info_set('成功声骸数量', 0)
@@ -114,19 +115,31 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             enhance = self.find_echo_enhance()
             if not enhance:
                 raise Exception('必须在背包声骸界面过滤后开始!')
-            current_level = self.is_0_level()
-            if not current_level:
-                total = self.info_get('成功声骸数量') + self.info_get('失败声骸数量')
-                if self.debug:
-                    self.screenshot('无可强化声骸')
-                self.log_info(f'无可强化声骸, 任务结束! 强化{total}个, 符合条件{self.info_get("成功声骸数量")}个',
-                              notify=True)
-                if self.info_get('成功声骸数量') >= 1:
-                    try:
-                        os.startfile(os.path.abspath("screenshots"))
-                    except Exception as e:
-                        self.log_error(f"无法打开截图文件夹: {e}")
-                return
+            # 检查是否为0级声骸 vs 未满级声骸 vs 满级声骸
+            current_is_0 = self.ocr(0.65, 0.35, 1, 0.57, match=re.compile('声骸技能'))
+            if not current_is_0:
+                # 非0级: 可能是未满级或满级
+                # OCR读取当前词条数判断是否满级
+                texts = self.ocr(0.09, 0.3, 0.40, 0.53)
+                properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
+                if len(properties) >= 5:
+                    # 已满级 → 跳过这个, 找下一个
+                    self.log_info('已是满级声骸, 跳过')
+                    self.esc()
+                    self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
+                    continue
+                elif len(properties) > 0:
+                    self.log_info(f'未满级声骸(已有{len(properties)}词条), 继续强化')
+                else:
+                    total = self.info_get('成功声骸数量') + self.info_get('失败声骸数量')
+                    self.log_info(f'无可强化声骸, 任务结束! 强化{total}个, 符合条件{self.info_get("成功声骸数量")}个',
+                                  notify=True)
+                    if self.info_get('成功声骸数量') >= 1:
+                        try:
+                            os.startfile(os.path.abspath("screenshots"))
+                        except Exception as e:
+                            self.log_error(f"无法打开截图文件夹: {e}")
+                    return
             start = time.time()
             while time.time() - start < 5:
                 if enhance:
@@ -134,6 +147,22 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 enhance = self.find_echo_enhance()
                 if not enhance:
                     break
+
+            # 未满级声骸先读当前词条做渐进判断, 避免浪费材料
+            is_partial = not bool(self.ocr(0.65, 0.35, 1, 0.57, match=re.compile('声骸技能')))
+            if is_partial and self.config.get('强化策略') == '渐进式':
+                texts = self.ocr(0.09, 0.3, 0.40, 0.53)
+                properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
+                for p in properties:
+                    match = property_pattern.search(p.name)
+                    if match:
+                        p.name = match.group()
+                values = self.find_boxes(texts, match=number_pattern)
+                self.log_info(f'未满级前置检查: {properties}')
+                if not self.check_echo_progressive(properties, values):
+                    self.trash_and_esc()
+                    break
+                self.log_info(f'前置检查通过, 继续强化')
 
             while True:
                 start_wait = time.time()
