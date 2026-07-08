@@ -208,7 +208,7 @@ class RunTab(QWidget):
         sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        hint = QLabel("运行日志 → 见"调试工具"tab")
+        hint = QLabel('运行日志 → 见「调试工具」tab')
         hint.setStyleSheet("color: #888; font-size: 11px;")
         layout.addWidget(hint)
         layout.addStretch()
