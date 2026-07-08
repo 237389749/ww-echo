@@ -1,15 +1,14 @@
 """
-主窗口 — 标签页布局: 强化运行 | 套装配置。
+主窗口 — 强化运行 | 套装配置。
 """
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QWidget, QVBoxLayout
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMainWindow, QTabWidget
 
 from ui.run_tab import RunTab
 from ui.set_config_tab import SetConfigTab
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, ok_engine, log_bridge):
         super().__init__()
         self.setWindowTitle("OK-Echo")
         self.resize(860, 640)
@@ -17,7 +16,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        self.run_tab = RunTab()
+        self.run_tab = RunTab(ok_engine, log_bridge)
         self.tabs.addTab(self.run_tab, "强化运行")
 
         self.set_config_tab = SetConfigTab()
