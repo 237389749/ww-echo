@@ -39,9 +39,9 @@ class RunTab(QWidget):
 
         # ── 第1行: 任务选择 + 策略 ──
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("任务:"))
+        row1.addWidget(QLabel("模式:"))
         self.task_combo = QComboBox()
-        self.task_combo.addItems(["批量强化声骸", "批量修改主属性"])
+        self.task_combo.addItems(["强化声骸", "评估声骸"])
         row1.addWidget(self.task_combo)
 
         row1.addSpacing(16)
@@ -121,6 +121,20 @@ class RunTab(QWidget):
         )
         layout.addWidget(self.strategy_info)
 
+        # 评估说明 (选评估时可见)
+        self.strategy_info_eval = QLabel(
+            "评估: 只读模式, 遍历背包声骸读取词条打分\n"
+            "不强化/不上锁/不丢弃/不修改\n"
+            "阈值: 0词条跳过 | 1条≥1.0 | 2-3条≥2.0 | 4条≥2.5 | 5条≥3.0"
+        )
+        self.strategy_info_eval.setWordWrap(True)
+        self.strategy_info_eval.setStyleSheet(
+            "QLabel { color: #555; font-size: 11px; padding: 4px 8px; "
+            "background: rgba(128,128,128,0.06); border-radius: 4px; }"
+        )
+        self.strategy_info_eval.setVisible(False)
+        layout.addWidget(self.strategy_info_eval)
+
         # 评分说明 (始终可见)
         self.score_info = QLabel(
             "评分: 档位值÷均值×权重. 权重默认: 暴击2.0 爆伤1.5 攻击%1.0 攻击0.5 共效1.0\n"
@@ -146,38 +160,12 @@ class RunTab(QWidget):
         layout.addLayout(row_gen)
 
 
-        # 修改主属性: 目标属性和策略行 (默认隐藏)
-        self.change_opts = QWidget()
-        chg = QHBoxLayout(self.change_opts)
-        chg.setContentsMargins(0, 0, 0, 0)
-        chg.addWidget(QLabel("目标属性:"))
-        self.change_target = QComboBox()
-        self.change_target.addItems([
-            "攻击", "暴击伤害", "暴击", "生命", "防御", "共鸣效率",
-            "冷凝伤害加成", "热熔伤害加成", "导电伤害加成",
-            "气动伤害加成", "衍射伤害加成", "湮灭伤害加成",
-        ])
-        chg.addWidget(self.change_target)
-        chg.addStretch()
-        self.change_opts.setVisible(False)
-        layout.addWidget(self.change_opts)
-
         self.task_combo.currentTextChanged.connect(
             lambda t: self._on_task_changed(t))
         self._on_task_changed(self.task_combo.currentText())
 
         # ── 第3行: 启停按钮 ──
         row3 = QHBoxLayout()
-
-        self.eval_btn = QPushButton("📊 评估")
-        self.eval_btn.setMinimumWidth(80)
-        self.eval_btn.setToolTip(
-            "只读模式: 遍历背包声骸, OCR读取词条并打分\n"
-            "不强化/不修改/不上锁/不丢弃\n"
-            "阈值: 0词条跳过 | 1条≥1.0 | 2-3条≥2.0 | 4条≥2.5 | 5条≥3.0"
-        )
-        self.eval_btn.clicked.connect(self._evaluate)
-        row3.addWidget(self.eval_btn)
 
         self.start_btn = QPushButton("▶ 开始")
         self.start_btn.setMinimumWidth(100)
@@ -234,12 +222,16 @@ class RunTab(QWidget):
     def _on_task_changed(self, task_name):
         is_enhance = "强化" in task_name
         self.strategy_combo.setVisible(is_enhance)
+        self.strategy_info.setVisible(is_enhance)
         self.traditional_opts.setVisible(is_enhance and self.strategy_combo.currentText() == "传统")
-        self.change_opts.setVisible(not is_enhance)
+        if not is_enhance:
+            self.strategy_info_eval.setVisible(True)
+        else:
+            self.strategy_info_eval.setVisible(False)
 
     # ── 设置持久化 ──
     def _load_settings(self):
-        idx = self.task_combo.findText(self._settings.value("task", "批量强化声骸"))
+        idx = self.task_combo.findText(self._settings.value("task", "强化声骸"))
         if idx >= 0:
             self.task_combo.setCurrentIndex(idx)
         idx = self.strategy_combo.findText(self._settings.value("strategy", "渐进式"))
@@ -293,14 +285,33 @@ class RunTab(QWidget):
         if self._running:
             return
 
+        is_eval = "评估" in self.task_combo.currentText()
         task.config['强化策略'] = self.strategy_combo.currentText()
         task.config['当前套装'] = self.set_combo.currentText()
 
-        # 修改主属性模式
-        if "修改" in self.task_combo.currentText():
-            task.config['目标属性'] = self.change_target.currentText()
+        if is_eval:
+            self._running = True
+            self.start_btn.setEnabled(False)
+            self.stop_btn.setEnabled(True)
+            self._append_log("══════════ 开始评估 ══════════")
+            self._append_log(f"套装: {task.config.get('当前套装')}  仅打分, 不修改声骸")
 
-        if self.strategy_combo.currentText() == '传统':
+            def _run_eval():
+                try:
+                    task.evaluate_only()
+                except Exception as e:
+                    self._append_log(f"[ERROR] {e}")
+                finally:
+                    self._running = False
+                    self.start_btn.setEnabled(True)
+                    self.stop_btn.setEnabled(False)
+                    self._append_log("══════════ 评估结束 ══════════")
+
+            self._thread = threading.Thread(target=_run_eval, daemon=True)
+            self._thread.start()
+            return
+
+        if not is_eval and self.strategy_combo.currentText() == '传统':
             task.config['必须有双爆'] = self.opt_double_crit.isChecked()
             task.config['双爆出现之前必须全有效词条'] = self.opt_all_valid_before_crit.isChecked()
             task.config['第一条必须为有效词条'] = self.opt_first_must_valid.isChecked()
@@ -315,44 +326,10 @@ class RunTab(QWidget):
         self._running = True
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self._append_log("══════════ 开始 ══════════")
-        self._append_log(f"任务: {self.task_combo.currentText()}  策略: {task.config['强化策略']}  套装: {task.config['当前套装']}")
+        self._append_log("══════════ 开始强化 ══════════")
+        self._append_log(f"策略: {task.config['强化策略']}  套装: {task.config['当前套装']}")
 
         self._thread = threading.Thread(target=self._run_task, args=(task,), daemon=True)
-        self._thread.start()
-
-    def _evaluate(self):
-        self._save_settings()
-        task = self._get_task()
-        if task is None:
-            self._append_log("[ERROR] 任务未就绪")
-            return
-        if self._running:
-            return
-
-        task.config['强化策略'] = self.strategy_combo.currentText()
-        task.config['当前套装'] = self.set_combo.currentText()
-
-        self._running = True
-        self.start_btn.setEnabled(False)
-        self.eval_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self._append_log("══════════ 开始评估 ══════════")
-        self._append_log(f"套装: {task.config.get('当前套装')}  仅读取打分, 不修改声骸")
-
-        def _run():
-            try:
-                task.evaluate_only()
-            except Exception as e:
-                self._append_log(f"[ERROR] {e}")
-            finally:
-                self._running = False
-                self.start_btn.setEnabled(True)
-                self.eval_btn.setEnabled(True)
-                self.stop_btn.setEnabled(False)
-                self._append_log("══════════ 评估结束 ══════════")
-
-        self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
 
     def _stop(self):
@@ -380,11 +357,8 @@ class RunTab(QWidget):
         if self._task is not None:
             return self._task
         try:
-            module_name = "EnhanceEchoTask" if "强化" in self.task_combo.currentText() else "ChangeEchoTask"
             from src.task.EnhanceEchoTask import EnhanceEchoTask
-            from src.task.ChangeEchoTask import ChangeEchoTask
-            cls = EnhanceEchoTask if module_name == "EnhanceEchoTask" else ChangeEchoTask
-            self._task = og.executor.get_task_by_class(cls)
+            self._task = og.executor.get_task_by_class(EnhanceEchoTask)
             return self._task
         except Exception:
             return None
