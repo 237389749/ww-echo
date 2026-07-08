@@ -90,6 +90,26 @@ class RunTab(QWidget):
         self.strategy_combo.currentTextChanged.connect(
             lambda s: self.traditional_opts.setVisible(s == "传统"))
 
+        # 修改主属性: 目标属性和策略行 (默认隐藏)
+        self.change_opts = QWidget()
+        chg = QHBoxLayout(self.change_opts)
+        chg.setContentsMargins(0, 0, 0, 0)
+        chg.addWidget(QLabel("目标属性:"))
+        self.change_target = QComboBox()
+        self.change_target.addItems([
+            "攻击", "暴击伤害", "暴击", "生命", "防御", "共鸣效率",
+            "冷凝伤害加成", "热熔伤害加成", "导电伤害加成",
+            "气动伤害加成", "衍射伤害加成", "湮灭伤害加成",
+        ])
+        chg.addWidget(self.change_target)
+        chg.addStretch()
+        self.change_opts.setVisible(False)
+        layout.addWidget(self.change_opts)
+
+        self.task_combo.currentTextChanged.connect(
+            lambda t: self._on_task_changed(t))
+        self._on_task_changed(self.task_combo.currentText())
+
         # ── 第3行: 启停按钮 ──
         row3 = QHBoxLayout()
 
@@ -129,6 +149,12 @@ class RunTab(QWidget):
             "QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px; }"
         )
         layout.addWidget(self.log_area, 1)
+
+    def _on_task_changed(self, task_name):
+        is_enhance = "强化" in task_name
+        self.strategy_combo.setVisible(is_enhance)
+        self.traditional_opts.setVisible(is_enhance and self.strategy_combo.currentText() == "传统")
+        self.change_opts.setVisible(not is_enhance)
 
     # ── 设置持久化 ──
     def _load_settings(self):
@@ -188,6 +214,11 @@ class RunTab(QWidget):
 
         task.config['强化策略'] = self.strategy_combo.currentText()
         task.config['当前套装'] = self.set_combo.currentText()
+
+        # 修改主属性模式
+        if "修改" in self.task_combo.currentText():
+            task.config['目标属性'] = self.change_target.currentText()
+
         if self.strategy_combo.currentText() == '传统':
             task.config['必须有双爆'] = self.opt_double_crit.isChecked()
             task.config['首条双爆>='] = float(self.opt_first_crit.currentText())
