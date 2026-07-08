@@ -168,10 +168,33 @@ class SetConfigTab(QWidget):
         name = self.set_combo.currentText()
         if not name:
             return
+
+        # 兜底校验: 勾选了但权重=0 → 默认设为1.0; 权重>0但未勾选 → 勾上
+        fixed = 0
+        for row in range(len(ALL_STATS)):
+            cb = self.table.cellWidget(row, 0)
+            spin = self.table.cellWidget(row, 2)
+            if cb.isChecked() and spin.value() == 0:
+                spin.setValue(1.0)
+                fixed += 1
+            if not cb.isChecked() and spin.value() > 0:
+                cb.setChecked(True)
+                fixed += 1
+        if fixed:
+            self._log(f"自动修正 {fixed} 处不一致 (勾选↔权重)")
+
         data = self._read()
         data["sets"][name] = self._collect()
         self._write(data)
         self.saved.emit()
+
+    def _log(self, msg):
+        """简单的控制台日志。"""
+        try:
+            from ok import Logger
+            Logger.get_logger(__name__).info(msg)
+        except Exception:
+            pass
 
     # ── 导入/导出 ──
     def _export(self):
