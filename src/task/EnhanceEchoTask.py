@@ -94,10 +94,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '第一条必须为有效词条': '如果开启，第一个副词条必须在有效词条列表中且符合数值要求，否则直接丢弃',
             '有效词条': '定义哪些属性被视为有效',
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
-            '强化策略': '传统: 满级后一次性判断\n渐进式: Lv5首条须在预期中→Lv10跳过→Lv15得分≥1.5→Lv20≥2.25→Lv25≥3.75, 不及格即停',
+            '强化策略': '传统: 满级后一次判断\n渐进式: 1条≥1.0→3条≥2.0→4条≥2.5→5条≥3.0, 不及格即停',
             '当前套装': '在"套装配置"tab中管理词条和权重',
-            '启用评分模式': '均值归一化: 单词条=档位值/均值\n暴击最低6.3%→6.3/8.4=0.75词条, 最高10.5%→10.5/8.4=1.25词条\n无效词条(不在有效列表)=0分不计入\n5词条总分3.75~6.25\n传统满级后检查, 渐进式自动启用',
-            '最低得分>=': '传统模式满级5词条后总分>=此值保留\n渐进式用内置阈值(T3=1.5/T4=2.25/T5=3.75)不受影响',
+            '启用评分模式': '均值归一化+权重: 暴击2.0/爆伤1.5/攻击%1.0/攻击0.5/共效1.0\n单词条=档位值/均值×权重, 无效词条=0分',
+            '最低得分>=': '传统模式满级5词条总分>=此值保留',
         }
 
     def evaluate_only(self):
@@ -111,7 +111,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
           5词条(Lv25)   → ≥3.75
         """
         self.info_set('评估数量', 0)
-        EVAL_THRESHOLDS = {1: 0.75, 2: 1.5, 3: 1.5, 4: 2.25, 5: 3.75}
+        EVAL_THRESHOLDS = {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}
         evaluated = 0
         while True:
             enhance = self.find_echo_enhance()
@@ -551,7 +551,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return True
 
         # Tier 3-5: 按累积得分判断
-        score_thresholds = {3: 1.5, 4: 2.25, 5: 3.75}
+        score_thresholds = {3: 2.0, 4: 2.5, 5: 3.0}
         if tier in score_thresholds:
             score, details = self.compute_weighted_score(
                 [(n, str(v)) for n, v in normalized], expected_stats
