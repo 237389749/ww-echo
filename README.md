@@ -1,8 +1,8 @@
 # ww-echo
 
-一个基于图像识别的鸣潮声骸强化自动化工具，从 [ok-ww](https://github.com/ok-oldking/ok-wuthering-waves) 剥离，基于 [ok-script](https://github.com/ok-oldking/ok-script) 开发。
+基于图像识别的鸣潮声骸强化自动化工具，从 [ok-ww](https://github.com/ok-oldking/ok-wuthering-waves) 剥离，基于 [ok-script](https://github.com/ok-oldking/ok-script) 的截图/OCR/键鼠能力，自建配置管理 UI。
 
-*An image-recognition-based echo enhancement automation tool for Wuthering Waves, stripped from [ok-ww](https://github.com/ok-oldking/ok-wuthering-waves), built on [ok-script](https://github.com/ok-oldking/ok-script).*
+*An image-recognition-based Wuthering Waves echo enhancement tool. Uses ok-script for capture/OCR/input, with custom-built config management UI.*
 
 *通过 Windows 接口模拟用户操作，无内存读取、无文件修改 | Simulates user input via Windows API — no memory reads, no file modifications*
 
@@ -12,122 +12,81 @@
 
 本软件开源、免费，仅供个人学习与交流使用。因使用本软件而产生的任何问题，均与本项目及开发者无关。
 
-**使用本软件即表示您已阅读、理解并同意以上声明，并自愿承担一切潜在风险。**
-
-*This software is open-source and free, for personal learning and communication only. The developers are not responsible for any issues arising from its use. By using this software, you acknowledge that you understand and accept all potential risks.*
+*This software is open-source and free, for personal learning only. Use at your own risk.*
 
 ---
 
 ## 功能 | Features
 
-### 批量强化声骸 | Batch Echo Enhancement (EnhanceEchoTask)
+### 批量强化声骸 | Batch Echo Enhancement
 
-自动将背包中的 0 级声骸强化至满级并调谐，根据设定的规则判断保留或丢弃。
+自动将背包中的 0 级声骸强化至满级并调谐，按配置规则判断保留或丢弃。符合条件自动上锁，不符合自动弃置。
 
-*Automatically enhances level-0 echoes in your bag to max level, then decides to keep or discard based on configurable rules.*
+*Automatically enhances level-0 echoes to max, evaluates by configurable rules, locks good ones and discards bad ones.*
 
 **使用步骤 | Usage:**
-1. 游戏内按 `B` 打开背包，切换到声骸标签页 | *Press `B` in-game, switch to Echo tab*
-2. 使用过滤器筛选需要强化的声骸（按等级从低到高排序）| *Filter echoes (sort by level ascending)*
-3. 选择强化策略和套装，启动任务 | *Select strategy and set, start the task*
+1. 游戏内 `B` → 背包声骸页 → 按等级升序排序 → 过滤目标套装
+2. 在 **套装配置 | Sets** tab 中确认该套装的词条与权重
+3. 在 **批量强化声骸** tab 中选择策略和套装，启动
 
 ---
 
 ### 强化策略 | Enhancement Strategies
 
-提供 **传统 (Traditional)** 和 **渐进式 (Progressive)** 两种模式 | *Two modes available*:
+#### 渐进式 | Progressive（默认）
 
-#### 传统模式 | Traditional
+不达标立即丢弃，**避免浪费材料**:
 
-满级后一次判断 | *Evaluate once after reaching max level*:
-
-| 规则 | 默认 | 说明 |
-|------|------|------|
-| 必须有双爆 / Require Double Crit | ON | 最终必须同时拥有暴击和暴击伤害 / *Must have both CRIT Rate and CRIT DMG* |
-| 双爆前全有效词条 / All Valid Before Crit | ON | 双爆出现前的词条都必须在有效列表中 / *Stats before first crit must all be valid* |
-| 首条双爆 ≥ / First Crit ≥ | 6.9 | 第一条双爆的数值阈值（爆伤÷2）/ *Threshold for first crit stat (CDMG÷2)* |
-| 双爆总计 ≥ / Total Crit ≥ | 13.8 | 暴击 + (暴击伤害÷2) ≥ 此值 / *CRIT Rate + (CRIT DMG÷2) ≥ threshold* |
-| 有效词条 ≥ / Valid Stats ≥ | 3 | 满级时需要的有效词条数量 / *Required valid substat count at max level* |
-| 第一条必为有效词条 / First Must Be Valid | ON | 首词条必须在有效列表中 / *First substat must be in valid list* |
-
-#### 渐进式模式 | Progressive — 默认 / Default
-
-每开一个词条就评估，不达标立即丢弃，**避免浪费材料** | *Evaluates at each tier — discard immediately on failure to save materials*:
-
-| 阶段 / Tier | 条件 / Condition | 逻辑 / Logic |
+| 阶段 | 条件 | 不达标处理 |
 |:--:|------|------|
-| Lv5 第1条 | 必须在套装预期词条中 / *Must be in set's expected stats* | 不达标 → 直接丢弃 / *Fail → discard* |
-| Lv10 第2条 | 不做判断 / *No check* | 继续强化 / *Continue* |
-| Lv15 第3条 | 累积得分 ≥ **1.5** / *Cumulative score ≥ 1.5* | 不达标 → 丢弃止损 / *Fail → discard* |
-| Lv20 第4条 | 累积得分 ≥ **2.25** / *Cumulative score ≥ 2.25* | 不达标 → 丢弃止损 / *Fail → discard* |
-| Lv25 第5条 | 累积得分 ≥ **3.75** / *Cumulative score ≥ 3.75* | 不达标 → 丢弃；达标 → 上锁 / *Fail → discard; Pass → lock* |
+| Lv5 | 首条必须在套装预期词条中 | 直接丢弃 |
+| Lv10 | 不做判断 | — |
+| Lv15 | 累积得分 ≥ 1.5 | 丢弃止损 |
+| Lv20 | 累积得分 ≥ 2.25 | 丢弃止损 |
+| Lv25 | 累积得分 ≥ 3.75 | 丢弃；达标上锁 |
+
+#### 传统 | Traditional
+
+满级后一次性判断：必须有双爆 / 首条阈值 / 双爆总计 / 有效词条数量 / 第一条必须有效。
 
 ---
 
 ### 评分系统 | Scoring System
 
-采用 **均值归一化** 评分。每个词条有 4~8 个档位（从低到高），均值为所有档位的平均值。
+**均值归一化**: 单词条得分 = `档位值 / 该词条全部档位的均值 × 权重`。无效词条不计入(0分)。
 
-**单词条公式:** `得分 = 档位修正值 / 该词条均值 × 权重`
-
-*Single stat formula: `score = tier value / mean × weight`*
+*Mean-normalized: `tier value / mean of all tiers × weight`. Invalid stats = 0.*
 
 ```
-暴击档位: [6.3, 6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5]  均值 = 8.4
-
-最低档 6.3  →  6.3/8.4 = 0.75 词条当量  (单条最低分)
-最高档 10.5 → 10.5/8.4 = 1.25 词条当量  (单条最高分)
-
-5条全最低 → 5×0.75 = 3.75   (理论下限)
-5条全平均 → 5×1.0  = 5.0    (中等水平)
-5条全最高 → 5×1.25 = 6.25   (理论上限)
+暴击均值 8.4%: 最低 6.3→0.75 | 最高 10.5→1.25
+单条范围 0.75~1.25 | 5词条总分 3.75~6.25
 ```
 
-*Each stat contributes 0.75 (worst tier) to 1.25 (best tier) stat-equivalents. A full echo ranges from 3.75 (all worst) to 6.25 (all perfect), with 5.0 being all-average.*
+---
 
-**权重** 来自套装 JSON 模板（`assets/echo_set_templates.json`），每个套装的每个词条可独立设置权重。选中套装时自动应用，通用模式所有词条权重为 1.0。
+### 套装配置 | Set Config (EchoConfigTab)
 
-*Weights come from the set JSON template. Each set can define per-stat weights. Copy the JSON file to save/import/export configurations.*
+独立的 PySide6 配置面板，直接读写 `assets/echo_set_templates.json`:
+
+| 操作 | 说明 |
+|------|------|
+| 勾选 | 该词条为有效词条 |
+| 权重 | 评分时的乘数（0 = 无效） |
+| 切换套装 | 自动加载该套装的勾选和权重 |
+| 保存 | 将当前修改写入 JSON |
+| 导出 | 弹出文件保存框，导出 JSON 副本 |
+| 导入 | 弹出文件选择框，导入 JSON 模板（旧文件自动备份 .bak） |
+| 恢复默认 | 重置为项目自带的默认模板 |
+
+套装数量由 JSON 文件即时决定，不硬编码。
+
+*Set count is determined by the JSON file in real time, not hardcoded.*
 
 ---
 
-### 套装模板 | Set Templates
+### 批量修改声骸主属性 | Batch Main Stat Change
 
-17 个套装的预期词条硬编码在 `src/echo_set_templates.py`，渐进式模式的第一条必须在此列表中。
-
-*17 echo sets with expected substats are hardcoded in `src/echo_set_templates.py`. Progressive mode requires the first stat to be in the expected list.*
-
-| 配置 / Config | 默认 / Default | 说明 / Description |
-|------|------|------|
-| `当前套装` / Current Set | 通用 / Universal | 17 套装 + 通用可选 / *17 sets + universal* |
-| `有效词条` / Valid Stats | 暴击/爆伤/攻击%/攻击/共鸣效率 | 通用默认（多选）/ *Universal default (multi-select)* |
-
----
-
-### 批量修改声骸主属性 | Batch Main Stat Change (ChangeEchoTask)
-
-自动将背包中声骸的主属性修改为目标属性（数据重构）。
-
-*Automatically changes echo main stats to the target attribute via data reconstruction.*
-
-**目标属性 | Target stats:** 攻击, 暴击伤害, 暴击, 生命, 防御, 共鸣效率, 冷凝/热熔/导电/气动/衍射/湮灭伤害加成 (ATK, CRIT DMG, CRIT Rate, HP, DEF, Energy Regen, Glacio/Fusion/Electro/Aero/Spectro/Havoc DMG Bonus)
-
----
-
-## 配置说明 | Configuration
-
-| 配置项 / Config | 类型 / Type | 说明 / Description |
-|--------|------|------|
-| `强化策略` / Strategy | 下拉框 / Dropdown | 传统 / 渐进式 (Traditional / Progressive) |
-| `当前套装` / Current Set | 下拉框 / Dropdown | 通用 + 17 套装 / Universal + 17 sets |
-| `有效词条` / Valid Stats | 多选框 / Multi-select | 13 个词条类型 / 13 stat types |
-| `X权重` / X Weight | 数值滑块 / Slider | 13 个词条各一个，默认 1.0 / *1 per stat, default 1.0* |
-| `最低得分≥` / Min Score | 数值 / Number | 最终阈值 / *Final score threshold* |
-| `Pause after Success` | 开关 / Toggle | 成功后暂停，手动复核 / *Pause on success for manual review* |
-
-配置保存在 `configs/` 文件夹，复制即可导出/导入。
-
-*Configs are saved in the `configs/` folder — copy to export/import.*
+自动将声骸主属性修改为目标属性（数据重构）。支持 攻击/暴击伤害/暴击/生命/防御/共鸣效率/六属性伤害加成。
 
 ---
 
@@ -136,23 +95,17 @@
 - **OS:** Windows
 - **Python:** 3.12
 - **Resolution:** 16:9 (min 1600x900)
-- **Game language:** 简体中文 / 繁體中文 (zh_CN / zh_TW)
-- **FPS:** Stable 60 FPS
+- **Game language:** 简体中文 / 繁體中文
+- **FPS:** Stable 60
 
-## 从源码运行 | Run from Source
+## 从源码运行 | Run
 
 ```bash
 pip install -r requirements.txt --upgrade
-python main.py        # Release
-python main_debug.py  # Debug (shows detection overlays)
+python main.py        # ok-script 原版 GUI
+python main_debug.py  # Debug (显示识别框)
+python mainui.py      # ⚠️ 自定义 UI (开发中)
 ```
-
----
-
-## TODO
-
-- [x] 清理 BaseWWTask 中无需的战斗/刷图代码 / *Clean up unused combat/farming code in BaseWWTask*
-- [ ] 套装模板热加载 / *Hot-load set templates from external file*
 
 ---
 
@@ -160,32 +113,37 @@ python main_debug.py  # Debug (shows detection overlays)
 
 ```
 ww-echo/
-├── main.py / main_debug.py         # 入口 / Entry point
-├── config.py                       # 全局配置 / App config
+├── main.py / main_debug.py         # ok-script 入口
+├── mainui.py                       # 自定义 UI 入口 (开发中)
+├── config.py                       # 配置
+├── ui/                             # 自定义 UI 模块
 ├── src/
-│   ├── echo_stats.py               # 词条档位 + 评分 / Tier data + scoring
-│   ├── echo_set_templates.py       # 17 套装模板 / Set templates
-│   ├── Labels.py                   # UI 模板匹配标签 / Template labels
-│   ├── globals.py                  # 全局状态 / Global state
-│   ├── scene/WWScene.py            # 场景缓存 / Scene cache
+│   ├── echo_stats.py               # 词条档位 + 评分工具
+│   ├── echo_set_templates.py       # JSON 模板加载 & 校验
+│   ├── Labels.py                   # 模板匹配标签枚举
+│   ├── globals.py                  # 全局状态
+│   ├── gui/
+│   │   └── EchoConfigTab.py        # 套装配置面板 (自定义)
+│   ├── scene/WWScene.py            # 场景缓存
 │   └── task/
-│       ├── EnhanceEchoTask.py      # ⭐ 批量强化声骸 / Echo enhancement
-│       ├── ChangeEchoTask.py       # 批量修改主属性 / Main stat change
-│       ├── BaseEchoTask.py         # 任务基类 (50行) / Base task
-│       ├── image_utils.py          # 图像预处理 / Image utils
+│       ├── EnhanceEchoTask.py      # ⭐ 批量强化声骸
+│       ├── ChangeEchoTask.py       # 批量修改主属性
+│       ├── BaseEchoTask.py         # 任务基类
+│       ├── image_utils.py          # 图像预处理
 │       ├── process_feature.py      # 模板特征处理器
 │       ├── WWOneTimeTask.py        # 一次性任务 mixin
-│       └── MouseResetTask.py       # 鼠标防偏移 / Mouse drift fix
-└── assets/                         # 模板匹配资源 / Template assets
+│       └── MouseResetTask.py       # 鼠标防偏移
+└── assets/
+    ├── coco_annotations.json       # 模板匹配特征
+    ├── echo_set_templates.json     # 套装模板 (导入/导出此文件)
+    └── images/                     # 模板图片
 ```
 
 ## 依赖 | Dependencies
 
-基于 [ok-script](https://github.com/ok-oldking/ok-script) 框架，使用 OnnxOCR 文字识别 + 模板匹配 UI 定位。
-
-*Built on [ok-script](https://github.com/ok-oldking/ok-script), using OnnxOCR for text recognition and template matching for UI localization.*
+[ok-script](https://github.com/ok-oldking/ok-script) — 截图(WGC/BitBlt) + OCR(OnnxOCR) + 模板匹配 + 键鼠模拟(PostMessage)
 
 ## 致谢 | Credits
 
-- [ok-oldking/ok-wuthering-waves](https://github.com/ok-oldking/ok-wuthering-waves) — 原始项目 / *Original project*
-- [ok-oldking/ok-script](https://github.com/ok-oldking/ok-script) — 自动化框架 / *Automation framework*
+- [ok-oldking/ok-wuthering-waves](https://github.com/ok-oldking/ok-wuthering-waves) — 原始项目
+- [ok-oldking/ok-script](https://github.com/ok-oldking/ok-script) — 自动化框架
