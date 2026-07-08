@@ -13,23 +13,6 @@ from src.echo_stats import snap_to_tier, get_mean  # noqa
 from src.echo_set_templates import get_expected_stats, get_all_set_names, get_set_weights
 from src.task.BaseEchoTask import BaseEchoTask
 
-# OCR 归一化名 -> echo_stats 档位表名
-_OCR_TO_TIER_NAME: dict[str, str] = {
-    '暴击': '暴击率',
-    '暴击伤害': '暴击伤害',
-    '攻击百分比': '百分比攻击',
-    '生命百分比': '百分比生命',
-    '防御百分比': '百分比防御',
-    '攻击': '固定数值攻击',
-    '生命': '固定数值生命',
-    '防御': '固定数值防御',
-    '共鸣效率': '共鸣效率',
-    '普攻伤害加成': '普攻伤害加成',
-    '重击伤害加成': '重击伤害加成',
-    '共鸣解放伤害加成': '共鸣解放伤害加成',
-    '共鸣技能伤害加成': '共鸣技能伤害加成',
-}
-
 logger = Logger.get_logger(__name__)
 
 number_pattern = re.compile(r"^[\d.%％ ]+$")
@@ -37,6 +20,39 @@ property_pattern = re.compile(r"[\u4e00-\u9fff]{2,}")
 
 
 class EnhanceEchoTask(BaseEchoTask, FindFeature):
+
+    # ── 共享工具 ──
+
+    @staticmethod
+    def _normalize_stat(raw_name: str, value_str: str) -> str:
+        """将 OCR 原始名统一为规范化词条名。"""
+        p = raw_name
+        if '暴击伤害' in p: return '暴击伤害'
+        if '暴击' in p: return '暴击'
+        if '攻击' in p: return '攻击百分比' if ('%' in value_str or '％' in value_str) else '攻击'
+        if '生命' in p: return '生命百分比' if ('%' in value_str or '％' in value_str) else '生命'
+        if '防御' in p: return '防御百分比' if ('%' in value_str or '％' in value_str) else '防御'
+        if '效率' in p: return '共鸣效率'
+        if '普攻' in p: return '普攻伤害加成'
+        if '重击' in p: return '重击伤害加成'
+        if '解放' in p: return '共鸣解放伤害加成'
+        if '技能' in p: return '共鸣技能伤害加成'
+        return p
+
+    @staticmethod
+    def _pair_props(properties, values):
+        """按 y 坐标配对待属性名和数值, 返回 [(name, value_str), ...]."""
+        paired = []
+        unmatched = list(values)
+        for prop in properties:
+            v_text = "0"
+            if unmatched:
+                closest = min(unmatched, key=lambda v: abs(prop.y - v.y))
+                v_text = closest.name
+                unmatched.remove(closest)
+            paired.append((prop.name, v_text))
+        return paired
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -94,7 +110,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """
         import json as _json, tempfile
 
-        EVAL_THRESHOLDS = {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}
         results: list[dict] = []
         evaluated = 0
         tmp_dir = tempfile.mkdtemp(prefix="okecho_eval_")
@@ -128,31 +143,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 break
 
             # 配对 & 归一化
-            paired = []
-            unmatched = values.copy()
-            for prop in properties:
-                v_text = "0"
-                if unmatched:
-                    closest = min(unmatched, key=lambda v2: abs(prop.y - v2.y))
-                    v_text = closest.name
-                    unmatched.remove(closest)
-                paired.append((prop.name, v_text))
-
-            normalized = []
-            for p_raw, v_str in paired:
-                p = p_raw
-                if '暴击伤害' in p: p = '暴击伤害'
-                elif '暴击' in p: p = '暴击'
-                elif '攻击' in p: p = '攻击' + ('百分比' if '%' in v_str or '％' in v_str else '')
-                elif '生命' in p: p = '生命' + ('百分比' if '%' in v_str or '％' in v_str else '')
-                elif '防御' in p: p = '防御' + ('百分比' if '%' in v_str or '％' in v_str else '')
-                elif '效率' in p: p = '共鸣效率'
-                elif '普攻' in p: p = '普攻伤害加成'
-                elif '重击' in p: p = '重击伤害加成'
-                elif '解放' in p: p = '共鸣解放伤害加成'
-                elif '技能' in p: p = '共鸣技能伤害加成'
-                v = parse_number(v_str)
-                normalized.append((p, v))
+            paired = self._pair_props(properties, values)
+            normalized = [(self._normalize_stat(n, v), parse_number(v)) for n, v in paired]
 
             tier = len(normalized)
             if tier == 0:
@@ -166,9 +158,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             score, details = self.compute_weighted_score(
                 [(n, str(v)) for n, v in normalized], valid_stats
             )
-
-            threshold = EVAL_THRESHOLDS.get(tier, 99)
-            passed = score >= threshold
+            # 与强化逻辑一致: 使用 check_echo_progressive 统一判断
+            passed = self.check_echo_progressive(properties, values)
 
             if passed and tier < 5:
                 verdict = "pending"
@@ -224,10 +215,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def find_echo_enhance(self):
         return self.ocr(0.82, 0.86, 0.97, 0.96, match='培养')
-
-    def is_max_level(self):
-        """已满级? 满级声骸没有'声骸技能'也没有'培养'按钮的强化界面。"""
-        return not self.ocr(0.65, 0.35, 1, 0.57, match=re.compile('声骸技能'))
 
     def run(self):
         self.info_set('成功声骸数量', 0)
@@ -587,10 +574,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
         for stat_name, value_str in paired_stats:
             v = parse_number(value_str)
-            tier_name = _OCR_TO_TIER_NAME.get(stat_name)
-            if tier_name is None:
-                details.append(f'{stat_name}={v} 未知词条')
-                continue
+            # stat_name 已是 OCR 归一化名, 与 tier 键统一
+            tier_name = stat_name
 
             if set_weights is not None:
                 weight = set_weights.get(stat_name, 0.0)

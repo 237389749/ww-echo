@@ -277,7 +277,10 @@ class RunTab(QWidget):
             self.success_label.setText(f"成功: {task.info_get('成功声骸数量') or 0}")
             self.fail_label.setText(f"失败: {task.info_get('失败声骸数量') or 0}")
             score = task.info_get('声骸得分')
-            self.score_label.setText(f"得分: {score}" if score else "得分: -")
+            self.score_label.setText(f"得分: {score}" if score is not None else "得分: -")
+            eval_count = task.info_get('评估数量')
+            if eval_count:
+                self.score_label.setText(f"评估: {eval_count}个")
         except Exception:
             pass
 
@@ -311,10 +314,12 @@ class RunTab(QWidget):
                     "HTML (*.html)"
                 )
                 if not save_path:
+                    import shutil as _shutil
+                    _shutil.rmtree(os.path.dirname(json_path), ignore_errors=True)
                     self._running = False
                     self.start_btn.setEnabled(True)
                     self.stop_btn.setEnabled(False)
-                    self._append_log("══════════ 评估结束 ══════════")
+                    self._append_log("══════════ 评估结束 (已取消) ══════════")
                     return
 
                 try:
@@ -383,6 +388,8 @@ class RunTab(QWidget):
         if task:
             task.disable()
             task.unpause()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
         self._running = False
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)

@@ -47,7 +47,7 @@ class SetConfigTab(QWidget):
         top.addWidget(self.set_combo)
         top.addStretch()
 
-        for text, slot in [("导出", self._export), ("导入", self._import), ("恢复默认", self._reset)]:
+        for text, slot in [("导出", self._export), ("导入", self._import), ("重新加载", self._reload)]:
             btn = QPushButton(text)
             btn.clicked.connect(slot)
             top.addWidget(btn)
@@ -219,10 +219,9 @@ class SetConfigTab(QWidget):
         self._load_sets()
         self.saved.emit()
 
-    def _reset(self):
-        if QMessageBox.question(self, "确认", "恢复默认模板?") != QMessageBox.Yes:
+    def _reload(self):
+        """从磁盘重新加载模板文件。"""
+        if QMessageBox.question(self, "确认", "重新加载模板文件?\n将丢弃当前未保存的修改") != QMessageBox.Yes:
             return
-        if os.path.exists(TEMPLATE_PATH):
-            shutil.copy(TEMPLATE_PATH, TEMPLATE_PATH + ".bak")
         self._load_sets()
         self.saved.emit()

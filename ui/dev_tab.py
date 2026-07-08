@@ -84,39 +84,9 @@ class DevTab(QWidget):
         return w
 
     def _run_code(self):
-        code = self.code_edit.toPlainText()
-        if not code.strip():
-            return
-
+        # exec() 已禁用, 仅显示提示
         self.output_area.clear()
-        redirect = _StdoutRedirect()
-        redirect.text_signal.connect(self.output_area.insertPlainText)
-
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        sys.stdout = redirect
-        sys.stderr = redirect
-
-        try:
-            # 注入常用变量
-            namespace = {
-                'og': og,
-                'os': os,
-                'subprocess': subprocess,
-            }
-            try:
-                tasks = og.executor.get_all_tasks()
-                if tasks:
-                    namespace['task'] = tasks[0]
-            except Exception:
-                pass
-
-            exec(code, namespace)
-            self.output_area.insertPlainText("\n--- 执行完毕 ---\n")
-        except Exception as e:
-            self.output_area.insertPlainText(f"\n[ERROR] {e}\n")
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+        self.output_area.insertPlainText("Run Code 已禁用 (安全原因)。\n请使用 ok-script 原版 RunCodeTab 或直接修改源码。\n")
 
     # ═══════ Templates ═══════
     def _make_templates_tab(self):
