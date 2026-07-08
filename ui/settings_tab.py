@@ -1,9 +1,13 @@
 """
-设备设置 — 选择游戏窗口, 截图方式, 交互方式。
+设备 & 全局设置 — 窗口/截图/交互/热键/月卡/调试。
 """
+import os
+import subprocess
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
-                               QListWidgetItem, QLabel, QFrame, QPushButton)
+                               QListWidgetItem, QLabel, QFrame, QPushButton,
+                               QCheckBox, QSpinBox)
 
 from ok import og, Logger
 from ok.gui.Communicate import communicate
@@ -15,6 +19,7 @@ class SettingsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_ui()
+        self._load_config()
         self._refresh()
         communicate.adb_devices.connect(self._on_devices_updated)
 
@@ -23,7 +28,7 @@ class SettingsTab(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        # ── 设备列表 ──
+        # ═══════ 设备 ═══════
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("选择窗口"))
         toolbar.addStretch()
@@ -33,30 +38,124 @@ class SettingsTab(QWidget):
         layout.addLayout(toolbar)
 
         self.device_list = QListWidget()
+        self.device_list.setMaximumHeight(100)
         self.device_list.itemSelectionChanged.connect(self._on_device)
-        layout.addWidget(self.device_list, 1)
+        layout.addWidget(self.device_list)
 
-        # ── 截图方式 ──
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        layout.addWidget(sep)
-        layout.addWidget(QLabel("截图方式"))
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine); layout.addWidget(sep)
 
+        # 截图 & 交互并排
+        row = QHBoxLayout()
+        c = QVBoxLayout()
+        c.addWidget(QLabel("截图方式"))
         self.capture_list = QListWidget()
+        self.capture_list.setMaximumHeight(80)
         self.capture_list.itemSelectionChanged.connect(self._on_capture)
-        layout.addWidget(self.capture_list)
+        c.addWidget(self.capture_list)
+        row.addLayout(c)
 
-        # ── 交互方式 ──
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.HLine)
-        layout.addWidget(sep2)
-        layout.addWidget(QLabel("交互方式"))
-
+        c2 = QVBoxLayout()
+        c2.addWidget(QLabel("交互方式"))
         self.interaction_list = QListWidget()
+        self.interaction_list.setMaximumHeight(80)
         self.interaction_list.itemSelectionChanged.connect(self._on_interaction)
-        layout.addWidget(self.interaction_list)
+        c2.addWidget(self.interaction_list)
+        row.addLayout(c2)
+        layout.addLayout(row)
 
-    # ── 刷新 ──
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine); layout.addWidget(sep2)
+
+        # ═══════ 全局 ═══════
+        g = QHBoxLayout()
+        g.addWidget(QLabel("启动/停止热键:"))
+        self.hotkey_label = QLabel("F9")
+        self.hotkey_label.setStyleSheet("font-weight: bold;")
+        g.addWidget(self.hotkey_label)
+        g.addStretch()
+        layout.addLayout(g)
+
+        g2 = QHBoxLayout()
+        g2.addWidget(QLabel("后台静音"))
+        self.mute_check = QCheckBox()
+        g2.addWidget(self.mute_check)
+        g2.addSpacing(16)
+        g2.addWidget(QLabel("检查月卡"))
+        self.monthly_check = QCheckBox()
+        g2.addWidget(self.monthly_check)
+        g2.addWidget(QLabel("月卡时间(时)"))
+        self.monthly_hour = QSpinBox()
+        self.monthly_hour.setRange(0, 23)
+        self.monthly_hour.setValue(4)
+        g2.addWidget(self.monthly_hour)
+        g2.addStretch()
+        layout.addLayout(g2)
+
+        g3 = QHBoxLayout()
+        g3.addWidget(QLabel("调试覆盖层"))
+        self.overlay_boxes = QCheckBox("显示识别框")
+        g3.addWidget(self.overlay_boxes)
+        self.overlay_log = QCheckBox("层上显示日志")
+        g3.addWidget(self.overlay_log)
+        g3.addStretch()
+        layout.addLayout(g3)
+
+        self.overlay_boxes.stateChanged.connect(self._on_overlay_boxes)
+        self.overlay_log.stateChanged.connect(self._on_overlay_log)
+
+        sep3 = QFrame(); sep3.setFrameShape(QFrame.HLine); layout.addWidget(sep3)
+
+        # ═══════ 工具 ═══════
+        tools = QHBoxLayout()
+        for text, slot in [
+            ("截图文件夹", self._open_screenshots),
+            ("日志文件夹", self._open_logs),
+            ("安装目录", self._open_cwd),
+        ]:
+            btn = QPushButton(text)
+            btn.clicked.connect(slot)
+            tools.addWidget(btn)
+        tools.addStretch()
+        layout.addLayout(tools)
+
+        # ═══════ 版本 ═══════
+        sep4 = QFrame(); sep4.setFrameShape(QFrame.HLine); layout.addWidget(sep4)
+        ver = QLabel(f"OK-Echo  v{og.config.get('version', 'dev')}  |  ok-script")
+        ver.setStyleSheet("color: #888;")
+        layout.addWidget(ver)
+
+        # spacer
+        layout.addStretch()
+
+    # ── 配置加载 ──
+    def _load_config(self):
+        try:
+            key_cfg = og.executor.global_config.get_config('Game Hotkey')
+            self.hotkey_label.setText(key_cfg.get('Start/Stop', 'F9'))
+        except Exception:
+            pass
+        try:
+            mc = og.executor.global_config.get_config('Monthly Card Config')
+            self.monthly_check.setChecked(mc.get('Check Monthly Card', False))
+            self.monthly_hour.setValue(mc.get('Monthly Card Time', 4))
+        except Exception:
+            pass
+        try:
+            self.overlay_boxes.setChecked(og.app.ok_config.get('use_overlay', False))
+            self.overlay_log.setChecked(og.app.ok_config.get('show_overlay_logs', True))
+        except Exception:
+            pass
+
+    def _on_overlay_boxes(self, state):
+        og.app.ok_config['use_overlay'] = bool(state)
+        og.app.ok_config.save_file()
+        if ov := og.app.get_overlay_view():
+            ov.set_boxes_enabled(bool(state))
+
+    def _on_overlay_log(self, state):
+        og.app.ok_config['show_overlay_logs'] = bool(state)
+        og.app.ok_config.save_file()
+
+    # ── 设备 ──
     def _refresh(self):
         og.device_manager.refresh()
 
@@ -80,8 +179,7 @@ class SettingsTab(QWidget):
 
     def _on_device(self):
         i = self.device_list.currentRow()
-        if i < 0:
-            return
+        if i < 0: return
         og.device_manager.set_preferred_device(index=i)
         self._update_lists()
 
@@ -89,36 +187,35 @@ class SettingsTab(QWidget):
         self.capture_list.clear()
         self.interaction_list.clear()
         cfg = og.device_manager.windows_capture_config
-        caps = cfg.get('capture_method', [])
-        if isinstance(caps, str):
-            caps = [caps]
-        for c in caps:
-            self.capture_list.addItem(QListWidgetItem(str(c)))
-
-        ints = cfg.get('interaction', [])
-        if isinstance(ints, str):
-            ints = [ints]
-        for im in ints:
-            self.interaction_list.addItem(QListWidgetItem(str(im)))
+        for c in (cfg.get('capture_method', []) if isinstance(cfg.get('capture_method', []), list) else [cfg.get('capture_method', '')]):
+            self.capture_list.addItem(QListWidgetItem(str(c)) if c else None)
+        for im in (cfg.get('interaction', []) if isinstance(cfg.get('interaction', []), list) else [cfg.get('interaction', '')]):
+            self.interaction_list.addItem(QListWidgetItem(str(im)) if im else None)
 
     def _on_capture(self):
         i = self.capture_list.currentRow()
-        if i < 0:
-            return
-        cfg = og.device_manager.windows_capture_config
-        methods = cfg.get('capture_method', [])
-        if isinstance(methods, str):
-            methods = [methods]
-        if i < len(methods):
-            og.device_manager.set_capture(methods[i])
+        if i < 0: return
+        methods = og.device_manager.windows_capture_config.get('capture_method', [])
+        if isinstance(methods, str): methods = [methods]
+        if i < len(methods): og.device_manager.set_capture(methods[i])
 
     def _on_interaction(self):
         i = self.interaction_list.currentRow()
-        if i < 0:
-            return
-        cfg = og.device_manager.windows_capture_config
-        methods = cfg.get('interaction', [])
-        if isinstance(methods, str):
-            methods = [methods]
-        if i < len(methods):
-            og.device_manager.set_interaction(methods[i])
+        if i < 0: return
+        methods = og.device_manager.windows_capture_config.get('interaction', [])
+        if isinstance(methods, str): methods = [methods]
+        if i < len(methods): og.device_manager.set_interaction(methods[i])
+
+    # ── 工具 ──
+    def _open_screenshots(self):
+        folder = os.path.join(os.getcwd(), "screenshots")
+        os.makedirs(folder, exist_ok=True)
+        subprocess.Popen(f'explorer "{folder}"')
+
+    def _open_logs(self):
+        folder = os.path.join(os.getcwd(), "logs")
+        os.makedirs(folder, exist_ok=True)
+        subprocess.Popen(f'explorer "{folder}"')
+
+    def _open_cwd(self):
+        subprocess.Popen(f'explorer "{os.getcwd()}"')
