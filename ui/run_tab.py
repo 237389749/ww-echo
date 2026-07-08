@@ -301,30 +301,46 @@ class RunTab(QWidget):
             self._append_log(f"套装: {task.config.get('当前套装')}  仅打分, 不修改声骸")
 
             def _on_eval_done(json_path, ss_dir):
-                import shutil, subprocess
+                import json as _json, shutil, subprocess
                 from PySide6.QtWidgets import QFileDialog, QMessageBox
+
                 save_path, _ = QFileDialog.getSaveFileName(
-                    None, "保存评估结果", "eval_result.json",
-                    "JSON (*.json)"
+                    None, "保存评估报告", "eval_report.html",
+                    "HTML (*.html)"
                 )
-                if save_path:
-                    try:
-                        shutil.copy(json_path, save_path)
-                        # 截图也复制到旁边
-                        dest_dir = os.path.dirname(save_path)
-                        ss_dest = os.path.join(dest_dir, "eval_screenshots")
-                        if os.path.exists(ss_dir):
-                            if os.path.exists(ss_dest):
-                                shutil.rmtree(ss_dest)
-                            shutil.copytree(ss_dir, ss_dest)
-                        if QMessageBox.question(None, "完成", f"已保存到:\n{save_path}\n\n打开文件夹?") == QMessageBox.Yes:
-                            subprocess.Popen(f'explorer /select,"{save_path}"')
-                    except Exception as e:
-                        self._append_log(f"[ERROR] 保存失败: {e}")
-                self._running = False
-                self.start_btn.setEnabled(True)
-                self.stop_btn.setEnabled(False)
-                self._append_log("══════════ 评估结束 ══════════")
+                if not save_path:
+                    self._running = False
+                    self.start_btn.setEnabled(True)
+                    self.stop_btn.setEnabled(False)
+                    self._append_log("══════════ 评估结束 ══════════")
+                    return
+
+                try:
+                    dest_dir = os.path.dirname(save_path)
+                    ss_dest = os.path.join(dest_dir, "eval_screenshots")
+                    if os.path.exists(ss_dest):
+                        shutil.rmtree(ss_dest)
+                    if os.path.exists(ss_dir):
+                        shutil.copytree(ss_dir, ss_dest)
+
+                    # 读 JSON 生成 HTML
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        data = _json.load(f)
+
+                    html = _build_eval_html(data)
+                    with open(save_path, "w", encoding="utf-8") as f:
+                        f.write(html)
+
+                    if QMessageBox.question(None, "完成",
+                                            f"报告已保存:\n{save_path}\n\n打开查看?") == QMessageBox.Yes:
+                        os.startfile(save_path)
+                except Exception as e:
+                    self._append_log(f"[ERROR] 保存失败: {e}")
+                finally:
+                    self._running = False
+                    self.start_btn.setEnabled(True)
+                    self.stop_btn.setEnabled(False)
+                    self._append_log("══════════ 评估结束 ══════════")
 
             def _run_eval():
                 try:
@@ -390,3 +406,60 @@ class RunTab(QWidget):
             return self._task
         except Exception:
             return None
+
+def _build_eval_html(data):
+    """生成评估报告 HTML。"""
+    set_name = data.get("set", "?")
+    total = data.get("total", 0)
+    results = data.get("results", [])
+    ts = data.get("evaluated_at", "")
+
+    pass_n = sum(1 for r in results if r["verdict"] == "pass")
+    pend_n = sum(1 for r in results if r["verdict"] == "pending")
+    fail_n = sum(1 for r in results if r["verdict"] == "fail")
+
+    rows = []
+    for r in results:
+        v = r["verdict"]
+        color = {"pass": "#4caf50", "pending": "#ff9800", "fail": "#f44336"}.get(v, "#888")
+        stats_str = " + ".join(
+            f'{s["name"]}={s["value"]}' for s in r.get("stats", [])[:5]
+        )
+        rows.append(f'''<tr>
+<td>{r["index"]}</td>
+<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>
+<td>{r["score"]}</td>
+<td style="color:{color};font-weight:bold">{r["verdict_cn"]}</td>
+<td>{stats_str}</td>
+</tr>''')
+
+    return f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>声骸评估报告 — {set_name}</title>
+<style>
+body{{font-family:'Microsoft YaHei',sans-serif;margin:20px;background:#f5f5f5}}
+.card{{background:#fff;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.1)}}
+.summary{{display:flex;gap:24px;font-size:16px}}
+.summary span{{padding:4px 12px;border-radius:4px}}
+table{{width:100%;border-collapse:collapse;margin-top:12px}}
+th,td{{padding:8px 12px;border-bottom:1px solid #eee;text-align:left}}
+th{{background:#fafafa;font-weight:bold}}
+img{{border-radius:4px;border:1px solid #ddd}}
+</style></head>
+<body>
+<h1>声骸评估报告</h1>
+<div class="card">
+<p>套装: <b>{set_name}</b> | 评估时间: {ts} | 共 <b>{total}</b> 个</p>
+<div class="summary">
+<span style="background:#e8f5e9;color:#2e7d32">达标 {pass_n}</span>
+<span style="background:#fff3e0;color:#e65100">待强化 {pend_n}</span>
+<span style="background:#ffebee;color:#c62828">不达标 {fail_n}</span>
+</div>
+</div>
+<div class="card">
+<table>
+<thead><tr><th>#</th><th>截图</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table>
+</div>
+</body></html>'''
