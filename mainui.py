@@ -48,15 +48,17 @@ def main():
     window = MainWindow(ok_engine, log_bridge)
     window.show()
 
-    # 5. 启动 ok-script, 延迟隐藏它的主窗口
+    # 5. 启动 ok-script, 隐藏它的主窗口
     ok_engine.start()
 
     from PySide6.QtCore import QTimer
-    def hide_ok_window():
-        mw = getattr(og.app, 'main_window', None)
-        if mw:
-            mw.hide()
-    QTimer.singleShot(2000, hide_ok_window)
+    from PySide6.QtWidgets import QApplication as QA
+    def hide_ok():
+        for w in QA.topLevelWindows():
+            if w.isVisible() and w.windowTitle() in ('OK-Echo', 'OK-WW', 'ok-ww'):
+                w.hide()
+    QTimer.singleShot(1000, hide_ok)
+    QTimer.singleShot(3000, hide_ok)
 
     sys.exit(app.exec())
 

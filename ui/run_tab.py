@@ -1,13 +1,14 @@
 """
-运行面板 — 策略/套装选择, 启停控制, 实时状态, 日志。
+运行面板 — 任务/策略/套装选择, 启停, 状态, 日志。
 """
 import json
 import os
 import threading
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QSettings
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
-                               QPushButton, QTextEdit, QLabel, QFrame)
+                               QPushButton, QTextEdit, QLabel, QFrame,
+                               QCheckBox)
 
 from ok import og
 
@@ -19,12 +20,13 @@ class RunTab(QWidget):
         self._task = None
         self._running = False
         self._thread = None
+        self._settings = QSettings("OK-Echo", "RunTab")
 
         self._setup_ui()
+        self._load_settings()
 
         log_bridge.log_signal.connect(self._append_log)
 
-        # 定时刷新任务状态
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._refresh_status)
         self._status_timer.start(500)
@@ -34,26 +36,38 @@ class RunTab(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        # ── 控制行 ──
-        ctrl = QHBoxLayout()
-        ctrl.addWidget(QLabel("策略:"))
+        # ── 第1行: 任务选择 + 策略 ──
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("任务:"))
+        self.task_combo = QComboBox()
+        self.task_combo.addItems(["批量强化声骸", "批量修改主属性"])
+        row1.addWidget(self.task_combo)
+
+        row1.addSpacing(16)
+        row1.addWidget(QLabel("策略:"))
         self.strategy_combo = QComboBox()
         self.strategy_combo.addItems(["渐进式", "传统"])
-        ctrl.addWidget(self.strategy_combo)
+        row1.addWidget(self.strategy_combo)
 
-        ctrl.addSpacing(12)
-        ctrl.addWidget(QLabel("套装:"))
+        row1.addSpacing(16)
+        row1.addWidget(QLabel("套装:"))
         self.set_combo = QComboBox()
         self.set_combo.setMinimumWidth(140)
         self._load_sets()
-        ctrl.addWidget(self.set_combo)
+        row1.addWidget(self.set_combo)
 
-        ctrl.addStretch()
+        row1.addStretch()
+        layout.addLayout(row1)
 
-        # 传统模式额外选项 (默认隐藏)
+        # ── 第2行: 传统模式选项 ──
         self.traditional_opts = QWidget()
         trad = QHBoxLayout(self.traditional_opts)
         trad.setContentsMargins(0, 0, 0, 0)
+        trad.addWidget(QLabel("必须有双爆"))
+        self.opt_double_crit = QCheckBox()
+        self.opt_double_crit.setChecked(True)
+        trad.addWidget(self.opt_double_crit)
+        trad.addSpacing(8)
         trad.addWidget(QLabel("首条双爆≥"))
         self.opt_first_crit = QComboBox()
         self.opt_first_crit.addItems([str(x) for x in [6.3, 6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5]])
@@ -71,37 +85,38 @@ class RunTab(QWidget):
         trad.addWidget(self.opt_valid_count)
         trad.addStretch()
         self.traditional_opts.setVisible(False)
-        ctrl.addWidget(self.traditional_opts)
+        layout.addWidget(self.traditional_opts)
 
         self.strategy_combo.currentTextChanged.connect(
             lambda s: self.traditional_opts.setVisible(s == "传统"))
 
+        # ── 第3行: 启停按钮 ──
+        row3 = QHBoxLayout()
+
         self.start_btn = QPushButton("▶ 开始")
-        self.start_btn.setMinimumWidth(80)
+        self.start_btn.setMinimumWidth(100)
+        self.start_btn.setStyleSheet("QPushButton { font-weight: bold; font-size: 14px; }")
         self.start_btn.clicked.connect(self._start)
-        ctrl.addWidget(self.start_btn)
+        row3.addWidget(self.start_btn)
 
         self.stop_btn = QPushButton("⏹ 停止")
-        self.stop_btn.setMinimumWidth(80)
+        self.stop_btn.setMinimumWidth(100)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop)
-        ctrl.addWidget(self.stop_btn)
+        row3.addWidget(self.stop_btn)
 
-        layout.addLayout(ctrl)
-
-        # ── 状态栏 ──
-        status = QHBoxLayout()
+        row3.addStretch()
+        # 状态
         self.success_label = QLabel("成功: 0")
         self.fail_label = QLabel("失败: 0")
         self.score_label = QLabel("得分: -")
-        self.tier_label = QLabel("进度: -")
-        for lbl in [self.success_label, self.fail_label, self.score_label, self.tier_label]:
+        for lbl in [self.success_label, self.fail_label, self.score_label]:
             lbl.setStyleSheet("font-weight: bold; font-size: 13px; padding: 2px 8px;")
-            status.addWidget(lbl)
-        status.addStretch()
-        layout.addLayout(status)
+            row3.addWidget(lbl)
 
-        # 分隔
+        layout.addLayout(row3)
+
+        # ── 分隔 ──
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -115,10 +130,23 @@ class RunTab(QWidget):
         )
         layout.addWidget(self.log_area, 1)
 
-    # ── 套装下拉 ──
+    # ── 设置持久化 ──
+    def _load_settings(self):
+        idx = self.task_combo.findText(self._settings.value("task", "批量强化声骸"))
+        if idx >= 0:
+            self.task_combo.setCurrentIndex(idx)
+        idx = self.strategy_combo.findText(self._settings.value("strategy", "渐进式"))
+        if idx >= 0:
+            self.strategy_combo.setCurrentIndex(idx)
+
+    def _save_settings(self):
+        self._settings.setValue("task", self.task_combo.currentText())
+        self._settings.setValue("strategy", self.strategy_combo.currentText())
+
+    # ── 套装 ──
     def _load_sets(self):
         path = os.path.join("assets", "echo_set_templates.json")
-        current = self.set_combo.currentText() if self.set_combo.count() > 0 else ""
+        current = self.set_combo.currentText()
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -133,10 +161,9 @@ class RunTab(QWidget):
 
     def _append_log(self, text):
         self.log_area.append(text)
-        scrollbar = self.log_area.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        sb = self.log_area.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
-    # ── 状态刷新 ──
     def _refresh_status(self):
         task = self._get_task()
         if task is None:
@@ -151,6 +178,7 @@ class RunTab(QWidget):
 
     # ── 启停 ──
     def _start(self):
+        self._save_settings()
         task = self._get_task()
         if task is None:
             self._append_log("[ERROR] 任务未就绪")
@@ -160,8 +188,8 @@ class RunTab(QWidget):
 
         task.config['强化策略'] = self.strategy_combo.currentText()
         task.config['当前套装'] = self.set_combo.currentText()
-        # 传统模式参数
         if self.strategy_combo.currentText() == '传统':
+            task.config['必须有双爆'] = self.opt_double_crit.isChecked()
             task.config['首条双爆>='] = float(self.opt_first_crit.currentText())
             task.config['双爆总计>='] = float(self.opt_total_crit.currentText())
             task.config['有效词条>='] = int(self.opt_valid_count.currentText())
@@ -169,9 +197,8 @@ class RunTab(QWidget):
         self._running = True
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-
-        self._append_log("══════════ 开始强化 ══════════")
-        self._append_log(f"策略: {task.config.get('强化策略')}  套装: {task.config.get('当前套装')}")
+        self._append_log("══════════ 开始 ══════════")
+        self._append_log(f"任务: {self.task_combo.currentText()}  策略: {task.config['强化策略']}  套装: {task.config['当前套装']}")
 
         self._thread = threading.Thread(target=self._run_task, args=(task,), daemon=True)
         self._thread.start()
@@ -195,14 +222,17 @@ class RunTab(QWidget):
             self._running = False
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
-            self._append_log("══════════ 任务结束 ══════════")
+            self._append_log("══════════ 结束 ══════════")
 
     def _get_task(self):
         if self._task is not None:
             return self._task
         try:
+            module_name = "EnhanceEchoTask" if "强化" in self.task_combo.currentText() else "ChangeEchoTask"
             from src.task.EnhanceEchoTask import EnhanceEchoTask
-            self._task = og.executor.get_task_by_class(EnhanceEchoTask)
+            from src.task.ChangeEchoTask import ChangeEchoTask
+            cls = EnhanceEchoTask if module_name == "EnhanceEchoTask" else ChangeEchoTask
+            self._task = og.executor.get_task_by_class(cls)
             return self._task
         except Exception:
             return None

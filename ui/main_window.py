@@ -10,7 +10,7 @@ from ui.set_config_tab import SetConfigTab
 class MainWindow(QMainWindow):
     def __init__(self, ok_engine, log_bridge):
         super().__init__()
-        self.setWindowTitle("OK-Echo")
+        self.setWindowTitle("OK-Echo — 声骸强化")
         self.resize(860, 640)
 
         self.tabs = QTabWidget()
