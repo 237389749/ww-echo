@@ -97,6 +97,18 @@ class RunTab(QWidget):
 
         self.strategy_combo.currentTextChanged.connect(
             lambda s: self.traditional_opts.setVisible(s == "传统"))
+        self.strategy_combo.currentTextChanged.connect(
+            lambda s: self._update_info(s))
+
+        # 策略/评分说明
+        self.info_label = QLabel()
+        self.info_label.setWordWrap(True)
+        self.info_label.setStyleSheet(
+            "QLabel { color: #666; font-size: 11px; padding: 4px 8px; "
+            "background: rgba(128,128,128,0.08); border-radius: 4px; }"
+        )
+        layout.addWidget(self.info_label)
+        self._update_info(self.strategy_combo.currentText())
 
         # 通用选项
         row_gen = QHBoxLayout()
@@ -179,6 +191,18 @@ class RunTab(QWidget):
             "QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px; }"
         )
         layout.addWidget(self.log_area, 1)
+
+    def _update_info(self, strategy):
+        if strategy == "渐进式":
+            self.info_label.setText(
+                "渐进式: Lv5首条须在套装预期中 → Lv10跳过 → Lv15得分≥1.5 → Lv20≥2.25 → Lv25≥3.75\n"
+                "评分=档位值÷均值×权重, 单条0.75~1.25词条, 5条3.75~6.25。无效词条=0分不计。"
+            )
+        else:
+            self.info_label.setText(
+                "传统: 满级后一次性判断(双爆+首条+总计+有效词条数量)\n"
+                "启用评分后: 均值归一化, 单条0.75~1.25, 总分低于设定值丢弃。"
+            )
 
     def _on_task_changed(self, task_name):
         is_enhance = "强化" in task_name
