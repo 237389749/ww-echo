@@ -63,10 +63,15 @@ class RunTab(QWidget):
         self.traditional_opts = QWidget()
         trad = QHBoxLayout(self.traditional_opts)
         trad.setContentsMargins(0, 0, 0, 0)
-        trad.addWidget(QLabel("必须有双爆"))
-        self.opt_double_crit = QCheckBox()
+        self.opt_double_crit = QCheckBox("必须有双爆")
         self.opt_double_crit.setChecked(True)
         trad.addWidget(self.opt_double_crit)
+        self.opt_all_valid_before_crit = QCheckBox("双爆前全有效")
+        self.opt_all_valid_before_crit.setChecked(True)
+        trad.addWidget(self.opt_all_valid_before_crit)
+        self.opt_first_must_valid = QCheckBox("首条必须有效")
+        self.opt_first_must_valid.setChecked(True)
+        trad.addWidget(self.opt_first_must_valid)
         trad.addSpacing(8)
         trad.addWidget(QLabel("首条双爆≥"))
         self.opt_first_crit = QComboBox()
@@ -89,6 +94,27 @@ class RunTab(QWidget):
 
         self.strategy_combo.currentTextChanged.connect(
             lambda s: self.traditional_opts.setVisible(s == "传统"))
+
+        # 通用选项
+        row_gen = QHBoxLayout()
+        self.opt_pause = QCheckBox("成功后暂停")
+        self.opt_pause.setChecked(True)
+        row_gen.addWidget(self.opt_pause)
+        row_gen.addStretch()
+        layout.addLayout(row_gen)
+
+        # 传统模式额外选项: 评分
+        trad2 = QHBoxLayout()
+        self.opt_score_enable = QCheckBox("启用评分模式")
+        trad2.addWidget(self.opt_score_enable)
+        trad2.addWidget(QLabel("最低得分≥"))
+        self.opt_score_min = QComboBox()
+        for v in [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]:
+            self.opt_score_min.addItem(str(v))
+        self.opt_score_min.setCurrentText("3.0")
+        trad2.addWidget(self.opt_score_min)
+        trad2.addStretch()
+        layout.addLayout(trad2)
 
         # 修改主属性: 目标属性和策略行 (默认隐藏)
         self.change_opts = QWidget()
@@ -221,9 +247,15 @@ class RunTab(QWidget):
 
         if self.strategy_combo.currentText() == '传统':
             task.config['必须有双爆'] = self.opt_double_crit.isChecked()
+            task.config['双爆出现之前必须全有效词条'] = self.opt_all_valid_before_crit.isChecked()
+            task.config['第一条必须为有效词条'] = self.opt_first_must_valid.isChecked()
             task.config['首条双爆>='] = float(self.opt_first_crit.currentText())
             task.config['双爆总计>='] = float(self.opt_total_crit.currentText())
             task.config['有效词条>='] = int(self.opt_valid_count.currentText())
+            task.config['启用评分模式'] = self.opt_score_enable.isChecked()
+            task.config['最低得分>='] = float(self.opt_score_min.currentText())
+
+        task.config['成功后暂停'] = self.opt_pause.isChecked()
 
         self._running = True
         self.start_btn.setEnabled(False)
