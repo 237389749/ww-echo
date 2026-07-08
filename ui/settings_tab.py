@@ -1,5 +1,5 @@
 """
-设备 & 全局设置 — 窗口/截图/交互/热键/月卡/调试。
+设备 & 全局设置 — 窗口/截图/交互/热键/月卡。
 """
 import os
 import subprocess
@@ -90,26 +90,12 @@ class SettingsTab(QWidget):
         g2.addStretch()
         layout.addLayout(g2)
 
-        g3 = QHBoxLayout()
-        g3.addWidget(QLabel("调试覆盖层"))
-        self.overlay_boxes = QCheckBox("显示识别框")
-        g3.addWidget(self.overlay_boxes)
-        self.overlay_log = QCheckBox("层上显示日志")
-        g3.addWidget(self.overlay_log)
-        g3.addStretch()
-        layout.addLayout(g3)
-
-        self.overlay_boxes.stateChanged.connect(self._on_overlay_boxes)
-        self.overlay_log.stateChanged.connect(self._on_overlay_log)
-
         sep3 = QFrame(); sep3.setFrameShape(QFrame.HLine); layout.addWidget(sep3)
 
         # ═══════ 工具 ═══════
         tools = QHBoxLayout()
         for text, slot in [
-            ("截图文件夹", self._open_screenshots),
-            ("日志文件夹", self._open_logs),
-            ("安装目录", self._open_cwd),
+            ("打开安装目录", self._open_cwd),
         ]:
             btn = QPushButton(text)
             btn.clicked.connect(slot)
@@ -139,21 +125,6 @@ class SettingsTab(QWidget):
             self.monthly_hour.setValue(mc.get('Monthly Card Time', 4))
         except Exception:
             pass
-        try:
-            self.overlay_boxes.setChecked(og.app.ok_config.get('use_overlay', False))
-            self.overlay_log.setChecked(og.app.ok_config.get('show_overlay_logs', True))
-        except Exception:
-            pass
-
-    def _on_overlay_boxes(self, state):
-        og.app.ok_config['use_overlay'] = bool(state)
-        og.app.ok_config.save_file()
-        if ov := og.app.get_overlay_view():
-            ov.set_boxes_enabled(bool(state))
-
-    def _on_overlay_log(self, state):
-        og.app.ok_config['show_overlay_logs'] = bool(state)
-        og.app.ok_config.save_file()
 
     # ── 设备 ──
     def _refresh(self):
@@ -207,15 +178,5 @@ class SettingsTab(QWidget):
         if i < len(methods): og.device_manager.set_interaction(methods[i])
 
     # ── 工具 ──
-    def _open_screenshots(self):
-        folder = os.path.join(os.getcwd(), "screenshots")
-        os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(f'explorer "{folder}"')
-
-    def _open_logs(self):
-        folder = os.path.join(os.getcwd(), "logs")
-        os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(f'explorer "{folder}"')
-
     def _open_cwd(self):
         subprocess.Popen(f'explorer "{os.getcwd()}"')

@@ -1,5 +1,5 @@
 """
-主窗口 — 强化运行 | 套装配置 | 设备设置。
+主窗口。
 """
 from PySide6.QtWidgets import QMainWindow, QTabWidget
 
@@ -7,6 +7,8 @@ from ui.run_tab import RunTab
 from ui.set_config_tab import SetConfigTab
 from ui.settings_tab import SettingsTab
 from ui.hotkey_tab import HotkeyTab
+from ui.debug_tab import DebugTab
+from ui.about_tab import AboutTab
 
 
 class MainWindow(QMainWindow):
@@ -30,3 +32,9 @@ class MainWindow(QMainWindow):
         self.set_config_tab = SetConfigTab()
         self.tabs.addTab(self.set_config_tab, "套装配置")
         self.set_config_tab.saved.connect(self.run_tab._load_sets)
+
+        self.debug_tab = DebugTab()
+        self.tabs.addTab(self.debug_tab, "调试工具")
+
+        self.about_tab = AboutTab()
+        self.tabs.addTab(self.about_tab, "关于")
