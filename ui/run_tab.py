@@ -50,6 +50,32 @@ class RunTab(QWidget):
 
         ctrl.addStretch()
 
+        # 传统模式额外选项 (默认隐藏)
+        self.traditional_opts = QWidget()
+        trad = QHBoxLayout(self.traditional_opts)
+        trad.setContentsMargins(0, 0, 0, 0)
+        trad.addWidget(QLabel("首条双爆≥"))
+        self.opt_first_crit = QComboBox()
+        self.opt_first_crit.addItems([str(x) for x in [6.3, 6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5]])
+        self.opt_first_crit.setCurrentText("6.9")
+        trad.addWidget(self.opt_first_crit)
+        trad.addWidget(QLabel("双爆总计≥"))
+        self.opt_total_crit = QComboBox()
+        self.opt_total_crit.addItems([str(x) for x in [6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5, 12.0, 13.8, 15.0, 16.5, 18.0]])
+        self.opt_total_crit.setCurrentText("13.8")
+        trad.addWidget(self.opt_total_crit)
+        trad.addWidget(QLabel("有效词条≥"))
+        self.opt_valid_count = QComboBox()
+        self.opt_valid_count.addItems(["1", "2", "3", "4", "5"])
+        self.opt_valid_count.setCurrentText("3")
+        trad.addWidget(self.opt_valid_count)
+        trad.addStretch()
+        self.traditional_opts.setVisible(False)
+        ctrl.addWidget(self.traditional_opts)
+
+        self.strategy_combo.currentTextChanged.connect(
+            lambda s: self.traditional_opts.setVisible(s == "传统"))
+
         self.start_btn = QPushButton("▶ 开始")
         self.start_btn.setMinimumWidth(80)
         self.start_btn.clicked.connect(self._start)
@@ -134,6 +160,11 @@ class RunTab(QWidget):
 
         task.config['强化策略'] = self.strategy_combo.currentText()
         task.config['当前套装'] = self.set_combo.currentText()
+        # 传统模式参数
+        if self.strategy_combo.currentText() == '传统':
+            task.config['首条双爆>='] = float(self.opt_first_crit.currentText())
+            task.config['双爆总计>='] = float(self.opt_total_crit.currentText())
+            task.config['有效词条>='] = int(self.opt_valid_count.currentText())
 
         self._running = True
         self.start_btn.setEnabled(False)
