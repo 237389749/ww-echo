@@ -14,9 +14,10 @@ from ok import og
 
 
 class RunTab(QWidget):
-    def __init__(self, ok_engine, log_bridge, parent=None):
+    def __init__(self, ok_engine, log_bridge, log_area: QTextEdit, parent=None):
         super().__init__(parent)
         self.ok_engine = ok_engine
+        self.log_area = log_area
         self._task = None
         self._running = False
         self._thread = None
@@ -171,7 +172,11 @@ class RunTab(QWidget):
 
         self.eval_btn = QPushButton("📊 评估")
         self.eval_btn.setMinimumWidth(80)
-        self.eval_btn.setToolTip("遍历背包声骸, 仅读取词条打分, 不强化不修改")
+        self.eval_btn.setToolTip(
+            "只读模式: 遍历背包声骸, OCR读取词条并打分\n"
+            "不强化/不修改/不上锁/不丢弃\n"
+            "阈值: 0词条跳过 | 1条≥1.0 | 2-3条≥2.0 | 4条≥2.5 | 5条≥3.0"
+        )
         self.eval_btn.clicked.connect(self._evaluate)
         row3.addWidget(self.eval_btn)
 
@@ -203,14 +208,10 @@ class RunTab(QWidget):
         sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        # ── 日志 ──
-        layout.addWidget(QLabel("运行日志"))
-        self.log_area = QTextEdit()
-        self.log_area.setReadOnly(True)
-        self.log_area.setStyleSheet(
-            "QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px; }"
-        )
-        layout.addWidget(self.log_area, 1)
+        hint = QLabel("运行日志 → 见"调试工具"tab")
+        hint.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(hint)
+        layout.addStretch()
 
     def _update_strategy_info(self, strategy):
         if strategy == "渐进式":

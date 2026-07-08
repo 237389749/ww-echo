@@ -13,8 +13,9 @@ from ok.gui.Communicate import communicate
 
 
 class DebugTab(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, log_area, parent=None):
         super().__init__(parent)
+        self.log_area = log_area
         self._setup_ui()
         self._load()
 
@@ -71,7 +72,9 @@ class DebugTab(QWidget):
         tools.addStretch()
         layout.addLayout(tools)
 
-        layout.addStretch()
+        # ── 运行日志 (共享) ──
+        layout.addWidget(QLabel("运行日志 (所有操作的输出)"))
+        layout.addWidget(self.log_area, 1)
 
     def _load(self):
         try:
