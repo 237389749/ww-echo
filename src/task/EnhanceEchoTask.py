@@ -181,7 +181,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 "index": evaluated + 1,
                 "tier": tier,
                 "score": round(score, 2),
-                "threshold": threshold,
+                "threshold": {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}.get(tier, 99),
                 "verdict": verdict,
                 "verdict_cn": verdict_cn,
                 "screenshot": ss_name,
@@ -267,7 +267,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     if match:
                         p.name = match.group()
                 values = self.find_boxes(texts, match=number_pattern)
-                self.log_info(f'未满级前置检查: {properties}')
+                self.log_debug(f'未满级前置检查: {properties}')
                 if not self.check_echo_progressive(properties, values):
                     self.trash_and_esc()
                     break
@@ -310,7 +310,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         self.sleep(0.5)
                 self.sleep(0.1)
                 texts = self.ocr(0.09, 0.3, 0.40, 0.53)
-                self.log_info(f'ocr values: {texts}')
+                self.log_debug(f'ocr values: {texts}')
                 properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
                 for p in properties:
                     match = property_pattern.search(p.name)
@@ -658,7 +658,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         if not success:
             raise Exception('上锁失败!')
         self.screenshot_echo(f'success/{self.info_get("成功声骸数量")}')
-        self.log_info('成功并上锁')
+        self.log_info('成功上锁!')
         if self.config.get('成功后暂停'):
             self.log_info('符合条件的声骸，已暂停任务', notify=True)
             self.pause()
