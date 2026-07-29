@@ -131,6 +131,13 @@ ww-echo/
 
 [ok-script](https://github.com/ok-oldking/ok-script) — 截图 + OCR + 模板匹配 + 键鼠模拟（仅用后端，GUI 自建）
 
+---
+
+## TODO
+
+- [ ] **锁2追3机制**: 满级5词条中 ≥2条在自身top4以上 → 锁定重铸其余。T3时如已丢1词条, 检查剩余有效是否≥2条且top4。
+- [ ] 评估报告增加「重铸建议」列
+
 ## 致谢 | Credits
 
 - [ok-oldking/ok-wuthering-waves](https://github.com/ok-oldking/ok-wuthering-waves)
