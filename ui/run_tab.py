@@ -5,7 +5,7 @@ import json
 import os
 import threading
 
-from PySide6.QtCore import QTimer, QSettings
+from PySide6.QtCore import QTimer, QSettings, Signal, QObject
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
                                QPushButton, QLabel, QFrame,
                                QCheckBox)
@@ -14,6 +14,11 @@ from ok import og
 
 
 class RunTab(QWidget):
+    _log_signal = Signal(str)
+    _eval_done_signal = Signal(str, str)  # json_path, ss_dir
+    _eval_error_signal = Signal(str)
+    _task_done_signal = Signal(str)  # message
+
     def __init__(self, ok_engine, log_bridge, log_area, parent=None):
         super().__init__(parent)
         self.ok_engine = ok_engine
@@ -27,6 +32,12 @@ class RunTab(QWidget):
         self._load_settings()
 
         log_bridge.log_signal.connect(self._append_log)
+
+        # 线程安全信号
+        self._log_signal.connect(self._append_log)
+        self._eval_done_signal.connect(self._on_eval_done_ui)
+        self._eval_error_signal.connect(self._on_eval_error_ui)
+        self._task_done_signal.connect(self._on_task_done_ui)
 
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._refresh_status)
@@ -306,57 +317,13 @@ class RunTab(QWidget):
             self._append_log(f"套装: {task.config.get('当前套装')}  仅打分, 不修改声骸")
 
             def _on_eval_done(json_path, ss_dir):
-                import json as _json, shutil, subprocess
-                from PySide6.QtWidgets import QFileDialog, QMessageBox
-
-                save_path, _ = QFileDialog.getSaveFileName(
-                    None, "保存评估报告", "eval_report.html",
-                    "HTML (*.html)"
-                )
-                if not save_path:
-                    import shutil as _shutil
-                    _shutil.rmtree(os.path.dirname(json_path), ignore_errors=True)
-                    self._running = False
-                    self.start_btn.setEnabled(True)
-                    self.stop_btn.setEnabled(False)
-                    self._append_log("══════════ 评估结束 (已取消) ══════════")
-                    return
-
-                try:
-                    dest_dir = os.path.dirname(save_path)
-                    ss_dest = os.path.join(dest_dir, "eval_screenshots")
-                    if os.path.exists(ss_dest):
-                        shutil.rmtree(ss_dest)
-                    if os.path.exists(ss_dir):
-                        shutil.copytree(ss_dir, ss_dest)
-
-                    # 读 JSON 生成 HTML
-                    with open(json_path, "r", encoding="utf-8") as f:
-                        data = _json.load(f)
-
-                    html = _build_eval_html(data)
-                    with open(save_path, "w", encoding="utf-8") as f:
-                        f.write(html)
-
-                    if QMessageBox.question(None, "完成",
-                                            f"报告已保存:\n{save_path}\n\n打开查看?") == QMessageBox.Yes:
-                        os.startfile(save_path)
-                except Exception as e:
-                    self._append_log(f"[ERROR] 保存失败: {e}")
-                finally:
-                    self._running = False
-                    self.start_btn.setEnabled(True)
-                    self.stop_btn.setEnabled(False)
-                    self._append_log("══════════ 评估结束 ══════════")
+                self._eval_done_signal.emit(json_path, ss_dir)
 
             def _run_eval():
                 try:
                     task.evaluate_only(on_done=_on_eval_done)
                 except Exception as e:
-                    self._append_log(f"[ERROR] {e}")
-                    self._running = False
-                    self.start_btn.setEnabled(True)
-                    self.stop_btn.setEnabled(False)
+                    self._eval_error_signal.emit(str(e))
 
             self._thread = threading.Thread(target=_run_eval, daemon=True)
             self._thread.start()
@@ -389,7 +356,9 @@ class RunTab(QWidget):
             task.disable()
             task.unpause()
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2)
+            self._thread.join(timeout=3)
+            if self._thread.is_alive():
+                self._append_log("⚠ 任务线程仍在运行, 将在后台自行结束")
         self._running = False
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
@@ -399,12 +368,65 @@ class RunTab(QWidget):
         try:
             og.app.start_controller.start(task)
         except Exception as e:
-            self._append_log(f"[ERROR] {e}")
-        finally:
+            self._task_done_signal.emit(f"[ERROR] {e}")
+        else:
+            self._task_done_signal.emit("══════════ 结束 ══════════")
+
+    def _on_task_done_ui(self, msg):
+        self._running = False
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self._append_log(msg)
+
+    def _on_eval_done_ui(self, json_path, ss_dir):
+        """在主线程中处理评估完成后的 UI 操作。"""
+        import json as _json, shutil
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            None, "保存评估报告", "eval_report.html",
+            "HTML (*.html)"
+        )
+        if not save_path:
+            shutil.rmtree(os.path.dirname(json_path), ignore_errors=True)
             self._running = False
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
-            self._append_log("══════════ 结束 ══════════")
+            self._append_log("══════════ 评估结束 (已取消) ══════════")
+            return
+
+        try:
+            dest_dir = os.path.dirname(save_path)
+            ss_dest = os.path.join(dest_dir, "eval_screenshots")
+            if os.path.exists(ss_dest):
+                shutil.rmtree(ss_dest)
+            if os.path.exists(ss_dir):
+                shutil.copytree(ss_dir, ss_dest)
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+
+            html = _build_eval_html(data)
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(html)
+
+            if QMessageBox.question(None, "完成",
+                                    f"报告已保存:\n{save_path}\n\n打开查看?") == QMessageBox.Yes:
+                os.startfile(save_path)
+        except Exception as e:
+            self._append_log(f"[ERROR] 保存失败: {e}")
+        finally:
+            shutil.rmtree(os.path.dirname(json_path), ignore_errors=True)
+            self._running = False
+            self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self._append_log("══════════ 评估结束 ══════════")
+
+    def _on_eval_error_ui(self, error_msg):
+        self._append_log(f"[ERROR] {error_msg}")
+        self._running = False
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
 
     def _get_task(self):
         if self._task is not None:

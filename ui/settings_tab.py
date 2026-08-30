@@ -115,11 +115,6 @@ class SettingsTab(QWidget):
     # ── 配置加载 ──
     def _load_config(self):
         try:
-            key_cfg = og.executor.global_config.get_config('Game Hotkey')
-            self.hotkey_label.setText(key_cfg.get('Start/Stop', 'F9'))
-        except Exception:
-            pass
-        try:
             mc = og.executor.global_config.get_config('Monthly Card Config')
             self.monthly_check.setChecked(mc.get('Check Monthly Card', False))
             self.monthly_hour.setValue(mc.get('Monthly Card Time', 4))

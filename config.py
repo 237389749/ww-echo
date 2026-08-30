@@ -115,6 +115,7 @@ config = {
     'version': version,
     'onetime_tasks': [
         ["src.task.EnhanceEchoTask", "EnhanceEchoTask"],
+        ["src.task.ChangeEchoTask", "ChangeEchoTask"],
     ],
     'trigger_tasks': [
         ["src.task.MouseResetTask", "MouseResetTask"],

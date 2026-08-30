@@ -147,13 +147,3 @@ def get_expected_stats(set_name: str | None) -> list[str]:
     # 通用默认
     return ["暴击", "暴击伤害", "攻击百分比", "攻击", "共鸣效率"]
 
-
-def get_stat_weight(set_name: str | None, stat_name: str) -> float:
-    """
-    获取某套装下某词条的权重。
-    先查套装模板, 没有则返回 1.0。
-    """
-    weights = get_set_weights(set_name)
-    if weights:
-        return weights.get(stat_name, 0.0)  # 不在模板中 = 无效词条(权重0)
-    return 1.0  # 通用模式由 UI 滑块控制

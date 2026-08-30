@@ -1,16 +1,8 @@
-from src.task.image_utils import convert_bw, binarize_for_matching, convert_dialog_icon
+"""模板匹配特征预处理 — 仅保留声骸相关特征。"""
 
 
 def process_feature(feature_name, feature):
-    if feature_name == 'illusive_realm_exit':
-        feature.mat = convert_bw(feature.mat)
-    elif feature_name == 'purple_target_distance_icon':
-        feature.mat = binarize_for_matching(feature.mat)
-    elif feature_name == 'world_earth_icon':
-        feature.mat = convert_bw(feature.mat)
-    elif feature_name == 'skip_dialog':
-        feature.mat = convert_dialog_icon(feature.mat)
-    elif feature_name == 'mouse_forte':
-        feature.mat = binarize_for_matching(feature.mat)
-    elif feature_name == 'e_forte':
-        feature.mat = binarize_for_matching(feature.mat, 220)
+    """ok-script 加载 coco_annotations.json 时回调。
+    声骸相关特征 (echo_*) 无需特殊处理，其余跳过。
+    """
+    pass

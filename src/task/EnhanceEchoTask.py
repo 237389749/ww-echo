@@ -108,7 +108,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         阈值: 0词条跳过 | 1条>=1.0 | 2-3条>=2.0 | 4条>=2.5 | 5条>=3.0
         完成后调用 on_done(json_path, screenshot_dir)。
         """
-        import json as _json, tempfile
+        import json as _json, tempfile, shutil
 
         results: list[dict] = []
         evaluated = 0
@@ -116,102 +116,107 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         ss_dir = os.path.join(tmp_dir, "screenshots")
         os.makedirs(ss_dir, exist_ok=True)
 
-        while True:
-            enhance = self.find_echo_enhance()
-            if not enhance:
-                raise Exception('必须在背包声骸界面过滤后开始!')
-
-            start = time.time()
-            while time.time() - start < 5:
-                if enhance:
-                    self.click(enhance, after_sleep=0.5)
+        try:
+            while True:
                 enhance = self.find_echo_enhance()
                 if not enhance:
+                    raise Exception('必须在背包声骸界面过滤后开始!')
+
+                start = time.time()
+                while time.time() - start < 5:
+                    if enhance:
+                        self.click(enhance, after_sleep=0.5)
+                    enhance = self.find_echo_enhance()
+                    if not enhance:
+                        break
+
+                self.sleep(0.3)
+                texts = self.ocr(0.09, 0.3, 0.40, 0.53)
+                properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
+                for p in properties:
+                    match = property_pattern.search(p.name)
+                    if match:
+                        p.name = match.group()
+                values = self.find_boxes(texts, match=number_pattern)
+
+                if not properties:
+                    self.log_info('无可评估声骸, 任务结束', notify=True)
                     break
 
-            self.sleep(0.3)
-            texts = self.ocr(0.09, 0.3, 0.40, 0.53)
-            properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
-            for p in properties:
-                match = property_pattern.search(p.name)
-                if match:
-                    p.name = match.group()
-            values = self.find_boxes(texts, match=number_pattern)
+                # 配对 & 归一化
+                paired = self._pair_props(properties, values)
+                normalized = [(self._normalize_stat(n, v), parse_number(v)) for n, v in paired]
 
-            if not properties:
-                self.log_info('无可评估声骸, 任务结束', notify=True)
-                break
+                tier = len(normalized)
+                if tier == 0:
+                    self.log_info(f"[评估#{evaluated + 1}] 0词条 -> 跳过")
+                    self.esc()
+                    self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
+                    continue
 
-            # 配对 & 归一化
-            paired = self._pair_props(properties, values)
-            normalized = [(self._normalize_stat(n, v), parse_number(v)) for n, v in paired]
+                set_name = self.config.get('当前套装', '通用')
+                valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
+                score, details = self.compute_weighted_score(
+                    [(n, str(v)) for n, v in normalized], valid_stats
+                )
+                # 与强化逻辑一致: 使用 check_echo_progressive 统一判断
+                passed = self.check_echo_progressive(properties, values)
 
-            tier = len(normalized)
-            if tier == 0:
-                self.log_info(f"[评估#{evaluated + 1}] 0词条 -> 跳过")
+                if passed and tier < 5:
+                    verdict = "pending"
+                    verdict_cn = "待强化"
+                elif passed:
+                    verdict = "pass"
+                    verdict_cn = "达标"
+                else:
+                    verdict = "fail"
+                    verdict_cn = "不达标"
+
+                # 截图
+                ss_name = f"eval_{evaluated + 1:03d}_{verdict}_{score:.1f}.png"
+                ss_path = os.path.join(ss_dir, ss_name)
+                echo_img = self.box_of_screen(0.09, 0.09, 0.37, 0.55).crop_frame(self.frame)
+                cv2.imwrite(ss_path, echo_img)
+
+                entry = {
+                    "index": evaluated + 1,
+                    "tier": tier,
+                    "score": round(score, 2),
+                    "threshold": {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}.get(tier, 99),
+                    "verdict": verdict,
+                    "verdict_cn": verdict_cn,
+                    "screenshot": ss_name,
+                    "stats": [{"name": n, "value": v, "detail": d}
+                              for (n, v), d in zip(normalized, details)]
+                }
+                results.append(entry)
+
+                self.log_info(f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
+                evaluated += 1
+                self.info_set('评估数量', evaluated)
                 self.esc()
                 self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
-                continue
 
+            # 汇总 JSON
             set_name = self.config.get('当前套装', '通用')
-            valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
-            score, details = self.compute_weighted_score(
-                [(n, str(v)) for n, v in normalized], valid_stats
-            )
-            # 与强化逻辑一致: 使用 check_echo_progressive 统一判断
-            passed = self.check_echo_progressive(properties, values)
-
-            if passed and tier < 5:
-                verdict = "pending"
-                verdict_cn = "待强化"
-            elif passed:
-                verdict = "pass"
-                verdict_cn = "达标"
-            else:
-                verdict = "fail"
-                verdict_cn = "不达标"
-
-            # 截图
-            ss_name = f"eval_{evaluated + 1:03d}_{verdict}_{score:.1f}.png"
-            ss_path = os.path.join(ss_dir, ss_name)
-            echo_img = self.box_of_screen(0.09, 0.09, 0.37, 0.55).crop_frame(self.frame)
-            cv2.imwrite(ss_path, echo_img)
-
-            entry = {
-                "index": evaluated + 1,
-                "tier": tier,
-                "score": round(score, 2),
-                "threshold": {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}.get(tier, 99),
-                "verdict": verdict,
-                "verdict_cn": verdict_cn,
-                "screenshot": ss_name,
-                "stats": [{"name": n, "value": v, "detail": d}
-                          for (n, v), d in zip(normalized, details)]
+            output = {
+                "set": set_name,
+                "total": evaluated,
+                "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "results": results,
             }
-            results.append(entry)
+            json_path = os.path.join(tmp_dir, "eval_result.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                _json.dump(output, f, ensure_ascii=False, indent=2)
 
-            self.log_info(f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
-            evaluated += 1
-            self.info_set('评估数量', evaluated)
-            self.esc()
-            self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
+            self.log_info(f'评估完成, 共{evaluated}个声骸', notify=True)
 
-        # 汇总 JSON
-        set_name = self.config.get('当前套装', '通用')
-        output = {
-            "set": set_name,
-            "total": evaluated,
-            "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "results": results,
-        }
-        json_path = os.path.join(tmp_dir, "eval_result.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            _json.dump(output, f, ensure_ascii=False, indent=2)
-
-        self.log_info(f'评估完成, 共{evaluated}个声骸', notify=True)
-
-        if on_done:
-            self.handler.post(lambda: on_done(json_path, ss_dir))
+            if on_done:
+                self.handler.post(lambda: on_done(json_path, ss_dir))
+        except Exception:
+            # 异常时清理临时文件 (on_done 成功调用后由 UI 端清理)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise
 
     def find_echo_enhance(self):
         return self.ocr(0.82, 0.86, 0.97, 0.96, match='培养')
@@ -343,15 +348,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.fail_reason = ""
         invalid_count = 0
 
-        paired_stats = []
-        unmatched_values = values.copy()
-        for prop in properties:
-            matched_val_text = "0"
-            if unmatched_values:
-                closest_val = min(unmatched_values, key=lambda v: abs(prop.y - v.y))
-                matched_val_text = closest_val.name
-                unmatched_values.remove(closest_val)
-            paired_stats.append((prop.name, matched_val_text))
+        paired_stats = self._pair_props(properties, values)
 
         total_count = len(paired_stats)
 
@@ -366,27 +363,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         valid_stats = self.config.get('有效词条') or []
 
         for p_raw, v_str in paired_stats:
-            p = p_raw
-            if '暴击伤害' in p:
-                p = '暴击伤害'
-            elif '暴击' in p:
-                p = '暴击'
-            elif '攻击' in p:
-                p = '攻击' + ('百分比' if '%' in v_str or '％' in v_str else '')
-            elif '生命' in p:
-                p = '生命' + ('百分比' if '%' in v_str or '％' in v_str else '')
-            elif '防御' in p:
-                p = '防御' + ('百分比' if '%' in v_str or '％' in v_str else '')
-            elif '效率' in p:
-                p = '共鸣效率'
-            elif '普攻' in p:
-                p = '普攻伤害加成'
-            elif '重击' in p:
-                p = '重击伤害加成'
-            elif '解放' in p:
-                p = '共鸣解放伤害加成'
-            elif '技能' in p:
-                p = '共鸣技能伤害加成'
+            p = self._normalize_stat(p_raw, v_str)
 
             v = parse_number(v_str)
 
@@ -483,43 +460,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """
         self.fail_reason = ""
 
-        # 1. 配对属性名和数值（与 check_echo_stats 相同逻辑）
-        paired_stats = []
-        unmatched_values = values.copy()
-        for prop in properties:
-            matched_val_text = "0"
-            if unmatched_values:
-                closest_val = min(unmatched_values, key=lambda v: abs(prop.y - v.y))
-                matched_val_text = closest_val.name
-                unmatched_values.remove(closest_val)
-            paired_stats.append((prop.name, matched_val_text))
+        # 1. 配对属性名和数值
+        paired_stats = self._pair_props(properties, values)
 
         tier = len(paired_stats)
 
         # 2. 归一化属性名
         normalized = []
         for p_raw, v_str in paired_stats:
-            p = p_raw
-            if '暴击伤害' in p:
-                p = '暴击伤害'
-            elif '暴击' in p:
-                p = '暴击'
-            elif '攻击' in p:
-                p = '攻击' + ('百分比' if '%' in v_str or '％' in v_str else '')
-            elif '生命' in p:
-                p = '生命' + ('百分比' if '%' in v_str or '％' in v_str else '')
-            elif '防御' in p:
-                p = '防御' + ('百分比' if '%' in v_str or '％' in v_str else '')
-            elif '效率' in p:
-                p = '共鸣效率'
-            elif '普攻' in p:
-                p = '普攻伤害加成'
-            elif '重击' in p:
-                p = '重击伤害加成'
-            elif '解放' in p:
-                p = '共鸣解放伤害加成'
-            elif '技能' in p:
-                p = '共鸣技能伤害加成'
+            p = self._normalize_stat(p_raw, v_str)
             v = parse_number(v_str)
             normalized.append((p, v))
 
@@ -652,7 +601,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             if drop_status.name == 'echo_not_locked':
                 self.send_key('c', after_sleep=1)
             else:
-                self.log_info('成功弃置!')
+                self.log_info('成功上锁!')
                 success = True
                 break
         if not success:

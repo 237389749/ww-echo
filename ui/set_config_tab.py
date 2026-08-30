@@ -207,7 +207,8 @@ class SetConfigTab(QWidget):
         if not p:
             return
         try:
-            json.load(open(p, "r"))
+            with open(p, "r", encoding="utf-8") as f:
+                json.load(f)
         except Exception as e:
             QMessageBox.warning(self, "错误", f"JSON 格式错误: {e}")
             return
