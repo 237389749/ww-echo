@@ -321,6 +321,10 @@ class RunTab(QWidget):
 
             def _run_eval():
                 try:
+                    # [ww-echo cloud patch] 评估也把游戏窗口切到前台再跑
+                    hwnd_window = getattr(og.device_manager, 'hwnd_window', None)
+                    if hwnd_window is not None and hwnd_window.hwnd:
+                        hwnd_window.bring_to_front()
                     task.evaluate_only(on_done=_on_eval_done)
                 except Exception as e:
                     self._eval_error_signal.emit(str(e))

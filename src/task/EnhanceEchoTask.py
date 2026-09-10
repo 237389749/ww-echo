@@ -9,7 +9,7 @@ from qfluentwidgets import FluentIcon
 from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
-from src.echo_stats import snap_to_tier, get_mean  # noqa
+from src.echo_stats import snap_to_tier, get_mean, is_stat_match  # noqa
 from src.echo_set_templates import get_expected_stats, get_all_set_names, get_set_weights
 from src.task.BaseEchoTask import BaseEchoTask
 
@@ -104,8 +104,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def evaluate_only(self, on_done=None):
         """
-        评估模式: 遍历背包声骸, 截图+评分+判定, 输出JSON。
-        阈值: 0词条跳过 | 1条>=1.0 | 2-3条>=2.0 | 4条>=2.5 | 5条>=3.0
+        评估模式 v2: 遍历背包声骸(每行6格) — 点格子→读右侧详情→评分记录→指纹去重→滚屏→到底结束。
+        0 词条(全新0级/列表尾) 即认为到底, 结束。
         完成后调用 on_done(json_path, screenshot_dir)。
         """
         import json as _json, tempfile, shutil
@@ -116,86 +116,221 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         ss_dir = os.path.join(tmp_dir, "screenshots")
         os.makedirs(ss_dir, exist_ok=True)
 
-        try:
-            while True:
-                enhance = self.find_echo_enhance()
-                if not enhance:
-                    raise Exception('必须在背包声骸界面过滤后开始!')
+        # 网格角标 OCR 区 / 右侧详情属性区(含主属性区, y~360-738 不含"声骸技能"行) / 左上数量
+        grid_box = (0.10, 0.15, 0.72, 0.92)
+        detail_box = (0.70, 0.30, 0.985, 0.615)
+        count_box = (0.02, 0.02, 0.25, 0.09)
 
-                start = time.time()
-                while time.time() - start < 5:
-                    if enhance:
-                        self.click(enhance, after_sleep=0.5)
-                    enhance = self.find_echo_enhance()
-                    if not enhance:
+        seen_sigs = set()          # 已处理声骸的详情签名(用于滚动/点选失败检测)
+        last_sig = None            # 上一次成功处理的详情签名
+        no_new_screen = 0          # 连续滚动后无新格的次数 → 到底
+        stop_all = False           # 到底/达上限 → 正常收尾并输出报告
+        handled = 0                # 已记录数量(与左上总数比对做步数上限)
+        total_limit = None         # 左上 "声骸N/3000" 的上限
+        col_centers = []           # 6列基准 x(像素), 用于行内缺列补全防漏点
+
+        def read_count():
+            """OCR 左上 '声骸178/3000'(当前/上限, 当前可能 1-4 位)。返回上限; 失败返回 None。
+            放大 OCR 防小字/斜杠被拆: 全部文本按坐标拼接后再解析; 无斜杠时取最后一段数字(上限在后)。"""
+            try:
+                texts = self.ocr(*count_box, target_height=300)
+                ordered = sorted(texts, key=lambda b: (getattr(b, 'y', 0), getattr(b, 'x', 0)))
+                joined = ''.join(getattr(b, 'name', '') or '' for b in ordered)
+                m = re.search(r'(\d+)\s*/\s*(\d+)', joined)
+                if m:
+                    return int(m.group(2))
+                nums = re.findall(r'\d+', joined)
+                if len(nums) >= 2:
+                    return int(nums[-1])
+            except Exception:
+                pass
+            return None
+
+        def scan_grid():
+            """OCR 网格区角标 → 聚行 → 按 6 列基准补全缺列(防 OCR 漏格), 返回完整网格点
+            (nx, ny) 归一化列表, 按行从上到下、行内从左到右。全部按实际帧尺寸换算, 分辨率自适应。"""
+            fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+            fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+            row_tol = max(20.0, fh * 0.03)   # 行聚类容差(~1200帧→36px)
+            col_gap = max(50.0, fw * 0.046)  # 列间距阈值(~1920帧→88px)
+            texts = self.ocr(*grid_box)
+            marks = []
+            for b in texts:
+                name = getattr(b, 'name', '') or ''
+                if '+' in name and re.search(r'\d', name):
+                    marks.append((b.x + b.width // 2, b.y + b.height // 2))
+            if not marks:
+                return []
+            # 聚行
+            marks.sort(key=lambda m: m[1])
+            rows = []
+            for mx, my in marks:
+                for r in rows:
+                    if abs(r['y'] - my) <= row_tol:
+                        r['y'] = (r['y'] * len(r['cells']) + my) // (len(r['cells']) + 1)
+                        r['cells'].append((mx, my))
                         break
+                else:
+                    rows.append({'y': my, 'cells': [(mx, my)]})
+            rows.sort(key=lambda r: r['y'])
 
-                self.sleep(0.3)
-                texts = self.ocr(0.09, 0.3, 0.40, 0.53)
-                properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
-                for p in properties:
-                    match = property_pattern.search(p.name)
-                    if match:
-                        p.name = match.group()
-                values = self.find_boxes(texts, match=number_pattern)
+            # 列基准: 跨行合并 mark x, 间距>col_gap 视为新列(上限 6 列)
+            all_x = sorted(mx for r in rows for mx, _ in r['cells'])
+            cols = []
+            for x in all_x:
+                if cols and x - cols[-1] <= col_gap:
+                    cols[-1] = (cols[-1] + x) / 2
+                else:
+                    cols.append(float(x))
+            if len(cols) >= 6:
+                col_centers[:] = cols[:6]
+            base = col_centers if len(col_centers) == 6 else cols
 
-                if not properties:
-                    self.log_info('无可评估声骸, 任务结束', notify=True)
-                    break
+            out = []
+            for r in rows:
+                row_xs = [mx for mx, _ in r['cells']]
+                row_cols = sorted({min(range(len(base)), key=lambda i: abs(base[i] - mx)) for mx in row_xs})
+                for ci in row_cols:
+                    out.append((base[ci], r['y']))
+                # 列基准齐而本行覆盖列数 <6(该行有格被 OCR 漏识别) → 补全缺列坐标
+                if len(base) == 6 and len(row_cols) < 6:
+                    for ci in range(6):
+                        if ci not in row_cols:
+                            out.append((base[ci], r['y']))
+            out.sort(key=lambda p: (p[1], p[0]))
+            return [(mx / fw, my / fh) for mx, my in out]
 
-                # 配对 & 归一化
-                paired = self._pair_props(properties, values)
-                normalized = [(self._normalize_stat(n, v), parse_number(v)) for n, v in paired]
+        def scroll_grid(notches=15):
+            """光标移到滚动热区并下滑"""
+            try:
+                self.scroll_relative(0.52, 0.5, -notches)
+            except Exception as e:
+                self.log_debug(f'scroll failed: {e}')
 
-                tier = len(normalized)
-                if tier == 0:
-                    self.log_info(f"[评估#{evaluated + 1}] 0词条 -> 跳过")
-                    self.esc()
-                    self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
+        def read_detail():
+            """OCR 右侧详情属性区(主属性+词条混排)。返回 (paired_all, detail_sig):
+              paired_all  全部属性行  [(name, value_str), ...]  (按 y 序)
+              detail_sig  全量文本签名(用于点选切换/唯一性检测)
+            词条筛选由调用方按词条档位 is_stat_match 过滤(主属性数值超档自动丢弃)。
+            """
+            texts = self.ocr(*detail_box)
+            properties = [p for p in self.find_boxes(texts, match=property_pattern)
+                          if p.name.strip() not in ('声骸技能', 'COST', 'Z', 'C')]
+            for p in properties:
+                m = property_pattern.search(p.name)
+                if m:
+                    p.name = m.group()
+            values = self.find_boxes(texts, match=number_pattern)
+            if not properties:
+                return [], ''
+            paired_all = self._pair_props(properties, values)
+            detail_sig = '|'.join(f'{n}={v}' for n, v in paired_all)
+            return paired_all, detail_sig
+
+        try:
+            total_limit = read_count()
+            self.log_info(f'背包上限: {total_limit}' if total_limit else '未识别到背包数量上限, 用滚动检测兜底')
+
+            while not stop_all:
+                cells = scan_grid()
+                if not cells:
+                    # 网格区 OCR 不到角标: 可能是瞬时失败或到底; 滚动一屏再试
+                    scroll_grid()
+                    self.sleep(0.6)
+                    if not scan_grid():
+                        raise Exception('未在背包界面检测到声骸网格(角标), 请确认在背包声骸列表界面')
                     continue
 
-                set_name = self.config.get('当前套装', '通用')
-                valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
-                score, details = self.compute_weighted_score(
-                    [(n, str(v)) for n, v in normalized], valid_stats
-                )
-                # 与强化逻辑一致: 使用 check_echo_progressive 统一判断
-                passed = self.check_echo_progressive(properties, values)
+                processed_any = False
+                empty_hits = 0       # 连续点空/未切换的格数, 防止空转
+                for nx, ny in cells:
+                    # 点格子 → 右侧详情
+                    self.click(nx, ny, after_sleep=0.8)
+                    paired_all, sig = read_detail()
+                    if not paired_all:
+                        # 详情可能未刷新 → 再点一次重读
+                        self.click(nx, ny, after_sleep=0.8)
+                        paired_all, sig = read_detail()
+                    if not paired_all or (last_sig and sig == last_sig):
+                        # 空格/点选未切换(可能是行尾补全的空白格或 OCR 漏识的重复) → 跳过本格继续
+                        # 避免提前滚动漏掉本行后面真实格; 空转过多再滚屏
+                        empty_hits += 1
+                        if empty_hits >= 8:
+                            self.log_debug('连续点选无新声骸, 本屏滚屏')
+                            break
+                        continue
 
-                if passed and tier < 5:
-                    verdict = "pending"
-                    verdict_cn = "待强化"
-                elif passed:
-                    verdict = "pass"
-                    verdict_cn = "达标"
+                    processed_any = True
+                    empty_hits = 0
+
+                    # 词条筛选: 归一化名 + 数值≈词条档位集合(离散匹配)才算词条, 最多 5 条
+                    stats = []
+                    for raw_n, v_str in paired_all:
+                        norm = self._normalize_stat(raw_n, v_str)
+                        val = parse_number(v_str)
+                        if norm and is_stat_match(norm, val):
+                            stats.append((norm, val))
+                    stats = stats[:5]
+
+                    if not stats:
+                        # 0 词条(全新0级 / 已到列表末) → 到底结束
+                        self.log_info('评估结束: 无词条(0词条/到底)', notify=True)
+                        stop_all = True
+                        break
+
+                    last_sig = sig
+                    seen_sigs.add(sig)
+                    tier = len(stats)
+
+                    set_name = self.config.get('当前套装', '通用')
+                    valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
+                    # compute_weighted_score 内部会 parse_number(value_str), 需传字符串
+                    score, details = self.compute_weighted_score(
+                        [(n, str(v)) for n, v in stats], valid_stats
+                    )
+                    threshold = {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}.get(tier, 99)
+
+                    if tier < 5:
+                        verdict, verdict_cn = ("pending", "待强化") if score >= threshold else ("fail", "不达标")
+                    else:
+                        verdict, verdict_cn = ("pass", "达标") if score >= threshold else ("fail", "不达标")
+
+                    ss_name = f"eval_{evaluated + 1:03d}_{verdict}_{score:.1f}.png"
+                    ss_path = os.path.join(ss_dir, ss_name)
+                    echo_img = self.box_of_screen(0.09, 0.09, 0.37, 0.55).crop_frame(self.frame)
+                    cv2.imwrite(ss_path, echo_img)
+
+                    results.append({
+                        "index": evaluated + 1, "tier": tier, "score": round(score, 2),
+                        "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
+                        "screenshot": ss_name,
+                        "stats": [{"name": n, "value": float(v), "detail": d} for (n, v), d in zip(stats, details)]
+                    })
+                    self.log_info(f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
+                    evaluated += 1
+                    handled += 1
+                    self.info_set('评估数量', evaluated)
+
+                    if total_limit and handled >= total_limit:
+                        self.log_info(f'已达背包上限 {total_limit}, 评估结束', notify=True)
+                        stop_all = True
+                        break
+
+                if stop_all:
+                    break
+
+                if not processed_any:
+                    # 本屏无新声骸(空格/未切换占满) → 滚动一屏
+                    scroll_grid()
+                    self.sleep(1.2)
+                    no_new_screen += 1
+                    if no_new_screen >= 3:
+                        self.log_info('连续滚动无进展, 评估结束', notify=True)
+                        break
                 else:
-                    verdict = "fail"
-                    verdict_cn = "不达标"
-
-                # 截图
-                ss_name = f"eval_{evaluated + 1:03d}_{verdict}_{score:.1f}.png"
-                ss_path = os.path.join(ss_dir, ss_name)
-                echo_img = self.box_of_screen(0.09, 0.09, 0.37, 0.55).crop_frame(self.frame)
-                cv2.imwrite(ss_path, echo_img)
-
-                entry = {
-                    "index": evaluated + 1,
-                    "tier": tier,
-                    "score": round(score, 2),
-                    "threshold": {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}.get(tier, 99),
-                    "verdict": verdict,
-                    "verdict_cn": verdict_cn,
-                    "screenshot": ss_name,
-                    "stats": [{"name": n, "value": v, "detail": d}
-                              for (n, v), d in zip(normalized, details)]
-                }
-                results.append(entry)
-
-                self.log_info(f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
-                evaluated += 1
-                self.info_set('评估数量', evaluated)
-                self.esc()
-                self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
+                    no_new_screen = 0
+                    scroll_grid()   # 处理完本屏 → 滚下一屏
+                    self.sleep(1.2)
 
             # 汇总 JSON
             set_name = self.config.get('当前套装', '通用')
@@ -210,11 +345,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 _json.dump(output, f, ensure_ascii=False, indent=2)
 
             self.log_info(f'评估完成, 共{evaluated}个声骸', notify=True)
-
             if on_done:
                 self.handler.post(lambda: on_done(json_path, ss_dir))
         except Exception:
-            # 异常时清理临时文件 (on_done 成功调用后由 UI 端清理)
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 

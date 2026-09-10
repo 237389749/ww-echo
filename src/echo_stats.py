@@ -42,3 +42,16 @@ def snap_to_tier(stat_name: str, raw_value: float) -> float | None:
     if not tiers:
         return None
     return min(tiers, key=lambda t: abs(t - raw_value))
+
+
+def is_stat_match(stat_name: str, raw_value: float, tol: float = 0.8) -> bool:
+    """判断 (词条名, 数值) 是否≈该词条档位表中的某个档位值(离散匹配)。
+
+    词条数值只能落在档位集合上(如 攻击 ∈ {30,40,50,60}); 用区间判断会把落在
+    档位区间内的非词条值误收(如低等级主属性 攻击54 ∈ [28.5,63] 但不在档位集合)。
+    离散匹配: 任一档位值与 OCR 值的差距 <= tol 才算词条。
+    """
+    tiers = _TIERS.get(stat_name)
+    if not tiers:
+        return False
+    return any(abs(t - raw_value) <= tol for t in tiers)

@@ -81,20 +81,63 @@ Agent 审查日志质量：
 
 ---
 
+## 阶段六：云游戏适配 (2026-09-08)
+
+目标: 鸣潮跑在云游戏(浏览器/云客户端, 如 Firefox 全屏)时也能自动强化/评估。
+
+**运行模式双轨 (`config.apply_run_mode`)**
+- `local`(默认): exe/hwnd_class 自动匹配本地 `UnrealWindow`, PostMessage 后台交互
+- `cloud`: 置空 exe/hwnd_class, `title=re.compile('鸣潮')` 让 ok-script `find_hwnd` 正则自动锁定标题含"鸣潮"的窗口(免手动选窗); interaction=Pynput(前台真实键鼠); capture 锁定 `BitBlt_RenderFull`(WGC 对云客户端不可靠); `supported_resolution.ratio=None` 跳过 16:9 校验(16:10 屏); 模式存 QSettings("OK-Echo"), 重启生效
+
+**ok-script(site-packages)补丁 — 升级 ok-script 会丢失, 需重打(均在代码内标注 `[ww-echo ... patch]`)**
+| 文件 | 改动 |
+|------|------|
+| `ok/gui/StartController.py` | `_auto_bring_to_front`: 仅当用户点开始(task 非 None)时, device-ready 等待循环每轮自动 `bring_to_front()`(含最小化恢复); 纯启动不抢前台 |
+| `ok/device/capture_methods/hwnd_window.py` | `visible = not IsIconic()` 替代 `is_foreground()`: 后台/被遮挡窗口仍视为可用(BitBlt_RenderFull 可抓), 不再因切走而翻转状态 |
+| `ok/device/interaction_methods/pynput.py` | `should_capture()`→True(任务主循环不再被前台门控); `clickable()` 保持纯判断; 新增 `_ensure_clickable()` 供各动作(click/send_key/scroll…)非前台时自动拉前再操作 |
+| `ok/util/window.py` | `find_hwnd` 开头过滤空 exe 项: `exe_names = [e for e in (exe_names or []) if e]`: 云模式 `selected_exe=''` 时, 空 exe 会让所有窗口在 exe 匹配处被判不匹配 → 找不到"鸣潮"窗口 |
+
+**踩坑记录**
+- 云游戏本地无 `UnrealWindow`/`Client-Win64-Shipping.exe` → 按窗口类找目标整套失效(为什么 navigator 这类"读屏工具"能用于云游戏, 本项目"读窗口工具"不能)
+- `PynputInteraction` 前台注入必须目标窗口在前台, ok-script 原逻辑把"是否前台"当运行前提 → 切走即停/一运行抢前台; 拆成"点击动作层自动拉前, 识别层不要求前台"
+- 缺 `pynput` 依赖(点击层运行时才 import, 缺库表现为点击无反应) → 已补 requirements
+- 鸣潮背包滚动有"热区": 光标需在网格中右部(≈归一化 x0.42-0.63), 左侧列与底部不响应; ~8px/notch
+- 高 DPI 200% 下固定 860x640 逻辑窗口物理化超屏 → 初始 700x520 + 工作区 clamp/居中(`ui/main_window.py`)
+
+---
+
+## 阶段七：评估遍历 v2 + 词条过滤 (2026-09-09)
+
+原 evaluate_only/run 只处理"当前选中声骸", 无"切下一只/识别/到底"三件套(原版 ok-ww 同样没有), 表现为秒退"无可评估/无可强化"或死循环同一只。
+
+**评估遍历 v2 (`evaluate_only`)**
+- 识别: OCR 网格区 `+xx` 角标 → 聚行 → 6 列基准(跨屏记忆 `col_centers`) → **行内缺列补全防漏点**
+- 点格 → 右侧详情 OCR → 评分/截图/记录 → 空格/未切换**跳过继续**(不提前滚漏真实格) → 本屏处理完滚动 15 notches(光标热区 0.52,0.5)
+- 到底: 详情"0 词条"(全新/列表末)结束; 左上 `声骸N/3000` 数量上限收尾; 连续 3 次滚动无新格兜底
+- 唯一性: 废弃角标 dhash(同种声骸角标相同会误跳) → 用**详情全量 OCR 文本签名**
+
+**词条筛选关键修复 (`echo_stats.is_stat_match`)**
+- 详情面板属性行混排主属性与词条; 主属性数值可能落在词条档位区间内(如低等级主属性 攻击54 ∈ [30,60]) → **区间判断会误收**
+- 改**离散档位集合匹配**: 数值须≈档位表中某个档位值(容差 0.8); 主属性 150/1915/54/15.1% 全部被拒; 词条最多 5 条
+- 评估判定统一用"得分 ≥ tier 阈值"(1.0/2.0/2.5/3.0), 不再调 `check_echo_progressive`(避免两套阈值打架)
+
+---
+
 ## 当前架构
 
 ```
 ww-echo/
-├── mainui.py              ← 唯一入口 (PySide6)
+├── mainui.py              ← 唯一入口 (PySide6); 启动先按 QSettings run_mode 调 apply_run_mode
+├── config.py              ← ok-script 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
 ├── ui/                    ← 自建UI (7 tab)
 │   ├── main_window.py / run_tab.py / set_config_tab.py
-│   ├── settings_tab.py / hotkey_tab.py
+│   ├── settings_tab.py / hotkey_tab.py   (settings_tab: 运行模式切换 + 窗口/截图/交互)
 │   ├── debug_tab.py / dev_tab.py / about_tab.py
 ├── src/
-│   ├── echo_stats.py      ← 词条档位 & 评分引擎
+│   ├── echo_stats.py      ← 词条档位 & 评分引擎 (+ is_stat_match 离散档位过滤)
 │   ├── echo_set_templates.py ← JSON模板 加载/校验
 │   └── task/
-│       ├── EnhanceEchoTask.py  ← 强化 + 评估 (核心~650行)
+│       ├── EnhanceEchoTask.py  ← 强化 run() + 评估 evaluate_only v2 遍历 (755行)
 │       └── BaseEchoTask.py     ← 轻量基类 (43行)
 └── assets/
     ├── echo_set_templates.json ← 套装模板 (即配置存档)

@@ -4,6 +4,8 @@ __pycache__/
 logs/
 screenshots/
 configs/
+eval_screenshots/
+eval_report.html
 *.egg-info/
 dist/
 build/

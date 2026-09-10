@@ -4,10 +4,10 @@ OK-Echo 主入口 — 自建 PySide6 界面, ok-script 做后台引擎。
 import sys
 import logging
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QSettings
 from PySide6.QtWidgets import QApplication
 
-from config import config
+from config import config, apply_run_mode, MODE_LOCAL, MODE_CLOUD
 from ok import OK, og
 
 
@@ -25,6 +25,11 @@ class LogBridge(logging.Handler, QObject):
 
 
 def main():
+    # 0. 应用运行模式(本地/云游戏) — 须在 OK 引擎初始化前生效
+    run_mode = QSettings("OK-Echo", "OK-Echo").value("run_mode", MODE_LOCAL)
+    apply_run_mode(MODE_CLOUD if run_mode == MODE_CLOUD else MODE_LOCAL)
+    logging.getLogger('ok').info(f"运行模式: {'云游戏(自动锁定鸣潮窗口/前台)' if run_mode == MODE_CLOUD else '本地客户端'}")
+
     # 1. ok-script 后端初始化 (不创建旧 UI)
     config['debug'] = True
     config['use_gui'] = True
