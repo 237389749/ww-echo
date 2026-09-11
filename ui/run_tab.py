@@ -309,7 +309,7 @@ class RunTab(QWidget):
 
         is_eval = "评估" in self.task_combo.currentText()
         task.config['强化策略'] = self.strategy_combo.currentText()
-        # 评估固定"通用"权重(背包混多种套装且无声骸→套装映射); 套装语境仅强化使用
+        # 评估按声骸名自动映射套装(见 evaluate_only); 这里置"通用"仅作映射失败时的兜底
         task.config['当前套装'] = '通用' if is_eval else self.set_combo.currentText()
 
         if is_eval:
@@ -317,7 +317,7 @@ class RunTab(QWidget):
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             self._append_log("══════════ 开始评估 ══════════")
-            self._append_log("套装: 通用(评估固定通用权重, 仅打分, 不修改声骸)")
+            self._append_log("评估按声骸名自动映射套装权重, 仅打分, 不修改声骸")
 
             def _on_eval_done(json_path, ss_dir):
                 self._eval_done_signal.emit(json_path, ss_dir)

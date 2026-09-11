@@ -230,9 +230,11 @@ class SettingsTab(QWidget):
         self.interaction_list.clear()
         cfg = og.device_manager.windows_capture_config
         for c in (cfg.get('capture_method', []) if isinstance(cfg.get('capture_method', []), list) else [cfg.get('capture_method', '')]):
-            self.capture_list.addItem(QListWidgetItem(str(c)) if c else None)
+            if c:
+                self.capture_list.addItem(QListWidgetItem(str(c)))
         for im in (cfg.get('interaction', []) if isinstance(cfg.get('interaction', []), list) else [cfg.get('interaction', '')]):
-            self.interaction_list.addItem(QListWidgetItem(str(im)) if im else None)
+            if im:
+                self.interaction_list.addItem(QListWidgetItem(str(im)))
 
     def _on_capture(self):
         i = self.capture_list.currentRow()

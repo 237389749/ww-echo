@@ -14,6 +14,9 @@ version = "echo-dev"
 
 
 def calculate_pc_exe_path(running_path):
+    """返回游戏启动器路径「Wuthering Waves.exe」用于 start_exe 拉起游戏。
+    注意: 与 config['windows']['exe'](游戏本体 Client-Win64-Shipping.exe, 用于 find_hwnd
+    匹配窗口) 是两回事——启动器负责拉起, 本体负责匹配。"""
     game_exe_folder = Path(running_path).parents[3]
     return str(game_exe_folder / "Wuthering Waves.exe")
 

@@ -3,34 +3,12 @@
 """
 import os
 import subprocess
-import sys
-import io
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                QTextEdit, QLabel, QFrame, QTabWidget,
                                QListWidget, QListWidgetItem)
-from PySide6.QtCore import Qt, Signal, QObject
 
 from ok import og
-
-
-class _StdoutRedirect(QObject):
-    """捕获 stdout/stderr 到信号。"""
-    text_signal = Signal(str)
-
-    def __init__(self):
-        super().__init__()
-        self._buffer = io.StringIO()
-
-    def write(self, text):
-        self._buffer.write(text)
-        self.text_signal.emit(text)
-
-    def flush(self):
-        pass
-
-    def getvalue(self):
-        return self._buffer.getvalue()
 
 
 class DevTab(QWidget):

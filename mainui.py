@@ -31,7 +31,7 @@ def main():
     logging.getLogger('ok').info(f"运行模式: {'云游戏(自动锁定鸣潮窗口/前台)' if run_mode == MODE_CLOUD else '本地客户端'}")
 
     # 1. ok-script 后端初始化 (不创建旧 UI)
-    config['debug'] = True
+    config['debug'] = False
     config['use_gui'] = True
     ok_engine = OK(config)
 

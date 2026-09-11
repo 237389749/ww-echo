@@ -10,9 +10,6 @@ from src.task.BaseEchoTask import BaseEchoTask
 
 logger = Logger.get_logger(__name__)
 
-number_pattern = re.compile(r"^[\d.%]+$")
-property_pattern = re.compile(r"^\D*$")
-
 
 class ChangeEchoTask(BaseEchoTask, FindFeature):
 
