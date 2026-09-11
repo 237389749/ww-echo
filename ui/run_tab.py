@@ -456,12 +456,7 @@ table{width:100%;border-collapse:collapse;margin-top:12px}
 th,td{padding:8px 12px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
 th{background:#fafafa;font-weight:bold;position:sticky;top:0}
 img{border-radius:4px;border:1px solid #ddd}
-.stat{margin:2px 0;padding:1px 5px;border-radius:3px}
-.roll-4{background:#a5d6a7}
-.roll-3{background:#e8f5e9}
-.roll-2{background:#fff9c4}
-.roll-1{background:#ffe0b2}
-.roll-0{background:#ffcdd2}
+.stat{margin:2px 0;padding:1px 5px;border-radius:3px;border:1px solid rgba(0,0,0,0.06)}
 .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;background:#fafafa;padding:10px;border-radius:6px}
 .filters input[type=number]{padding:2px 4px;border:1px solid #ddd;border-radius:3px}
 .sep{color:#ccc}
@@ -506,6 +501,16 @@ document.getElementById('fclear').addEventListener('click',function(){
 applyFilter();
 """
 
+
+def _ratio_color(ratio):
+    """词条档位着色: 单色相(蓝 hue=210)连续渐变, 深=高档、浅=低档。
+    ratio=档位值/均值(约 0.65~1.35), 映射 lightness 92%(浅)→46%(深)。"""
+    t = (ratio - 0.65) / 0.7
+    t = max(0.0, min(1.0, t))
+    lightness = 92 - 46 * t
+    return f'hsl(210, 60%, {lightness:.0f}%)'
+
+
 def _build_eval_html(data):
     """生成评估报告 HTML。"""
     total = data.get("total", 0)
@@ -532,13 +537,10 @@ def _build_eval_html(data):
         for s in r.get("stats", []):
             detail = s.get("detail") or f"{s.get('name')}={s.get('value')}"
             ratio = s.get("ratio")
-            cls = ""
+            bg = ""
             if isinstance(ratio, (int, float)):
-                cls = ("roll-4" if ratio >= 1.2 else
-                       "roll-3" if ratio >= 1.0 else
-                       "roll-2" if ratio >= 0.9 else
-                       "roll-1" if ratio >= 0.8 else "roll-0")
-            stat_lines.append(f'<div class="stat {cls}">{detail}</div>')
+                bg = f' style="background:{_ratio_color(ratio)}"'
+            stat_lines.append(f'<div class="stat"{bg}>{detail}</div>')
         stats_html = "".join(stat_lines) or '<div class="stat" style="color:#bbb">未强化/无词条</div>'
         name = r.get("name", "")
         rows.append(
