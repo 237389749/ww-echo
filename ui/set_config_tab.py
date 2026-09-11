@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                                QComboBox, QFileDialog, QMessageBox, QCheckBox,
                                QLabel, QFrame, QPushButton, QSizePolicy)
 
+from src.echo_stats import DEFAULT_WEIGHTS
+
 TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
 
 ALL_STATS = [
@@ -60,13 +62,16 @@ class SetConfigTab(QWidget):
         layout.addWidget(sep)
 
         # ── 表格 ──
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["有效", "词条", "权重"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["有效", "词条", "权重", "首核"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 50)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
         self.table.setColumnWidth(2, 80)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        self.table.setColumnWidth(3, 50)
+        self.table.setToolTip("首核 = Lv5 首条必须命中的核心词条; 全部勾选(=缺省)表示所有有效词条都可作首条")
         self.table.verticalHeader().setVisible(False)
         self.table.setRowCount(len(ALL_STATS))
 
@@ -81,10 +86,14 @@ class SetConfigTab(QWidget):
 
             spin = QDoubleSpinBox()
             spin.setRange(0, 10)
-            spin.setSingleStep(0.1)
-            spin.setDecimals(1)
+            spin.setSingleStep(0.05)
+            spin.setDecimals(2)          # 0.85/0.5 等两位小数不失真
             spin.valueChanged.connect(lambda v, r=row: self._on_weight(r, v))
             self.table.setCellWidget(row, 2, spin)
+
+            cb_core = QCheckBox()
+            cb_core.stateChanged.connect(lambda s, r=row: self._on_core_check(r, s))
+            self.table.setCellWidget(row, 3, cb_core)
 
         layout.addWidget(self.table, 1)
 
@@ -136,6 +145,16 @@ class SetConfigTab(QWidget):
             self.table.cellWidget(row, 2).blockSignals(True)
             self.table.cellWidget(row, 2).setValue(w)
             self.table.cellWidget(row, 2).blockSignals(False)
+        # 首核列: _core_first 缺省(未配置)=全部有效词条; 显式配置则按列表勾选
+        core = stats.get('_core_first') if isinstance(stats, dict) else None
+        for row, name in enumerate(ALL_STATS):
+            cb_core = self.table.cellWidget(row, 3)
+            cb_core.blockSignals(True)
+            if core is None:
+                cb_core.setChecked(stats.get(name, 0.0) > 0)   # 缺省 → 全部有效为首核
+            else:
+                cb_core.setChecked(name in core)
+            cb_core.blockSignals(False)
         self._loading = False
 
     # ── UI → 数据 ──
@@ -144,9 +163,26 @@ class SetConfigTab(QWidget):
             return
         spin = self.table.cellWidget(row, 2)
         if state == Qt.Checked and spin.value() == 0:
-            spin.setValue(1.0)
+            # 勾选 → 带出该词条的通用默认权重(如 暴击1.0 / 爆伤0.9 / 专伤0.6 / 固定攻0.5),
+            # 与 DEFAULT_WEIGHTS 一致, 用户可再微调
+            spin.setValue(DEFAULT_WEIGHTS.get(ALL_STATS[row], 1.0))
         elif state == Qt.Unchecked:
             spin.setValue(0.0)
+            cb_core = self.table.cellWidget(row, 3)
+            cb_core.blockSignals(True)
+            cb_core.setChecked(False)     # 取消有效 → 同步取消首核
+            cb_core.blockSignals(False)
+
+    def _on_core_check(self, row, state):
+        if self._loading:
+            return
+        if state == Qt.Checked:
+            # 首核必须先是有效词条 → 自动勾上有效并带出默认权重
+            self._on_check(row, Qt.Checked)
+            cb = self.table.cellWidget(row, 0)
+            cb.blockSignals(True)
+            cb.setChecked(True)
+            cb.blockSignals(False)
 
     def _on_weight(self, row, value):
         if self._loading:
@@ -159,9 +195,18 @@ class SetConfigTab(QWidget):
     def _collect(self):
         stats = {}
         for row, name in enumerate(ALL_STATS):
-            v = round(self.table.cellWidget(row, 2).value(), 1)
+            v = round(self.table.cellWidget(row, 2).value(), 2)
             if v > 0:
                 stats[name] = v
+        # 首核列: 勾选集合 == 全部有效词条 → 不写字段(缺省语义=全部有效为首核); 否则显式写
+        core = [ALL_STATS[row] for row in range(len(ALL_STATS))
+                if self.table.cellWidget(row, 3).isChecked() and ALL_STATS[row] in stats]
+        if core and len(core) < len(stats):
+            stats['_core_first'] = core
+        # 透传声骸清单 _echoes(4c/3c/1c), 防止 UI 保存覆盖时丢失
+        cur = self._read().get("sets", {}).get(self.set_combo.currentText(), {})
+        if isinstance(cur, dict) and isinstance(cur.get('_echoes'), dict):
+            stats['_echoes'] = cur['_echoes']
         return stats
 
     def _save(self):
@@ -169,13 +214,13 @@ class SetConfigTab(QWidget):
         if not name:
             return
 
-        # 兜底校验: 勾选了但权重=0 → 默认设为1.0; 权重>0但未勾选 → 勾上
+        # 兜底校验: 勾选了但权重=0 → 带出通用默认权重; 权重>0但未勾选 → 勾上
         fixed = 0
         for row in range(len(ALL_STATS)):
             cb = self.table.cellWidget(row, 0)
             spin = self.table.cellWidget(row, 2)
             if cb.isChecked() and spin.value() == 0:
-                spin.setValue(1.0)
+                spin.setValue(DEFAULT_WEIGHTS.get(ALL_STATS[row], 1.0))
                 fixed += 1
             if not cb.isChecked() and spin.value() > 0:
                 cb.setChecked(True)

@@ -62,7 +62,8 @@ class RunTab(QWidget):
         row1.addWidget(self.strategy_combo)
 
         row1.addSpacing(16)
-        row1.addWidget(QLabel("套装:"))
+        self.set_label = QLabel("套装:")
+        row1.addWidget(self.set_label)
         self.set_combo = QComboBox()
         self.set_combo.setMinimumWidth(140)
         self._load_sets()
@@ -75,9 +76,9 @@ class RunTab(QWidget):
         self.opt_score_enable = QCheckBox("启用评分模式")
         self.opt_score_min = QComboBox()
         self.opt_score_min.setMinimumWidth(60)
-        for v in [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]:
+        for v in [24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48]:
             self.opt_score_min.addItem(str(v))
-        self.opt_score_min.setCurrentText("3.0")
+        self.opt_score_min.setCurrentText("32")
 
         # ── 第2行: 传统模式选项 ──
         self.traditional_opts = QWidget()
@@ -135,14 +136,12 @@ class RunTab(QWidget):
         # 评估说明 (选评估时可见)
         self.strategy_info_eval = QLabel(
             "评估模式 — 只读遍历背包, 截图+打分, 生成HTML报告\n\n"
-            "套装=通用: 评估背包中全部声骸, 用有效词条列表(权重1.0)\n"
-            "套装=具体套装: 仅评估该套装的声骸, 用套装专属权重\n"
-            "建议先在背包中用游戏自带过滤器筛选目标套装\n\n"
+            "评估按声骸名自动映射套装权重/判定, 未录入的声骸回退通用\n\n"
             "完成后弹出保存框 → 生成 eval_report.html + 截图文件夹\n"
-            "双击HTML浏览器查看: 缩略图+得分+判定+词条明细\n"
+            "报告: 截图+名称+得分+判定+词条明细(按档位着色), 可按得分/判定/名称筛选\n"
             "不强化/不上锁/不丢弃 — 纯评估\n\n"
-            "阈值: 0词条→跳过 | 1条≥1.0 | 2-3条≥2.0 | 4条≥2.5 | 5条≥3.0\n"
-            "⏳待强化=通过但未满级, ✅达标=满级通过, ❌=不达标"
+            "达标线: Lv5/10 有首核即过 | Lv15/20/25 ≥ 11/18/26.5(通用) | 满级不达标但≥2条有效且≥18分 → 建议保留重铸\n"
+            "⏳待强化=未满级通过, ✅达标=满级通过, 🔵建议保留重铸=底子够可洗, ❌不合格"
         )
         self.strategy_info_eval.setWordWrap(True)
         self.strategy_info_eval.setStyleSheet(
@@ -154,10 +153,10 @@ class RunTab(QWidget):
 
         # 评分说明 (始终可见)
         self.score_info = QLabel(
-            "评分: 档位值÷均值×权重. 权重默认: 暴击2.0 爆伤1.5 攻击%1.0 攻击0.5 共效1.0\n"
-            "暴击最低6.3%×2.0→1.50, 最高10.5%×2.0→2.50\n"
-            "小攻击/小生命/小防御权重0.5≈废物词条. 套装专属词条(共解/共技等)权重2.0\n"
-            "强化阈值: 1条≥1.0 / 3条≥2.0 / 4条≥2.5 / 5条≥3.0"
+            "评分: 条分 = 档位值÷均值 ×10×权重(每条上限自然12.5). 通用权重: 暴击1.0 爆伤0.9 攻击%0.85 共效0.7\n"
+            "暴击6.3%→7.5分, 10.5%→12.5分; 共效0.7; 专伤(普攻/重击/共技/共解)0.6\n"
+            "百分比三系(攻/生/防)0.85, 固定三系(攻/生/防)0.5; 套装模式权重由套装模板决定(同尺度≤1), 无效词条=0分\n"
+            "阈值(锚线=有效词条最低 tier-1 条平均档加权和): Lv15≥11 / Lv20≥18 / Lv25≥26.5; Lv5/10 有首核即过"
         )
         self.score_info.setWordWrap(True)
         self.score_info.setStyleSheet(
@@ -221,11 +220,11 @@ class RunTab(QWidget):
         if strategy == "渐进式":
             self.strategy_info.setText(
                 "渐进式: 每级单独评估, 不达标即停丢\n"
-                "Lv5 首条 → 得分 ≥ 1.0 (必须是有分量的词条)\n"
-                "Lv10    → 不做判断, 继续\n"
-                "Lv15    → 累积得分 ≥ 2.0\n"
-                "Lv20    → 累积得分 ≥ 2.5\n"
-                "Lv25    → 累积得分 ≥ 3.0, 达标上锁\n"
+                "Lv5  首条 → 有首核词条即过(不限分)\n"
+                "Lv10 第二条 → 有≥1有效词条即过\n"
+                "Lv15 第三条 → 累积得分 ≥ 锚线11\n"
+                "Lv20 第四条 → 累积得分 ≥ 锚线18\n"
+                "Lv25 第五条 → 累积得分 ≥ 锚线26.5, 达标上锁\n"
                 "未满级声骸: 已有词条先做渐进判断, 通过则继续强化"
             )
         else:
@@ -241,6 +240,9 @@ class RunTab(QWidget):
         self.strategy_combo.setVisible(is_enhance)
         self.strategy_info.setVisible(is_enhance)
         self.traditional_opts.setVisible(is_enhance and self.strategy_combo.currentText() == "传统")
+        # 套装语境只对强化有意义(评估=通用权重; 声骸个体与套装无自动映射)
+        self.set_label.setVisible(is_enhance)
+        self.set_combo.setVisible(is_enhance)
         if not is_enhance:
             self.strategy_info_eval.setVisible(True)
         else:
@@ -307,14 +309,15 @@ class RunTab(QWidget):
 
         is_eval = "评估" in self.task_combo.currentText()
         task.config['强化策略'] = self.strategy_combo.currentText()
-        task.config['当前套装'] = self.set_combo.currentText()
+        # 评估固定"通用"权重(背包混多种套装且无声骸→套装映射); 套装语境仅强化使用
+        task.config['当前套装'] = '通用' if is_eval else self.set_combo.currentText()
 
         if is_eval:
             self._running = True
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             self._append_log("══════════ 开始评估 ══════════")
-            self._append_log(f"套装: {task.config.get('当前套装')}  仅打分, 不修改声骸")
+            self._append_log("套装: 通用(评估固定通用权重, 仅打分, 不修改声骸)")
 
             def _on_eval_done(json_path, ss_dir):
                 self._eval_done_signal.emit(json_path, ss_dir)
@@ -442,9 +445,69 @@ class RunTab(QWidget):
         except Exception:
             return None
 
+
+# 评估报告样式: 词条按档位(档位/均值)着色, 筛选区样式
+_EVAL_CSS = """
+body{font-family:'Microsoft YaHei',sans-serif;margin:20px;background:#f5f5f5}
+.card{background:#fff;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.summary{display:flex;gap:24px;font-size:16px;flex-wrap:wrap}
+.summary span{padding:4px 12px;border-radius:4px}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+th,td{padding:8px 12px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+th{background:#fafafa;font-weight:bold;position:sticky;top:0}
+img{border-radius:4px;border:1px solid #ddd}
+.stat{margin:2px 0;padding:1px 5px;border-radius:3px}
+.roll-4{background:#a5d6a7}
+.roll-3{background:#e8f5e9}
+.roll-2{background:#fff9c4}
+.roll-1{background:#ffe0b2}
+.roll-0{background:#ffcdd2}
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;background:#fafafa;padding:10px;border-radius:6px}
+.filters input[type=number]{padding:2px 4px;border:1px solid #ddd;border-radius:3px}
+.sep{color:#ccc}
+.cnt{margin-left:auto;color:#666}
+button{padding:4px 10px;cursor:pointer;border:1px solid #ddd;border-radius:3px;background:#fff}
+"""
+
+# 评估报告筛选脚本(原生 JS, 无外部依赖): 得分区间 + 判定多选 + 名称包含
+_EVAL_JS = """
+function applyFilter(){
+  var min=parseFloat(document.getElementById('fmin').value);
+  var max=parseFloat(document.getElementById('fmax').value);
+  var nm=document.getElementById('fname').value.trim();
+  var vs=Array.prototype.slice.call(document.querySelectorAll('.fv'))
+            .filter(function(c){return c.checked}).map(function(c){return c.value});
+  var shown=0;
+  document.querySelectorAll('#tbody tr').forEach(function(tr){
+    var s=parseFloat(tr.getAttribute('data-score'));
+    var v=tr.getAttribute('data-verdict');
+    var n=tr.getAttribute('data-name')||'';
+    var ok=true;
+    if(!isNaN(min)&&!(s>=min)) ok=false;
+    if(!isNaN(max)&&!(s<=max)) ok=false;
+    if(vs.length&&vs.indexOf(v)<0) ok=false;
+    if(nm&&n.indexOf(nm)<0) ok=false;
+    tr.style.display=ok?'':'none';
+    if(ok) shown++;
+  });
+  document.getElementById('cnt').textContent='显示 '+shown+' / '+TOTAL;
+}
+['fmin','fmax','fname'].forEach(function(id){
+  document.getElementById(id).addEventListener('input',applyFilter)});
+document.querySelectorAll('.fv').forEach(function(c){
+  c.addEventListener('change',applyFilter)});
+document.getElementById('fclear').addEventListener('click',function(){
+  document.getElementById('fmin').value='';
+  document.getElementById('fmax').value='';
+  document.getElementById('fname').value='';
+  document.querySelectorAll('.fv').forEach(function(c){c.checked=true});
+  applyFilter();
+});
+applyFilter();
+"""
+
 def _build_eval_html(data):
     """生成评估报告 HTML。"""
-    set_name = data.get("set", "?")
     total = data.get("total", 0)
     results = data.get("results", [])
     ts = data.get("evaluated_at", "")
@@ -452,49 +515,82 @@ def _build_eval_html(data):
     pass_n = sum(1 for r in results if r["verdict"] == "pass")
     pend_n = sum(1 for r in results if r["verdict"] == "pending")
     fail_n = sum(1 for r in results if r["verdict"] == "fail")
+    zero_n = sum(1 for r in results if r["verdict"] == "zero")
+    keep_n = sum(1 for r in results if r["verdict"] == "keep")
+
+    verdict_cn_map = {"pass": "达标", "pending": "待强化", "fail": "不合格",
+                      "keep": "建议保留重铸", "zero": "0级/无词条"}
+    color_map = {"pass": "#4caf50", "pending": "#ff9800", "fail": "#f44336",
+                 "keep": "#2196f3", "zero": "#9e9e9e"}
 
     rows = []
     for r in results:
         v = r["verdict"]
-        color = {"pass": "#4caf50", "pending": "#ff9800", "fail": "#f44336"}.get(v, "#888")
-        stats_str = " + ".join(
-            f'{s["name"]}={s["value"]}' for s in r.get("stats", [])[:5]
-        )
-        rows.append(f'''<tr>
-<td>{r["index"]}</td>
-<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>
-<td>{r["score"]}</td>
-<td style="color:{color};font-weight:bold">{r["verdict_cn"]}</td>
-<td>{stats_str}</td>
-</tr>''')
+        color = color_map.get(v, "#888")
+        vcn = verdict_cn_map.get(v, r.get("verdict_cn", ""))
+        stat_lines = []
+        for s in r.get("stats", []):
+            detail = s.get("detail") or f"{s.get('name')}={s.get('value')}"
+            ratio = s.get("ratio")
+            cls = ""
+            if isinstance(ratio, (int, float)):
+                cls = ("roll-4" if ratio >= 1.2 else
+                       "roll-3" if ratio >= 1.0 else
+                       "roll-2" if ratio >= 0.9 else
+                       "roll-1" if ratio >= 0.8 else "roll-0")
+            stat_lines.append(f'<div class="stat {cls}">{detail}</div>')
+        stats_html = "".join(stat_lines) or '<div class="stat" style="color:#bbb">未强化/无词条</div>'
+        name = r.get("name", "")
+        rows.append(
+            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}">'
+            f'<td>{r["index"]}</td>'
+            f'<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>'
+            f'<td>{name}</td>'
+            f'<td>{r["score"]}</td>'
+            f'<td style="color:{color};font-weight:bold">{vcn}</td>'
+            f'<td>{stats_html}</td></tr>')
+
+    names = sorted({r.get("name", "") for r in results if r.get("name")})
+    datalist = "".join(f'<option value="{n}">' for n in names)
 
     return f'''<!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><title>声骸评估报告 — {set_name}</title>
-<style>
-body{{font-family:'Microsoft YaHei',sans-serif;margin:20px;background:#f5f5f5}}
-.card{{background:#fff;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.1)}}
-.summary{{display:flex;gap:24px;font-size:16px}}
-.summary span{{padding:4px 12px;border-radius:4px}}
-table{{width:100%;border-collapse:collapse;margin-top:12px}}
-th,td{{padding:8px 12px;border-bottom:1px solid #eee;text-align:left}}
-th{{background:#fafafa;font-weight:bold}}
-img{{border-radius:4px;border:1px solid #ddd}}
-</style></head>
+<head><meta charset="UTF-8"><title>声骸评估报告</title>
+<style>{_EVAL_CSS}</style></head>
 <body>
 <h1>声骸评估报告</h1>
 <div class="card">
-<p>套装: <b>{set_name}</b> | 评估时间: {ts} | 共 <b>{total}</b> 个</p>
+<p>评估时间: {ts} | 共 <b>{total}</b> 个</p>
 <div class="summary">
 <span style="background:#e8f5e9;color:#2e7d32">达标 {pass_n}</span>
 <span style="background:#fff3e0;color:#e65100">待强化 {pend_n}</span>
-<span style="background:#ffebee;color:#c62828">不达标 {fail_n}</span>
+<span style="background:#e3f2fd;color:#1565c0">建议保留重铸 {keep_n}</span>
+<span style="background:#ffebee;color:#c62828">不合格 {fail_n}</span>
+<span style="background:#eceff1;color:#607d8b">0级/无词条 {zero_n}</span>
 </div>
 </div>
 <div class="card">
+<div class="filters">
+<span>得分: ≥ <input id="fmin" type="number" step="0.1" style="width:70px"></span>
+<span>≤ <input id="fmax" type="number" step="0.1" style="width:70px"></span>
+<span class="sep">|</span>
+<span>判定:</span>
+<label><input type="checkbox" class="fv" value="pass" checked> 达标</label>
+<label><input type="checkbox" class="fv" value="pending" checked> 待强化</label>
+<label><input type="checkbox" class="fv" value="keep" checked> 建议保留重铸</label>
+<label><input type="checkbox" class="fv" value="fail" checked> 不合格</label>
+<label><input type="checkbox" class="fv" value="zero" checked> 0级</label>
+<span class="sep">|</span>
+<span>名称: <input id="fname" list="namelist" placeholder="包含匹配" style="width:130px"></span>
+<datalist id="namelist">{datalist}</datalist>
+<button id="fclear">清除筛选</button>
+<span id="cnt" class="cnt"></span>
+</div>
 <table>
-<thead><tr><th>#</th><th>截图</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
-<tbody>{"".join(rows)}</tbody>
+<thead><tr><th>#</th><th>截图</th><th>名称</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
+<tbody id="tbody">{"".join(rows)}</tbody>
 </table>
 </div>
+<script>const TOTAL={total};
+{_EVAL_JS}</script>
 </body></html>'''

@@ -9,3 +9,11 @@ eval_report.html
 *.egg-info/
 dist/
 build/
+
+# 运行/解析产物(不入库)
+1.txt
+new.html
+t.html
+ocr.txt
+offline_eval.html
+offline_eval.json

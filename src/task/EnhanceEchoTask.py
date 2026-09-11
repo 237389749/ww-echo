@@ -9,8 +9,9 @@ from qfluentwidgets import FluentIcon
 from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
-from src.echo_stats import snap_to_tier, get_mean, is_stat_match  # noqa
-from src.echo_set_templates import get_expected_stats, get_all_set_names, get_set_weights
+from src.echo_stats import snap_to_tier, get_mean, is_stat_match, DEFAULT_WEIGHTS  # noqa
+from src.echo_set_templates import (get_expected_stats, get_all_set_names, get_set_weights,
+                                    get_set_core_first, get_set_by_echo, get_sets_by_echo)
 from src.task.BaseEchoTask import BaseEchoTask
 
 logger = Logger.get_logger(__name__)
@@ -18,15 +19,79 @@ logger = Logger.get_logger(__name__)
 number_pattern = re.compile(r"^[\d.%％ ]+$")
 property_pattern = re.compile(r"[\u4e00-\u9fff]{2,}")
 
+# OCR 词条名拆字污染的公共子串回退候选(优先级同 _normalize_stat 分支链)
+_TIERS_ORDER = ['共鸣技能伤害加成', '共鸣解放伤害加成', '普攻伤害加成', '重击伤害加成', '暴击伤害',
+                '共鸣效率', '攻击百分比', '生命百分比', '防御百分比', '攻击', '生命', '防御', '暴击']
+
+# 逐字白名单: 全部标准词条名 + 常见主属性名的单字并集。
+# OCR 把属性图标误识成汉字(艾攻击/众共鸣…)或拆字(共呜效率)时, 不在字典的字直接剥离。
+_STAT_CHARS = set(''.join(_TIERS_ORDER) + '治疗效果加成')
+
+
+def _strip_stat_chars(raw: str) -> str:
+    """逐字剥离白名单外的字符(OCR 杂字/图标误读), 返回清洗后词条名; 清洗后空/过短返回原文不猜。"""
+    cleaned = ''.join(ch for ch in raw if ch in _STAT_CHARS)
+    return cleaned if len(cleaned) >= 2 else raw
+
+
+def _lcs_len(a: str, b: str) -> int:
+    """最长公共连续子串长度(词条名 ≤10 字, 暴力窗口足够)"""
+    best = 0
+    for i in range(len(a)):
+        for j in range(len(b)):
+            k = 0
+            while i + k < len(a) and j + k < len(b) and a[i + k] == b[j + k]:
+                k += 1
+            if k > best:
+                best = k
+    return best
+
+
+def _tier_threshold(set_name: str, tier: int) -> float:
+    """达标线 = 有效词条"平均档加权分"(10×权重)中最低 L 条之和, L = tier-1。
+    Lv5/10(1-2 词条)返回 0 —— 判定走"有效词条条数"结构规则(见调用处), 不走分数。
+    Lv15/20/25(L=2/3/4): 套装模式取套装键(weight>0)权重升序前 L 条 ×10 求和;
+    通用模式取"角色适配集"6 种代表权重 [1.0,0.9,0.85,0.7,0.6,0.5]
+    (暴击/爆伤/攻%类/共效/一种专伤/固定攻——专伤与固定三系各取一种, 因为通常只需要一条特定专伤)。
+    键数 k < L 时取全部 k 条(评分上限按 k 收缩)。
+    例: Lv15=5+6=11, Lv20=18, Lv25=26.5。"""
+    if tier <= 2:
+        return 0.0
+    if set_name == '通用':
+        weights = [1.0, 0.9, 0.85, 0.7, 0.6, 0.5]
+    else:
+        weights = [w for w in (get_set_weights(set_name) or {}).values() if w > 0]
+    avg = sorted(10 * w for w in weights)
+    need = min(tier - 1, len(avg))
+    return round(sum(avg[:need]), 1)
+
 
 class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     # ── 共享工具 ──
 
     @staticmethod
+    def _check_set_keys(set_name: str) -> tuple:
+        """键数硬拒: 套装有效词条数 <5 → (False, 提示)。通用模式跳过。"""
+        if not set_name or set_name == '通用':
+            return True, ''
+        w = get_set_weights(set_name) or {}
+        k = sum(1 for v in w.values() if v > 0)
+        if k < 5:
+            return False, (f'套装《{set_name}》有效词条仅 {k} 个(<5): '
+                           f'强化后必有 5 词条, 最少需要 5 个有效词条, 请在套装配置中补足')
+        return True, ''
+
+    @staticmethod
     def _normalize_stat(raw_name: str, value_str: str) -> str:
-        """将 OCR 原始名统一为规范化词条名。"""
-        p = raw_name
+        """将 OCR 原始名统一为规范化词条名。
+
+        子项拆解回退: 精确子串链未命中(OCR 拆字污染, 如 共呜效率/共鸣技难伤害加成)时,
+        与候选词条名做**最长公共子串**匹配——公共子串 **≥3 字** 直接回退(平手按 _TIERS_ORDER
+        概率优先); **=2 字仅当候选唯一**才回退(如 共呜效率→效率 唯一, 而 伤害 命中多个不猜);
+        <2 字(攻击/暴击共享"击")拒绝, 返回原文由档位匹配自然丢弃。不确定一律不猜。
+        """
+        p = _strip_stat_chars(raw_name)   # 逐字白名单清洗: 图标误读/杂字(艾攻击/共呜/众共鸣…)直接剥离
         if '暴击伤害' in p: return '暴击伤害'
         if '暴击' in p: return '暴击'
         if '攻击' in p: return '攻击百分比' if ('%' in value_str or '％' in value_str) else '攻击'
@@ -37,14 +102,24 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         if '重击' in p: return '重击伤害加成'
         if '解放' in p: return '共鸣解放伤害加成'
         if '技能' in p: return '共鸣技能伤害加成'
+        best_len, best_name, tie = 0, '', 0
+        for cand in _TIERS_ORDER:
+            l = _lcs_len(p, cand)
+            if l > best_len:
+                best_len, best_name, tie = l, cand, 1
+            elif l == best_len and l >= 2:
+                tie += 1            # 等长候选数(平手)>1 时不猜
+        if best_len >= 3 or (best_len == 2 and tie == 1):
+            return best_name
         return p
 
     @staticmethod
     def _pair_props(properties, values):
-        """按 y 坐标配对待属性名和数值, 返回 [(name, value_str), ...]."""
+        """按 y 坐标(相对行序, 分辨率无关)配对待属性名和数值, 返回 [(name, value_str), ...].
+        先对两侧按 y 排序: OCR 返回顺序不保证有序, 不排序则"前 2 行=主属性"等行序语义会错。"""
         paired = []
-        unmatched = list(values)
-        for prop in properties:
+        unmatched = sorted(values, key=lambda v: v.y)
+        for prop in sorted(properties, key=lambda p: p.y):
             v_text = "0"
             if unmatched:
                 closest = min(unmatched, key=lambda v: abs(prop.y - v.y))
@@ -75,7 +150,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '强化策略': '渐进式',
             '当前套装': '通用',
             '启用评分模式': False,
-            '最低得分>=': 3.0,
+            '最低得分>=': 32.0,
         })
         self.config_type["有效词条"] = {'type': "multi_selection",
                                         'options': ['暴击伤害', '暴击', '攻击百分比', '生命百分比', '防御百分比',
@@ -116,32 +191,79 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         ss_dir = os.path.join(tmp_dir, "screenshots")
         os.makedirs(ss_dir, exist_ok=True)
 
-        # 网格角标 OCR 区 / 右侧详情属性区(含主属性区, y~360-738 不含"声骸技能"行) / 左上数量
+        # 网格角标 OCR 区 / 右侧详情面板区。所有坐标均用归一化比例(除以帧宽高), 分辨率无关;
+        #   1920x1200 帧换算参考: 名字 y≈0.10, COST y≈0.21, 主属性 y≈0.37/0.42, 词条 y≈0.45..0.61(第5条),
+        #   "声骸技能"行 y≈0.62 由 read_detail 按行过滤; "前 2 行=主属性"是相对行序判断, 不依赖帧高
         grid_box = (0.10, 0.15, 0.72, 0.92)
-        detail_box = (0.70, 0.30, 0.985, 0.615)
+        detail_box = (0.66, 0.10, 0.995, 0.635)
         count_box = (0.02, 0.02, 0.25, 0.09)
 
-        seen_sigs = set()          # 已处理声骸的详情签名(用于滚动/点选失败检测)
-        last_sig = None            # 上一次成功处理的详情签名
+        seen_sigs = set()          # 已处理声骸的去重签名(名字+全行档位值, 防滚动重叠漏拦)
+        last_sig = None            # 上一次成功处理的详情全量签名(判点选未切换)
         no_new_screen = 0          # 连续滚动后无新格的次数 → 到底
+        empty_scan = 0             # 网格区连续扫描为空的次数 → 真到底(0级角标 +0 也能被识别, 空=列表底)
         stop_all = False           # 到底/达上限 → 正常收尾并输出报告
         handled = 0                # 已记录数量(与左上总数比对做步数上限)
         total_limit = None         # 左上 "声骸N/3000" 的上限
         col_centers = []           # 6列基准 x(像素), 用于行内缺列补全防漏点
 
+        # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
+        #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
+        #    输出目录 logs/eval_debug/<时间戳>/, 独立于报告临时目录, 不随报告删除(约1GB/200声骸)。
+        dbg_dir = None
+        dbg_no = 0
+        if True:   # 不需要数据集时改为 False
+            dbg_dir = os.path.join('logs', 'eval_debug', time.strftime('%Y%m%d_%H%M%S'))
+            os.makedirs(dbg_dir, exist_ok=True)
+
+        def dbg_ocr(label, texts):
+            """记录一次 OCR 的输入区域标签 + 全部文本行(文本/坐标/置信度)到 ocr_text.txt"""
+            if not dbg_dir or not texts:
+                return
+            with open(os.path.join(dbg_dir, 'ocr_text.txt'), 'a', encoding='utf-8') as f:
+                for b in texts:
+                    f.write(f'[{label}] {getattr(b, "name", "")!r} x={b.x} y={b.y} '
+                            f'w={b.width} h={b.height} conf={getattr(b, "confidence", 0):.2f}\n')
+
+        def dbg_shot(label):
+            """存当前帧: 全屏PNG + 三个 ROI 框(红=detail,绿=grid,蓝=count)叠加PNG + 各区域裁剪PNG"""
+            nonlocal dbg_no
+            if not dbg_dir:
+                return
+            fw = int(getattr(self.executor.method, 'width', 0) or 1920)
+            fh = int(getattr(self.executor.method, 'height', 0) or 1200)
+            dbg_no += 1
+            tag = f'{dbg_no:04d}_{label}'
+            frame = self.frame
+            if frame is None or frame.size == 0:
+                return
+            if frame.ndim == 2:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)   # 灰度帧转彩色, 否则 rectangle 画不出
+            cv2.imwrite(os.path.join(dbg_dir, f'{tag}_full.png'), frame)
+            boxed = frame.copy()
+            for box, color in ((detail_box, (0, 0, 255)), (grid_box, (0, 255, 0)), (count_box, (255, 0, 0))):
+                x1, y1, x2, y2 = int(box[0] * fw), int(box[1] * fh), int(box[2] * fw), int(box[3] * fh)
+                cv2.rectangle(boxed, (x1, y1), (x2, y2), color, max(2, fw // 600))
+            cv2.imwrite(os.path.join(dbg_dir, f'{tag}_boxes.png'), boxed)
+            for name, box in (('detail', detail_box), ('grid', grid_box), ('count', count_box)):
+                x1, y1, x2, y2 = int(box[0] * fw), int(box[1] * fh), int(box[2] * fw), int(box[3] * fh)
+                cv2.imwrite(os.path.join(dbg_dir, f'{tag}_{name}.png'), frame[y1:y2, x1:x2])
+
         def read_count():
-            """OCR 左上 '声骸178/3000'(当前/上限, 当前可能 1-4 位)。返回上限; 失败返回 None。
-            放大 OCR 防小字/斜杠被拆: 全部文本按坐标拼接后再解析; 无斜杠时取最后一段数字(上限在后)。"""
+            """OCR 左上 '声骸166/3000': 前者=背包声骸总数(或当前滚动位置), 后者=容量上限。
+            返回**前者**作为步数上限(评估不得超过它); 失败返回 None。
+            放大 OCR 防小字/斜杠被拆: 全部文本按坐标拼接后再解析; 无斜杠时取第一段数字。"""
             try:
                 texts = self.ocr(*count_box, target_height=300)
+                dbg_ocr('count', texts)
                 ordered = sorted(texts, key=lambda b: (getattr(b, 'y', 0), getattr(b, 'x', 0)))
                 joined = ''.join(getattr(b, 'name', '') or '' for b in ordered)
                 m = re.search(r'(\d+)\s*/\s*(\d+)', joined)
                 if m:
-                    return int(m.group(2))
+                    return int(m.group(1))
                 nums = re.findall(r'\d+', joined)
-                if len(nums) >= 2:
-                    return int(nums[-1])
+                if nums:
+                    return int(nums[0])
             except Exception:
                 pass
             return None
@@ -154,6 +276,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             row_tol = max(20.0, fh * 0.03)   # 行聚类容差(~1200帧→36px)
             col_gap = max(50.0, fw * 0.046)  # 列间距阈值(~1920帧→88px)
             texts = self.ocr(*grid_box)
+            dbg_ocr('grid', texts)
             marks = []
             for b in texts:
                 name = getattr(b, 'name', '') or ''
@@ -208,52 +331,98 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_debug(f'scroll failed: {e}')
 
         def read_detail():
-            """OCR 右侧详情属性区(主属性+词条混排)。返回 (paired_all, detail_sig):
-              paired_all  全部属性行  [(name, value_str), ...]  (按 y 序)
-              detail_sig  全量文本签名(用于点选切换/唯一性检测)
+            """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig):
+              echo_name  声骸名(面板顶部唯一中文行, y < 0.28*fh; 用于签名唯一性)
+              paired_all 全部属性行 [(name, value_str), ...]  (主属性+词条, 按 y 序)
+              detail_sig 名字 + 全量属性行签名(点选切换/唯一性检测)
             词条筛选由调用方按词条档位 is_stat_match 过滤(主属性数值超档自动丢弃)。
+
+            布局注意: detail_box 下界 0.635(归一化) 是为覆盖第 5 词条(y≈0.607 + 文字高≈0.025);
+            此前的 0.615(=738px@1920x1200) 把满级第 5 词条截在框外 → 报告永远最多 4 词条。
             """
             texts = self.ocr(*detail_box)
+            dbg_ocr('detail', texts)
+            fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
             properties = [p for p in self.find_boxes(texts, match=property_pattern)
                           if p.name.strip() not in ('声骸技能', 'COST', 'Z', 'C')]
+            properties.sort(key=lambda p: p.y)   # 先按 y 排序: "顶部中文行=名字/前 2 行=主属性" 都是相对行序
+            echo_name = ''
+            if properties and properties[0].y < fh * 0.28:
+                # 面板顶部第一个中文行(归一化 y<0.28, 分辨率无关) = 声骸名, 提出来不进 properties(避免与数值错配)
+                echo_name = properties[0].name
+                properties = properties[1:]
             for p in properties:
                 m = property_pattern.search(p.name)
                 if m:
                     p.name = m.group()
             values = self.find_boxes(texts, match=number_pattern)
             if not properties:
-                return [], ''
+                return echo_name, [], ''
             paired_all = self._pair_props(properties, values)
-            detail_sig = '|'.join(f'{n}={v}' for n, v in paired_all)
-            return paired_all, detail_sig
+            detail_sig = f'{echo_name}|' + '|'.join(f'{n}={v}' for n, v in paired_all)
+            return echo_name, paired_all, detail_sig
+
+        def dedup_key(echo_name, paired_all):
+            """去重签名 = 声骸名 + 全部属性行的档位值(主属性+词条), 档位值稳定不受 OCR 抖动影响。
+            全量 OCR 文本签名(含原始数值)对同一只每次识别会因个别字符抖动而不同 → 跨屏重叠时
+            seen_sigs 拦不住 → 重复记录; 档位值是离散集合, 同一声骸多次识别结果一致。"""
+            parts = [echo_name]
+            for raw_n, v_str in paired_all:
+                norm = self._normalize_stat(raw_n, v_str)
+                v = parse_number(v_str)
+                tier_v = snap_to_tier(norm, v)
+                parts.append(f'{norm}={tier_v if tier_v is not None else round(v, 2)}')
+            return '|'.join(parts)
 
         try:
+            # 键数硬拒: 套装有效词条 <5 不允许评估(通用跳过)
+            ok, msg = self._check_set_keys(self.config.get('当前套装', '通用'))
+            if not ok:
+                raise Exception(msg)
             total_limit = read_count()
-            self.log_info(f'背包上限: {total_limit}' if total_limit else '未识别到背包数量上限, 用滚动检测兜底')
+            if dbg_dir:
+                self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
+            self.log_info(f'背包声骸总数/位置: {total_limit}' if total_limit else '未识别到数量, 用滚动检测兜底')
 
             while not stop_all:
+                # 每屏动态重读上限: "声骸N/3000" 的 N 若是滚动位置, 向下滚会单调增大,
+                # max 跟随保证不误截断(且防 OCR 抖动回退); 若是背包总数则恒等
+                new_lim = read_count()
+                if new_lim:
+                    total_limit = new_lim if total_limit is None else max(total_limit, new_lim)
                 cells = scan_grid()
                 if not cells:
-                    # 网格区 OCR 不到角标: 可能是瞬时失败或到底; 滚动一屏再试
+                    # 网格区 OCR 不到角标: 0级角标 +0 也能被识别, 连续为空 ≈ 列表真到底;
+                    # 首屏即空(且一个都未记录)才 raise, 提示可能不在背包界面
+                    empty_scan += 1
+                    if empty_scan >= 2:
+                        if evaluated == 0 and not results:
+                            raise Exception('未在背包界面检测到声骸网格(角标), 请确认在背包声骸列表界面')
+                        self.log_info('到达背包底部(网格区无角标), 评估结束', notify=True)
+                        break
                     scroll_grid()
                     self.sleep(0.6)
-                    if not scan_grid():
-                        raise Exception('未在背包界面检测到声骸网格(角标), 请确认在背包声骸列表界面')
+                    last_sig = None
                     continue
+                empty_scan = 0
 
                 processed_any = False
-                empty_hits = 0       # 连续点空/未切换的格数, 防止空转
+                empty_hits = 0       # 连续点空/未切换/已处理的格数, 防止空转
                 for nx, ny in cells:
                     # 点格子 → 右侧详情
                     self.click(nx, ny, after_sleep=0.8)
-                    paired_all, sig = read_detail()
+                    dbg_shot(f'click_{nx:.2f}_{ny:.2f}')
+                    echo_name, paired_all, sig = read_detail()
                     if not paired_all:
                         # 详情可能未刷新 → 再点一次重读
                         self.click(nx, ny, after_sleep=0.8)
-                        paired_all, sig = read_detail()
-                    if not paired_all or (last_sig and sig == last_sig):
-                        # 空格/点选未切换(可能是行尾补全的空白格或 OCR 漏识的重复) → 跳过本格继续
-                        # 避免提前滚动漏掉本行后面真实格; 空转过多再滚屏
+                        echo_name, paired_all, sig = read_detail()
+                    key = dedup_key(echo_name, paired_all) if paired_all else ''
+                    if (not paired_all
+                            or (last_sig is not None and sig == last_sig)
+                            or (key and key in seen_sigs)):
+                        # 空格/点选未切换(行尾补全的空白格/OCR 漏识重复)/已处理过的声骸(滚动重叠)
+                        # → 跳过本格继续, 避免提前滚动漏掉本行后面真实格; 空转过多再滚屏
                         empty_hits += 1
                         if empty_hits >= 8:
                             self.log_debug('连续点选无新声骸, 本屏滚屏')
@@ -263,56 +432,69 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     processed_any = True
                     empty_hits = 0
 
-                    # 词条筛选: 归一化名 + 数值≈词条档位集合(离散匹配)才算词条, 最多 5 条
+                    # 词条筛选: 详情属性区已按 y 排序(_pair_props), 前 2 行固定为主属性(攻击/生命/防御等)——
+                    # 按相对行序排除, 分辨率无关; 即使主属性固定值恰好命中词条档位
+                    # (如 主属性生命=510 ∈ {510}, 防御=50 ∈ {50}) 也不会误收;
+                    # 剩余行再叠加"数值≈档位集合"(离散匹配)才算词条, 最多 5 条
                     stats = []
-                    for raw_n, v_str in paired_all:
+                    for raw_n, v_str in paired_all[2:]:
                         norm = self._normalize_stat(raw_n, v_str)
                         val = parse_number(v_str)
                         if norm and is_stat_match(norm, val):
                             stats.append((norm, val))
                     stats = stats[:5]
 
-                    if not stats:
-                        # 0 词条(全新0级 / 已到列表末) → 到底结束
-                        self.log_info('评估结束: 无词条(0词条/到底)', notify=True)
-                        stop_all = True
-                        break
+                    tier = len(stats)
+                    if stats:
+                        # 按声骸名自动映射套装(多套装声骸: config 套装在候选内则优先, 否则首个);
+                        # 未录入 → 回退 config(评估时=通用)
+                        cfg_set = self.config.get('当前套装', '通用')
+                        cands = get_sets_by_echo(echo_name)
+                        set_name = get_set_by_echo(echo_name, prefer=cfg_set) or cfg_set
+                        self.log_debug(f'[套装映射] {echo_name} → {set_name} (候选: {cands})')
+                        valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
+                        # compute_weighted_score 内部会 parse_number(value_str), 需传字符串
+                        score, details = self.compute_weighted_score(
+                            [(n, str(v)) for n, v in stats], valid_stats
+                        )
+                        # 判定与渐进强化共用同一份逻辑 (见 judge_echo); 满级不达标但底子够(有效≥2条且≥18分) → 建议保留
+                        (verdict, verdict_cn), threshold, keep = self.judge_echo(set_name, tier, score, stats)
+                        if keep:
+                            verdict, verdict_cn = 'keep', '建议保留'
+                    else:
+                        # 0级声骸(0词条): 无评估价值——**跳过不记录、不终止**。
+                        # 0级集中在列表底部, 置 processed_any 让它继续滚动推进(不触发"无新格"提前结束),
+                        # 列表真到底由"网格连续为空(empty_scan)"判定; key 入 seen_sigs 防重叠重复扫。
+                        processed_any = True
+                        seen_sigs.add(key)
+                        self.log_debug(f'[评估跳过] {echo_name} | 0级(无词条)')
+                        continue
 
                     last_sig = sig
-                    seen_sigs.add(sig)
-                    tier = len(stats)
-
-                    set_name = self.config.get('当前套装', '通用')
-                    valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
-                    # compute_weighted_score 内部会 parse_number(value_str), 需传字符串
-                    score, details = self.compute_weighted_score(
-                        [(n, str(v)) for n, v in stats], valid_stats
-                    )
-                    threshold = {1: 1.0, 2: 2.0, 3: 2.0, 4: 2.5, 5: 3.0}.get(tier, 99)
-
-                    if tier < 5:
-                        verdict, verdict_cn = ("pending", "待强化") if score >= threshold else ("fail", "不达标")
-                    else:
-                        verdict, verdict_cn = ("pass", "达标") if score >= threshold else ("fail", "不达标")
+                    seen_sigs.add(key)
 
                     ss_name = f"eval_{evaluated + 1:03d}_{verdict}_{score:.1f}.png"
                     ss_path = os.path.join(ss_dir, ss_name)
-                    echo_img = self.box_of_screen(0.09, 0.09, 0.37, 0.55).crop_frame(self.frame)
+                    # 截图 = 右侧详情完整展示: 名字(y~122)/COST/主属性/词条(含第5, y~728)/声骸技能行
+                    # 此前固定截网格左上角(0.09,0.09,0.37,0.55) → 与当前声骸无关, 已改为右侧面板
+                    echo_img = self.box_of_screen(0.665, 0.07, 0.995, 0.65).crop_frame(self.frame)
                     cv2.imwrite(ss_path, echo_img)
 
                     results.append({
-                        "index": evaluated + 1, "tier": tier, "score": round(score, 2),
+                        "index": evaluated + 1, "name": echo_name, "tier": tier, "score": round(score, 2),
                         "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
                         "screenshot": ss_name,
-                        "stats": [{"name": n, "value": float(v), "detail": d} for (n, v), d in zip(stats, details)]
+                        "stats": [{"name": n, "value": float(v), "detail": d,
+                                   "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
+                                  for (n, v), d in zip(stats, details)]
                     })
-                    self.log_info(f"[评估#{evaluated + 1}] {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
+                    self.log_info(f"[评估#{evaluated + 1}] {echo_name} | {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
                     evaluated += 1
                     handled += 1
                     self.info_set('评估数量', evaluated)
 
                     if total_limit and handled >= total_limit:
-                        self.log_info(f'已达背包上限 {total_limit}, 评估结束', notify=True)
+                        self.log_info(f'已达背包声骸总数/步数上限 {total_limit}, 评估结束', notify=True)
                         stop_all = True
                         break
 
@@ -323,6 +505,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 本屏无新声骸(空格/未切换占满) → 滚动一屏
                     scroll_grid()
                     self.sleep(1.2)
+                    last_sig = None   # 换屏后不再沿用上一屏的签名(新屏首格总是先读)
                     no_new_screen += 1
                     if no_new_screen >= 3:
                         self.log_info('连续滚动无进展, 评估结束', notify=True)
@@ -331,6 +514,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     no_new_screen = 0
                     scroll_grid()   # 处理完本屏 → 滚下一屏
                     self.sleep(1.2)
+                    last_sig = None   # 换屏后不再沿用上一屏的签名(新屏首格总是先读)
 
             # 汇总 JSON
             set_name = self.config.get('当前套装', '通用')
@@ -355,6 +539,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         return self.ocr(0.82, 0.86, 0.97, 0.96, match='培养')
 
     def run(self):
+        # 键数硬拒: 套装有效词条 <5 不允许强化(与评估共用配置校验)
+        ok, msg = self._check_set_keys(self.config.get('当前套装', '通用'))
+        if not ok:
+            raise Exception(msg)
         self.info_set('成功声骸数量', 0)
         self.info_set('失败声骸数量', 0)
         clear_folder('screenshots')
@@ -584,12 +772,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def check_echo_progressive(self, properties, values):
         """
-        渐进式强化判断：
+        渐进式强化判断(新标度 条分≈7.5~12.5):
           Lv5  第一条 → 必须在套装预期词条中
-          Lv10 第二条 → 不判断，继续
-          Lv15 第三条 → 加权得分 >= 1.5，否则停
-          Lv20 第四条 → 加权得分 >= 2.25，否则停
-          Lv25 第五条 → 加权得分 >= 3.75，否则丢弃
+          Lv10 第二条 → 有≥1有效词条
+          Lv15 第三条 → 累积得分 ≥ 锚线11(通用)
+          Lv20 第四条 → 累积得分 ≥ 锚线18(通用)
+          Lv25 第五条 → 累积得分 ≥ 锚线26.5(通用), 否则丢弃
         """
         self.fail_reason = ""
 
@@ -609,44 +797,68 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         set_name = self.config.get('当前套装', '通用')
         expected_stats = get_expected_stats(set_name if set_name != '通用' else None)
 
-        # 4. 渐进式判断
-        # Tier 1: 第一条必须在预期词条中
-        if tier >= 1:
-            first_name, first_val = normalized[0]
-            if first_name not in expected_stats:
-                self.fail_reason = f'首条非预期_{first_name}'
-                self.log_info(f'[渐进T1] 首条 {first_name}={first_val} 不在套装预期 {expected_stats} 中, 丢弃')
+        # 4. 渐进式判断(与评估共用 judge_echo: Lv5/10 结构判定, Lv15+ 锚线)
+        if tier <= 2:
+            (verdict, _), _, _ = self.judge_echo(set_name, tier, 0.0, normalized)
+            if verdict == 'fail':
+                self.fail_reason = '无有效词条'
+                self.log_info(f'[渐进T{tier}] 词条均非有效 : {[n for n, _ in normalized]}, 丢弃')
                 return False
-            self.log_info(f'[渐进T1] 首条 {first_name}={first_val} ✅ 符合预期')
-
-        # Tier 2: 不做判断
-        if tier == 2:
-            self.log_info(f'[渐进T2] 第二条不做判断, 继续')
+            self.log_info(f'[渐进T{tier}] 存在有效词条(不限分) ✅ 继续')
             return True
 
-        # Tier 3-5: 按累积得分判断
-        score_thresholds = {3: 2.0, 4: 2.5, 5: 3.0}
-        if tier in score_thresholds:
-            score, details = self.compute_weighted_score(
-                [(n, str(v)) for n, v in normalized], expected_stats
-            )
-            self.info_set('声骸得分', f'{score:.2f}')
-            self.log_info(f'[渐进T{tier}] 得分: {" | ".join(details)}')
-            self.log_info(f'[渐进T{tier}] 总分: {score:.2f}')
+        # tier 3-5: 先算总分再判定
+        score, details = self.compute_weighted_score(
+            [(n, str(v)) for n, v in normalized], expected_stats
+        )
+        self.info_set('声骸得分', f'{score:.2f}')
+        self.log_info(f'[渐进T{tier}] 得分: {" | ".join(details)}')
+        self.log_info(f'[渐进T{tier}] 总分: {score:.2f}')
 
-            threshold = score_thresholds[tier]
-            if score < threshold:
-                self.fail_reason = f'T{tier}得分不足_{score:.2f}<{threshold}'
-                self.log_info(f'[渐进T{tier}] {score:.2f} < {threshold}, 停止强化')
-                return False
-            self.log_info(f'[渐进T{tier}] {score:.2f} >= {threshold} ✅ 继续')
-
+        (verdict, _), threshold, _ = self.judge_echo(set_name, tier, score, normalized)
+        if verdict == 'fail':
+            self.fail_reason = f'T{tier}得分不足_{score:.2f}<{threshold}'
+            self.log_info(f'[渐进T{tier}] {score:.2f} < {threshold}, 停止强化')
+            return False
+        self.log_info(f'[渐进T{tier}] {score:.2f} >= {threshold} ✅ 继续')
         return True
+
+    def judge_echo(self, set_name, tier, score, stats):
+        """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, keep)。
+        Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
+          通用=weight>0)即过, 不限分
+        Lv15/20/25 (3-5 词条): 总分 ≥ 锚线(_tier_threshold = 有效词条最低 (tier-1) 条平均档加权和)
+        verdict: pass(满级达标) / pending(达标且未满级) / fail(不达标)
+        keep: 满级不达标但"底子值得花钱重铸"——有效条数 ≥2 且有效分 ≥18(锁2追3 + 成本线);
+        强化流程 keep 不豁免(仍丢弃), 仅评估报告标注"建议保留"。
+        """
+        if tier <= 2:
+            if set_name == '通用':
+                ok = any(DEFAULT_WEIGHTS.get(n, 0.0) > 0 for n, _ in stats)
+            else:
+                core = get_set_core_first(set_name) or []
+                ok = any(n in core for n, _ in stats)
+            return (('pending', '待强化') if ok else ('fail', '不达标')), 0.0, False
+        threshold = _tier_threshold(set_name, tier)
+        if score >= threshold:
+            return (('pass', '达标') if tier >= 5 else ('pending', '待强化')), threshold, False
+        # 不达标: 满级时判断是否"建议保留"(有效条数≥2 且 有效分≥18)
+        keep = False
+        if tier >= 5:
+            if set_name == '通用':
+                eff = sum(1 for n, _ in stats if DEFAULT_WEIGHTS.get(n, 0.0) > 0)
+            else:
+                core = get_set_core_first(set_name) or []
+                eff = sum(1 for n, _ in stats if n in core)
+            keep = eff >= 2 and score >= 18
+        return ('fail', '不达标'), threshold, keep
 
     def compute_weighted_score(self, paired_stats, valid_stats):
         """
-        权重来源: 套装 JSON (通过 get_set_weights), 通用模式用有效词条(权重1.0)
-        有效性: 套装→权重>0的为有效; 通用→用有效词条列表
+        评分: 条分 = 档位/均值 × 10 × 权重(上限自然 12.5/条), 无效 0 分。
+        权重来源: 套装 JSON (get_set_weights); 通用模式用 DEFAULT_WEIGHTS 表。
+        达标线: _tier_threshold = 套装有效词条平均档加权分(10×权重)中最低 (tier-1) 条之和;
+                Lv5/10 走"有效词条存在"结构判定, 不用分数。
         """
         set_name = self.config.get('当前套装', '通用')
         set_weights = get_set_weights(set_name if set_name != '通用' else None)
@@ -663,8 +875,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 weight = set_weights.get(stat_name, 0.0)
                 is_valid = weight > 0
             else:
-                is_valid = stat_name in valid_stats
-                weight = 1.0 if is_valid else 0.0
+                weight = DEFAULT_WEIGHTS.get(stat_name, 0.0)
+                is_valid = weight > 0
 
             if not is_valid:
                 details.append(f'{stat_name}={v} 无效(0)')
@@ -676,9 +888,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 details.append(f'{stat_name}={v} 无档位数据')
                 continue
 
-            contribution = (tier_val / mean_val) * weight
+            contribution = (tier_val / mean_val) * 10 * weight
             total += contribution
-            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×{weight}={contribution:.2f}')
+            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×10×{weight}={contribution:.2f}')
 
         return total, details
 
