@@ -453,9 +453,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         set_name = get_set_by_echo(echo_name, prefer=cfg_set) or cfg_set
                         self.log_debug(f'[套装映射] {echo_name} → {set_name} (候选: {cands})')
                         valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
-                        # compute_weighted_score 内部会 parse_number(value_str), 需传字符串
+                        # compute_weighted_score 内部会 parse_number(value_str), 需传字符串; 显式传套装名让其用映射套装权重
                         score, details = self.compute_weighted_score(
-                            [(n, str(v)) for n, v in stats], valid_stats
+                            [(n, str(v)) for n, v in stats], valid_stats, set_name=set_name
                         )
                         # 判定与渐进强化共用同一份逻辑 (见 judge_echo); 满级不达标但底子够(有效≥2条且≥18分) → 建议保留
                         (verdict, verdict_cn), threshold, keep = self.judge_echo(set_name, tier, score, stats)
@@ -853,14 +853,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             keep = eff >= 2 and score >= 18
         return ('fail', '不达标'), threshold, keep
 
-    def compute_weighted_score(self, paired_stats, valid_stats):
+    def compute_weighted_score(self, paired_stats, valid_stats, set_name=None):
         """
         评分: 条分 = 档位/均值 × 10 × 权重(上限自然 12.5/条), 无效 0 分。
         权重来源: 套装 JSON (get_set_weights); 通用模式用 DEFAULT_WEIGHTS 表。
+        set_name: 显式指定套装名(评估按声骸名映射时用); None 时回退 config['当前套装']。
         达标线: _tier_threshold = 套装有效词条平均档加权分(10×权重)中最低 (tier-1) 条之和;
                 Lv5/10 走"有效词条存在"结构判定, 不用分数。
         """
-        set_name = self.config.get('当前套装', '通用')
+        if set_name is None:
+            set_name = self.config.get('当前套装', '通用')
         set_weights = get_set_weights(set_name if set_name != '通用' else None)
 
         total = 0.0
