@@ -190,7 +190,7 @@ def get_set_by_echo(echo_name: str, prefer: str | None = None) -> str | None:
 
 
 def get_set_icon(set_name: str | None) -> str | None:
-    """套装图标名(wuther.in IconElementAttri{名}, 如 Cloud/Ice); 未配置返回 None。"""
+    """套装图标文件名(assets/echo_icons/ 下的 `{套装名}.png`, 供将来图标模板匹配); 未配置返回 None。"""
     if not set_name or set_name == "通用":
         return None
     info = load_templates().get(set_name)
