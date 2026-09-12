@@ -8,7 +8,7 @@
 
 口径: 高置信比例(置信线见 echo_icon_match.MIN_SCORE/MIN_MARGIN)、s1 分布,
 以及"图标 top1 ∈ 声骸名候选集(get_sets_by_echo)"的一致率(需同目录的 image_report.md 提供名字)。
-名字层已实证无解的错字案例(如 梦魔·青羽鹭 → 名字候选错, 图标给 息界同调之律)标 CORRECTED。
+名字层已实证无解的错字案例(如 梦魔·青羽鹭 → 名字候选错, 图标给 息界同调之律)在"不一致明细"里逐条列出。
 """
 
 import argparse
@@ -95,7 +95,7 @@ def main() -> int:
         print(f'名字口径: 候选非空 {judged} 张, 一致 {agree} ({100 * agree / judged:.1f}%), '
               f'不一致 {corr}(名字层错字 → 图标纠正, 见下)')
     if misses:
-        print('不一致明细(CORRECTED = 名字候选错/无解, 以图标为准):')
+        print('不一致明细(名字层错字 → 名字候选错, 以图标为准):')
         for tag, name, cands, icon_set, score, margin in misses:
             print(f'  {tag} {name} 名字候选={cands} → 图标 {icon_set} (s1={score:.3f} margin={margin:.3f})')
     low = [r for r in rows if not r[2]]

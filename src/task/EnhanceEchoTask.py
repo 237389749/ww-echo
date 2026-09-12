@@ -535,10 +535,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     self.sleep(1.2)
                     last_sig = None   # 换屏后不再沿用上一屏的签名(新屏首格总是先读)
 
-            # 汇总 JSON
-            set_name = self.config.get('当前套装', '通用')
+            # 汇总 JSON(顶层 set = 本次评估的 config 套装; 逐条的 set/set_src 见 resolve_set_name)
+            output_set = self.config.get('当前套装', '通用')
             output = {
-                "set": set_name,
+                "set": output_set,
                 "total": evaluated,
                 "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "results": results,
