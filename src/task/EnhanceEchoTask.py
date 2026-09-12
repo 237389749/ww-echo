@@ -48,23 +48,27 @@ def _lcs_len(a: str, b: str) -> int:
     return best
 
 
-def _tier_threshold(set_name: str, tier: int) -> float:
-    """达标线 = 有效词条"平均档加权分"(10×权重)中最低 L 条之和, L = tier-1。
-    Lv5/10(1-2 词条)返回 0 —— 判定走"有效词条条数"结构规则(见调用处), 不走分数。
-    Lv15/20/25(L=2/3/4): 套装模式取套装键(weight>0)权重升序前 L 条 ×10 求和;
-    通用模式取"角色适配集"6 种代表权重 [1.0,0.9,0.85,0.7,0.6,0.5]
-    (暴击/爆伤/攻%类/共效/一种专伤/固定攻——专伤与固定三系各取一种, 因为通常只需要一条特定专伤)。
-    键数 k < L 时取全部 k 条(评分上限按 k 收缩)。
-    例: Lv15=5+6=11, Lv20=18, Lv25=26.5。"""
+# 通用回退锚线的代表权重集(暴击/爆伤/攻%类/共效/一种专伤/固定攻)
+_GENERAL_WEIGHTS = (1.0, 0.9, 0.85, 0.7, 0.6, 0.5)
+
+
+def _tier_threshold(set_name: str, tier: int, stats=None) -> float:
+    """达标线(锚线) = (本只声骸"出现的有效词条"的平均档加权分 10×权重) × (tier-1)。
+
+    Lv5/10(tier<=2) 走"有效词条存在"结构判定 → 返回 0(不用分数)。
+    "出现的有效词条" = stats 里该套装启用了的(权重>0)那些的权重; 一条都没有(整只不属于该套装)
+    → 回退通用锚线(取通用代表集最低 tier-1 条之和: 11 / 18 / 26.5)。
+    **为什么不再取"套装最低 L 条之和"**: 那会把"键多但权重低"的套装锚线拉到极低 —— 实测
+    轻云出月(9 键, 4 个专伤 0.15) Lv25 只有 6.0、隐世回光(9 键, 生命/防御 0.1~0.15) 只有 5.0,
+    结果"词条种类越多越容易达标", 与难度直觉相反。改为按实际出现词条取平均后, 锚线随该只
+    词条质量浮动(通用 5 条典型权重 1.0/0.9/0.85/0.7/0.6 → 平均 8.1 → Lv15/20/25 = 16.2/24.3/32.4)。"""
     if tier <= 2:
         return 0.0
-    if set_name == '通用':
-        weights = [1.0, 0.9, 0.85, 0.7, 0.6, 0.5]
-    else:
-        weights = [w for w in (get_set_weights(set_name) or {}).values() if w > 0]
-    avg = sorted(10 * w for w in weights)
-    need = min(tier - 1, len(avg))
-    return round(sum(avg[:need]), 1)
+    weights = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
+    appeared = [weights.get(n, 0.0) for n, _ in (stats or []) if weights.get(n, 0.0) > 0]
+    if not appeared:
+        return round(sum(sorted(10 * w for w in _GENERAL_WEIGHTS)[:tier - 1]), 1)
+    return round(sum(10 * w for w in appeared) / len(appeared) * (tier - 1), 1)
 
 
 class EnhanceEchoTask(BaseEchoTask, FindFeature):
@@ -846,7 +850,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, keep)。
         Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
           通用=weight>0)即过, 不限分
-        Lv15/20/25 (3-5 词条): 总分 ≥ 锚线(_tier_threshold = 有效词条最低 (tier-1) 条平均档加权和)
+        Lv15/20/25 (3-5 词条): 总分 ≥ 锚线(_tier_threshold = 本只"出现的有效词条"平均档加权分 × (tier-1))
         verdict: pass(满级达标) / pending(达标且未满级) / fail(不达标)
         keep: 满级不达标但"底子值得花钱重铸"——有效条数 ≥2 且有效分 ≥18(锁2追3 + 成本线);
         强化流程 keep 不豁免(仍丢弃), 仅评估报告标注"建议保留"。
@@ -858,7 +862,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 core = get_set_core_first(set_name) or []
                 ok = any(n in core for n, _ in stats)
             return (('pending', '待强化') if ok else ('fail', '不达标')), 0.0, False
-        threshold = _tier_threshold(set_name, tier)
+        threshold = _tier_threshold(set_name, tier, stats)
         if score >= threshold:
             return (('pass', '达标') if tier >= 5 else ('pending', '待强化')), threshold, False
         # 不达标: 满级时判断是否"建议保留"(有效条数≥2 且 有效分≥18)
@@ -877,7 +881,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         评分: 条分 = 档位/均值 × 10 × 权重(上限自然 12.5/条), 无效 0 分。
         权重来源: 套装 JSON (get_set_weights); 通用模式用 DEFAULT_WEIGHTS 表。
         set_name: 显式指定套装名(评估按声骸名映射时用); None 时回退 config['当前套装']。
-        达标线: _tier_threshold = 套装有效词条平均档加权分(10×权重)中最低 (tier-1) 条之和;
+        达标线: _tier_threshold = 本只"出现的有效词条"平均档加权分(10×权重) × (tier-1);
                 Lv5/10 走"有效词条存在"结构判定, 不用分数。
         """
         if set_name is None:
