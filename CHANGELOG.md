@@ -220,6 +220,8 @@ Agent 审查日志质量：
 **集成**(`EnhanceEchoTask.resolve_set_name`)
 - 图标优先(**与名字候选不一致时也以图标为准**) → 低置信回退名字候选 → 再回退 config(评估=通用)
 - 来源 `icon`/`name`/`default` 记入报告 JSON(`set`/`set_src`); 日志 `[套装图标] 名 → 套装 (s1=… margin=…)[ — 名字候选 […] 由图标纠正]`
+- 评估报告(`_build_eval_html`)新增**套装列**: 显示 `set`, 悬停看来源; 旧报告缺该字段显示 `—`。
+  报告筛选由 `data-*`(data-score/data-verdict/data-name/data-set)驱动, 不依赖列索引 → 加列不影响筛选
 - 新增 `cv2.imdecode(np.fromfile(...))` 读模板(中文文件名, `cv2.imread` 返回 None — 见 CLAUDE.md 已知坑)
 
 **离线回归**(`tools/eval_icon_match.py`, 用 `logs/eval_debug/<时间戳>/` 全屏图, 无需开游戏)

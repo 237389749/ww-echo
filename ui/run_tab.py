@@ -543,11 +543,16 @@ def _build_eval_html(data):
             stat_lines.append(f'<div class="stat"{bg}>{detail}</div>')
         stats_html = "".join(stat_lines) or '<div class="stat" style="color:#bbb">未强化/无词条</div>'
         name = r.get("name", "")
+        # 套装来源(resolve_set_name): icon=详情面板图标判定 / name=声骸名候选兜底 / default=通用; 旧报告无字段 → "—"
+        set_name = r.get("set") or "—"
+        set_src = {"icon": "套装图标判定", "name": "声骸名兜底",
+                   "default": "默认(通用)"}.get(r.get("set_src"), "")
         rows.append(
-            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}">'
+            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}" data-set="{set_name}">'
             f'<td>{r["index"]}</td>'
             f'<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>'
             f'<td>{name}</td>'
+            f'<td title="{set_src}">{set_name}</td>'
             f'<td>{r["score"]}</td>'
             f'<td style="color:{color};font-weight:bold">{vcn}</td>'
             f'<td>{stats_html}</td></tr>')
@@ -589,7 +594,7 @@ def _build_eval_html(data):
 <span id="cnt" class="cnt"></span>
 </div>
 <table>
-<thead><tr><th>#</th><th>截图</th><th>名称</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
+<thead><tr><th>#</th><th>截图</th><th>名称</th><th>套装</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
 <tbody id="tbody">{"".join(rows)}</tbody>
 </table>
 </div>
