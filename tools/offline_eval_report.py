@@ -68,7 +68,10 @@ def split_rows(lines: list) -> tuple:
         if ln.startswith('声骸技能'):
             break
         if '|' in ln:
-            head, tail = ln.split('|', 1)
+            # 按**最后一个** | 切分: 转录里属性图标被误读成前缀且与真名用 | 相连
+            # (如 `器 | 暴击伤害 | 15.0%` / `众 | 共鸣效率 | 8.4%`), 整个前缀保留给
+            # _normalize_stat 的逐字白名单清洗(线上 OCR 同样是前缀污染, 用同一套清洗)
+            head, _, tail = ln.rpartition('|')
             props.append((head.strip(), tail.strip()))
         elif not name and re.search(r'[\u4e00-\u9fff]', ln):
             name = ln
