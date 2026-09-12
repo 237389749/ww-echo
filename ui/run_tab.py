@@ -12,6 +12,9 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
 
 from ok import og
 
+from src.echo_stats import DEFAULT_WEIGHTS
+from src.echo_set_templates import get_set_weights
+
 
 class RunTab(QWidget):
     _log_signal = Signal(str)
@@ -462,6 +465,14 @@ img{border-radius:4px;border:1px solid #ddd}
 .sep{color:#ccc}
 .cnt{margin-left:auto;color:#666}
 button{padding:4px 10px;cursor:pointer;border:1px solid #ddd;border-radius:3px;background:#fff}
+details.rules summary{cursor:pointer;font-weight:bold;font-size:15px}
+.rules-body{font-size:13px;line-height:1.75;margin-top:10px;color:#333}
+.rules-body h3{margin:12px 0 4px;font-size:14px;color:#1565c0}
+.rules-body ul{margin:4px 0 4px 20px}
+.rules-body code{background:#f5f5f5;padding:1px 4px;border-radius:3px}
+.wtable{width:auto;margin-top:6px}
+.wtable th,.wtable td{padding:4px 10px}
+.w{display:inline-block;margin:2px 4px 2px 0;padding:1px 6px;border-radius:3px;background:#e3f2fd;color:#1565c0}
 """
 
 # 评估报告筛选脚本(原生 JS, 无外部依赖): 得分区间 + 判定多选 + 名称包含
@@ -509,6 +520,51 @@ def _ratio_color(ratio):
     t = max(0.0, min(1.0, t))
     lightness = 92 - 46 * t
     return f'hsl(210, 60%, {lightness:.0f}%)'
+
+
+def _build_rules_html(results):
+    """评估规则说明(折叠卡片) + 本次报告涉及套装的权重表 —— 让报告自带"分数/判定怎么来的"。"""
+    used = {}
+    for r in results:
+        name = r.get("set") or "通用"
+        if name not in used:
+            used[name] = dict(DEFAULT_WEIGHTS) if name == "通用" else dict(get_set_weights(name) or {})
+    rows = []
+    for name in sorted(used, key=lambda n: (n != "通用", n)):
+        weights = used[name]
+        if not weights:
+            continue
+        items = "".join(f'<span class="w">{k} {v}</span>'
+                        for k, v in sorted(weights.items(), key=lambda kv: -kv[1]))
+        rows.append(f'<tr><td>{name}</td><td>{items}</td></tr>')
+    weights_html = ('<table class="wtable"><thead><tr><th>套装</th><th>有效词条（权重）</th></tr></thead>'
+                    f'<tbody>{"".join(rows)}</tbody></table>') if rows else ''
+    return f'''<details class="card rules">
+<summary>评估规则（评分 / 达标线 / 判定 / 本次用到的套装权重）</summary>
+<div class="rules-body">
+<h3>评分</h3>
+<p>条分 = <b>档位值 ÷ 该词条均值 × 10 × 权重</b>（每条上限自然 12.5；无效词条记 0 分，总分 = 各条之和）。<br>
+词条只认"落在档位表上的离散值"；详情面板前 2 行是主属性，不计入词条。词条名/声骸名走容错归一化（剥图标误读、拆字、错字）。</p>
+<h3>达标线（锚线）</h3>
+<p>Lv15 / Lv20 / Lv25 的达标线 = 该套装<b>有效词条"平均档加权分"中最低 (n−1) 条之和</b>（权重升序取 n−1 条 ×10 求和；
+套装键数不足时按实际键收缩）。通用（未映射到套装）锚线 = <b>11 / 18 / 26.5</b>。<br>
+Lv5 / Lv10 为结构判定：只要存在"首条核心词条"即通过，不限分。</p>
+<h3>判定</h3>
+<ul>
+<li><b>达标</b>：满级且总分 ≥ 锚线</li>
+<li><b>待强化</b>：未满级但已 ≥ 锚线</li>
+<li><b>建议保留重铸</b>：满级不达标，但有效词条 ≥2 且有效分 ≥18（洗练成本线，锁 2 追 3）——<b>仅报告建议，强化流程不豁免、仍会丢弃</b></li>
+<li><b>不合格</b>：未达锚线</li>
+<li><b>0 级 / 无词条</b>：无评估价值，不写入报告</li>
+</ul>
+<h3>套装如何判定</h3>
+<p>优先读游戏详情面板的<b>套装图标</b>（与 <code>assets/echo_icons/</code> 34 套模板做灰度 ZNCC，s1 ≥ 0.60 且与次优间隔 ≥ 0.05 才采信）；
+置信不足时回退"声骸名 → 套装候选"，都拿不到则按通用。报告中「套装」列可悬停查看来源。</p>
+<h3>本次报告涉及的套装权重</h3>
+<p>权重决定该词条算多少分，也决定达标线取哪些词条（权重越低越先被算进锚线）。</p>
+{weights_html}
+</div>
+</details>'''
 
 
 def _build_eval_html(data):
@@ -559,6 +615,7 @@ def _build_eval_html(data):
 
     names = sorted({r.get("name", "") for r in results if r.get("name")})
     datalist = "".join(f'<option value="{n}">' for n in names)
+    rules_html = _build_rules_html(results)
 
     return f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -576,6 +633,7 @@ def _build_eval_html(data):
 <span style="background:#eceff1;color:#607d8b">0级/无词条 {zero_n}</span>
 </div>
 </div>
+{rules_html}
 <div class="card">
 <div class="filters">
 <span>得分: ≥ <input id="fmin" type="number" step="0.1" style="width:70px"></span>
