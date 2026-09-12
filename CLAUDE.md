@@ -25,7 +25,9 @@ src/task/EnhanceEchoTask.py  强化(run) + 评估(evaluate_only v2 遍历, 核�
 src/task/BaseEchoTask.py  轻量基类(click 覆写/语言检测)
 assets/echo_icons/        34 个套装图标(76x76, 文件名=套装名) — 图标识别模板
 assets/echo_set_templates.json 套装配置存档
+tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 / 声骸名容错匹配
 tools/eval_icon_match.py  图标识别离线回归(用 logs/eval_debug 数据集, 无需开游戏)
+tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
 ```
 
 ## 运行模式(local / cloud)
@@ -103,7 +105,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 **已完成并提交**: 阶段十一(声骸名容错匹配) + 阶段十二(套装图标识别) —— 名字多义/错字消歧链路已闭环: 图标(硬信号) → 名字候选 → 通用。
 
 **下一棒候选(按价值排序, 未开工)**:
-- **非 1920x1200 / 带黑边渲染的图标区校准**: `ICON_BOX` 来自 1920x1200 全屏实测, 归一化后分辨率无关; 但云平台带黑边时 UI 整体偏移(与"已知坑"同源), 未做黑边校准
+- **黑边校准: 暂不做**(用户确认云平台大概率全屏自适应、不出黑边)。`ICON_BOX` 来自 1920x1200 实测, 归一化后分辨率无关; 触发条件: 若出现 `s1 < 0.60` 的低置信且集中在某一分辨率/窗口模式, 再按黑边导致的整体偏移排查
 - **图标识别兜底到强化模式**: 现在强化套装由用户在下拉里选定, 不用图标; 若要"自动套装"强化可复用 `match_icon`
 - **新增套装素材**: 新版本套装需补 `assets/echo_icons/{套装名}.png`(文件名 = 套装名 = `echo_set_templates.json` 的键), 否则该类声骸只能走名字兜底
 

@@ -142,8 +142,10 @@ ww-echo/
 │       ├── EnhanceEchoTask.py      # 强化 + 评估(自动遍历 v2)
 │       ├── BaseEchoTask.py         # 任务基类
 │       └── ...
+├── tests/                          # 单测(不依赖游戏数据)
 ├── tools/
-│   └── eval_icon_match.py          # 套装图标识别离线回归(用 eval_debug 数据集)
+│   ├── eval_icon_match.py          # 套装图标识别离线回归(用 eval_debug 数据集)
+│   └── offline_eval_report.py      # 离线重放评估 → eval_report.html(不开游戏核对评分/报告)
 └── assets/
     ├── echo_set_templates.json     # 套装模板 (保存/导入/导出)
     ├── echo_icons/                 # 34 个套装图标(76x76, 文件名 = 套装名)

@@ -250,7 +250,8 @@ ww-echo/
 │       └── BaseEchoTask.py     ← 轻量基类
 ├── tools/
 │   ├── parse_wutherin_echoes.py ← 从保存的 wuther.in 页面解析套装声骸清单(保留手补)
-│   └── eval_icon_match.py      ← 套装图标识别离线回归(eval_debug 数据集, 无需开游戏)
+│   ├── eval_icon_match.py      ← 套装图标识别离线回归(eval_debug 数据集, 无需开游戏)
+│   └── offline_eval_report.py  ← 离线重放评估(eval_debug 素材) → 生成 eval_report.html
 └── assets/
     ├── echo_set_templates.json ← 套装模板 + _core_first/_echoes(4c/3c/1c)/_icon (34套)
     ├── echo_icons/            ← 34 个套装图标(76x76, 文件名 = 套装名)
