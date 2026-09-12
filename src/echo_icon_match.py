@@ -55,8 +55,12 @@ def icons_dir() -> str:
 
 
 def _template_gray(path: str):
-    """模板 → 灰度(透明区合成到白底)。cv2.imread 不支持非 ASCII 路径(套装名是中文) → imdecode。"""
-    img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    """模板 → 灰度(透明区合成到白底)。cv2.imread 不支持非 ASCII 路径(套装名是中文) → imdecode。
+    文件不存在/损坏时返回 None(由 _bank 跳过并告警), 不让单个坏文件拖垮整个模板库。"""
+    try:
+        img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    except OSError:
+        return None
     if img is None:
         return None
     if img.ndim == 3 and img.shape[2] == 4:
