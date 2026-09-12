@@ -54,6 +54,10 @@ _template_cache: dict | None = None
 _cache_mtime: float = 0
 # 声骸名 → [套装名,...] 反向索引(随模板缓存重建; 一个声骸可属多个套装)
 _echo_index: dict[str, list[str]] | None = None
+# 所有声骸名的汉字字符集(逐字白名单, 参照词条过滤 _STAT_CHARS): 用于剥离 OCR 错字/杂字
+_echo_chars: set[str] = set()
+# 声骸名"皮肤前缀"——OCR 出「异相·XXX」时剥掉, 用本体名匹配; 「梦魇·」是真实前缀(独立声骸), 保留
+_ECHO_SKIN_PREFIXES = ('异相·', '异相')
 
 
 def _get_template_path() -> str:
@@ -161,21 +165,83 @@ def get_set_echoes(set_name: str | None) -> dict[str, list[str]] | None:
     return info.get("echoes") if info else None
 
 
+def _strip_echo_prefix(name: str) -> str:
+    """剥离声骸名皮肤前缀「异相」(异相·双极·星升辉铳 → 双极·星升辉铳)。"""
+    for p in _ECHO_SKIN_PREFIXES:
+        if name.startswith(p):
+            return name[len(p):].lstrip('· ')
+    return name
+
+
+def _lcs_len(a: str, b: str) -> int:
+    """最长公共连续子串长度。"""
+    best = 0
+    for i in range(len(a)):
+        for j in range(len(b)):
+            k = 0
+            while i + k < len(a) and j + k < len(b) and a[i + k] == b[j + k]:
+                k += 1
+            if k > best:
+                best = k
+    return best
+
+
+def _substring_hits(candidate: str, index: dict) -> list[str]:
+    """candidate 与模板名互为子串的模板名列表。"""
+    return [t for t in index if len(candidate) >= 2 and len(t) >= 2
+            and (candidate in t or t in candidate)]
+
+
+def _match_echo_name(name: str, index: dict, chars: set) -> list[str]:
+    """声骸名 → 候选套装列表。三级容错(参照词条过滤 _normalize_stat):
+    ① 剥「异相」前缀 ② 精确 ③ 逐字白名单清洗(只留声骸名字符集内汉字, 剥 OCR 错字/杂字)
+    ④ 子串(唯一候选) ⑤ 最长公共子串 LCS(≥3 字且唯一)。匹配不到返回 []。"""
+    if not name:
+        return []
+    name = _strip_echo_prefix(name)
+    if not name:
+        return []
+    if name in index:
+        return list(index[name])
+    cleaned = ''.join(ch for ch in name if ch in chars)
+    for candidate in (cleaned, name):
+        if len(candidate) < 2:
+            continue
+        if candidate in index:
+            return list(index[candidate])
+        hits = _substring_hits(candidate, index)
+        if len(hits) == 1:
+            return list(index[hits[0]])
+    # LCS 回退
+    base = cleaned if len(cleaned) >= 2 else name
+    scored = [(_lcs_len(base, t), t) for t in index]
+    scored = [(l, t) for l, t in scored if l >= 3]
+    if scored:
+        best = max(l for l, _ in scored)
+        top = [t for l, t in scored if l == best]
+        if len(top) == 1:
+            return list(index[top[0]])
+    return []
+
+
 def get_sets_by_echo(echo_name: str) -> list[str]:
     """声骸名 → 所属套装名列表(一个声骸可属多个套装; 按模板声明顺序)。未录入返回 []。
-    索引随模板缓存重建。"""
-    global _echo_index
+    先剥「异相」前缀, 再精确/子串/LCS 容错匹配(参照词条过滤)。索引随模板缓存重建。"""
+    global _echo_index, _echo_chars
     templates = load_templates()
     if _echo_index is None:
         idx: dict[str, list[str]] = {}
+        chars: set[str] = set()
         for set_name, info in templates.items():
             for names in (info.get("echoes") or {}).values():
                 for n in names:
                     lst = idx.setdefault(n, [])
                     if set_name not in lst:
                         lst.append(set_name)
+                    chars.update(ch for ch in n if '\u4e00' <= ch <= '\u9fff')
         _echo_index = idx
-    return list(_echo_index.get(echo_name, []))
+        _echo_chars = chars
+    return _match_echo_name(echo_name, _echo_index, _echo_chars)
 
 
 def get_set_by_echo(echo_name: str, prefer: str | None = None) -> str | None:

@@ -12,6 +12,7 @@ from ok.util.file import clear_folder
 from src.echo_stats import snap_to_tier, get_mean, is_stat_match, DEFAULT_WEIGHTS  # noqa
 from src.echo_set_templates import (get_expected_stats, get_all_set_names, get_set_weights,
                                     get_set_core_first, get_set_by_echo, get_sets_by_echo)
+from src.echo_icon_match import match_icon, MIN_MARGIN, MIN_SCORE
 from src.task.BaseEchoTask import BaseEchoTask
 
 logger = Logger.get_logger(__name__)
@@ -176,6 +177,27 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '启用评分模式': '条分=档位值÷均值×10×权重(每条上限12.5): 暴击1.0/爆伤0.9/攻%0.85/共效0.7/专伤0.6/固定三系0.5\n无效词条=0分',
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
         }
+
+    def resolve_set_name(self, echo_name: str) -> tuple[str, str]:
+        """评估用: 声骸名 + 详情面板套装图标 → (套装名, 来源)。
+
+        图标是硬信号: 名字天生多义(181 个声骸名中 120 个属 ≥2 套装) + OCR 错字 → 名字层无法
+        唯一确定套装(见 CHANGELOG 阶段十一/十二)。match_icon 内部已判置信(高置信才给套装名);
+        低置信/面板无图标时回退名字候选(config 套装在候选内则优先), 再不行回退 config(评估=通用)。
+        来源 'icon'/'name'/'default' 记入报告, 便于离线核对图标映射。
+        """
+        cfg_set = self.config.get('当前套装', '通用')
+        icon_set, score, margin = match_icon(self.frame)
+        cands = get_sets_by_echo(echo_name)
+        if icon_set:
+            corrected = f' — 名字候选 {cands} 由图标纠正' if cands and icon_set not in cands else ''
+            self.log_debug(f'[套装图标] {echo_name} → {icon_set}'
+                           f' (s1={score:.3f} margin={margin:.3f}){corrected}')
+            return icon_set, 'icon'
+        set_name = get_set_by_echo(echo_name, prefer=cfg_set) or cfg_set
+        self.log_debug(f'[套装映射] {echo_name} → {set_name} (名字候选: {cands or "无"};'
+                       f' 图标未达置信线 s1={score:.3f}/{MIN_SCORE} margin={margin:.3f}/{MIN_MARGIN})')
+        return set_name, 'name' if cands else 'default'
 
     def evaluate_only(self, on_done=None):
         """
@@ -446,12 +468,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                     tier = len(stats)
                     if stats:
-                        # 按声骸名自动映射套装(多套装声骸: config 套装在候选内则优先, 否则首个);
-                        # 未录入 → 回退 config(评估时=通用)
-                        cfg_set = self.config.get('当前套装', '通用')
-                        cands = get_sets_by_echo(echo_name)
-                        set_name = get_set_by_echo(echo_name, prefer=cfg_set) or cfg_set
-                        self.log_debug(f'[套装映射] {echo_name} → {set_name} (候选: {cands})')
+                        # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
+                        # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
+                        set_name, set_src = self.resolve_set_name(echo_name)
                         valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
                         # compute_weighted_score 内部会 parse_number(value_str), 需传字符串; 显式传套装名让其用映射套装权重
                         score, details = self.compute_weighted_score(
@@ -483,7 +502,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     results.append({
                         "index": evaluated + 1, "name": echo_name, "tier": tier, "score": round(score, 2),
                         "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
-                        "screenshot": ss_name,
+                        "set": set_name, "set_src": set_src, "screenshot": ss_name,
                         "stats": [{"name": n, "value": float(v), "detail": d,
                                    "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
                                   for (n, v), d in zip(stats, details)]
