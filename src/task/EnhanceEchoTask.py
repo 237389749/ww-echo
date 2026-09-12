@@ -48,27 +48,39 @@ def _lcs_len(a: str, b: str) -> int:
     return best
 
 
-# 通用回退锚线的代表权重集(暴击/爆伤/攻%类/共效/一种专伤/固定攻)
+# 通用回退/下限兜底用的代表权重集(暴击/爆伤/攻%类/共效/一种专伤/固定攻)
 _GENERAL_WEIGHTS = (1.0, 0.9, 0.85, 0.7, 0.6, 0.5)
 
 
 def _tier_threshold(set_name: str, tier: int, stats=None) -> float:
-    """达标线(锚线) = (本只声骸"出现的有效词条"的平均档加权分 10×权重) × (tier-1)。
+    """达标线(锚线) = max( 新规则, 旧规则下限 ), L = tier-1。
 
+    **新规则**: 本只"出现的有效词条"(该套装权重>0, 且本次真的出现)的 10×权重平均值 × L ——
+      即"手上这些词条平均达到对应档位"的水平(平均档 = 有价值)。词条条数 k < L 时按现有 k 条
+      的平均外推(不另判死)。
+    **下限(旧规则, 兜底)**: 该套装有效键权重升序最低 L 条 ×10 之和(通用用代表集 → 11/18/26.5)。
+      为什么还要下限: 极端情况(k 很小且权重很低, 如只出现 1 条 0.1 权重的词条)新规则会算出 4.0
+      这种比旧规则还低的线 → 用旧规则兜住, 保证"再严也不会比原来松"。
     Lv5/10(tier<=2) 走"有效词条存在"结构判定 → 返回 0(不用分数)。
-    "出现的有效词条" = stats 里该套装启用了的(权重>0)那些的权重; 一条都没有(整只不属于该套装)
-    → 回退通用锚线(取通用代表集最低 tier-1 条之和: 11 / 18 / 26.5)。
-    **为什么不再取"套装最低 L 条之和"**: 那会把"键多但权重低"的套装锚线拉到极低 —— 实测
-    轻云出月(9 键, 4 个专伤 0.15) Lv25 只有 6.0、隐世回光(9 键, 生命/防御 0.1~0.15) 只有 5.0,
-    结果"词条种类越多越容易达标", 与难度直觉相反。改为按实际出现词条取平均后, 锚线随该只
-    词条质量浮动(通用 5 条典型权重 1.0/0.9/0.85/0.7/0.6 → 平均 8.1 → Lv15/20/25 = 16.2/24.3/32.4)。"""
+    **旧规则单独使用已废弃**: 它独自会把"键多但权重低"的套装锚线压到极低(实测 轻云出月 9 键/4 个
+    专伤 0.15 → Lv25 仅 6.0; 隐世回光 9 键 → 5.0), 变成"词条种类越多越易达标"。"""
     if tier <= 2:
         return 0.0
-    weights = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
-    appeared = [weights.get(n, 0.0) for n, _ in (stats or []) if weights.get(n, 0.0) > 0]
+    if not set_name or set_name == '通用':
+        weight_map, legacy_src = DEFAULT_WEIGHTS, _GENERAL_WEIGHTS
+    else:
+        weight_map = get_set_weights(set_name) or {}
+        legacy_src = tuple(weight_map.values())
+    # 下限兜底 = max(旧规则: 套装有效键最低 L 条之和, 通用线: 代表集最低 L 条之和 = 11/18/26.5)
+    # 只取"旧规则(套装)"不够 —— 它对"键多但权重低"的套装本身就塌陷(隐世回光只有 2.0/3.5/5.0),
+    # 加通用线可保证"再严也不会比通用标准松"
+    legacy = max(sum(sorted(10 * w for w in legacy_src if w > 0)[:tier - 1]),
+                 sum(sorted(10 * w for w in _GENERAL_WEIGHTS)[:tier - 1]))
+    appeared = [weight_map.get(n, 0.0) for n, _ in (stats or []) if weight_map.get(n, 0.0) > 0]
     if not appeared:
-        return round(sum(sorted(10 * w for w in _GENERAL_WEIGHTS)[:tier - 1]), 1)
-    return round(sum(10 * w for w in appeared) / len(appeared) * (tier - 1), 1)
+        return round(legacy, 1)
+    new = sum(10 * w for w in appeared) / len(appeared) * (tier - 1)      # 新规则: 出现有效词条平均档
+    return round(max(new, legacy), 1)
 
 
 class EnhanceEchoTask(BaseEchoTask, FindFeature):
