@@ -66,13 +66,13 @@ def _legacy_threshold(set_name: str, tier: int) -> float:
 def _tier_threshold(set_name: str, tier: int, stats=None) -> float:
     """达标线(锚线) = max( 新规则, 旧规则下限 ), L = tier-1。
 
-    **新规则**: 10 × (本只"出现的有效词条"(该套装权重>0 且本次真的出现)的权重之和) —— 相当于要求
-      "这些词条每条都达到自己的平均档位"的水平(平均档 = 有价值)。
-    **下限(旧规则线, 兜底)**: 该套装有效键权重升序最低 L 条 ×10 之和(配置未定制的套装它等于通用线
-      11/18/26.5)。为什么还要兜底: 数学上仅当 k = 出现有效词条数 ≥ L 时"新规则恒 ≥ 旧规则线",
-      而 k < L 时新规则求和项数变少、可能低于旧规则线(实测 34% 的样本 k < L, 其中 25 只真的更低)
-      → 用 max(新规则, 旧规则线) 保证"达标必然不弱于旧基准"; 出现有效词条 0 条则直接用旧规则线。
-    注: **不引入通用线**作额外下限 —— 套装配置若被定制, 说明其取向是刻意的(如隐世回光/轻云出月
+    返回**纯 A** = 10 × (本只"出现的有效词条"(该套装权重>0 且真的出现)权重之和) —— 相当于要求
+      "这些词条每条都达到自己的平均档位"的水平(平均档 = 有价值)。**不在此处取 max(A, B)**:
+      A 与基准线 B 的关系交给 judge_echo 判 —— 只有 A ≥ B 时 A 才是有效达标线, A < B 说明
+      "出现的有效词条太少, 求和项不足以支撑达标", 该只最高只能到"保留"。
+    数学: k(=出现有效词条数) ≥ L 时 A ≥ B 恒成立(k 元子集之和 ≥ 最小 k 元之和 ≥ 最小 L 元之和);
+      k < L 时 A 可能 < B(实测 34% 样本 k < L, 其中 25 只真的更低)。出现有效词条 0 条 → 返回 0。
+    注: **不引入通用线**作 A 的下限 —— 套装配置若被定制, 说明其取向是刻意的(如隐世回光/轻云出月
       用低权重"占位键"来压低基准线, 因为真正的核心词条少), 不应被通用标准覆盖。
     Lv5/10(tier<=2) 走"有效词条存在"结构判定 → 返回 0(不用分数)。
     **旧规则单独使用已废弃**: 它独自会把"键多但权重低"的套装锚线压到极低(实测 轻云出月 9 键/4 个
@@ -83,9 +83,8 @@ def _tier_threshold(set_name: str, tier: int, stats=None) -> float:
     base = _legacy_threshold(set_name, tier)      # 旧规则线(套装; 配置未定制的套装其值就等于通用线)
     appeared = [weight_map.get(n, 0.0) for n, _ in (stats or []) if weight_map.get(n, 0.0) > 0]
     if not appeared:
-        return round(base, 1)
-    aim = 10 * sum(appeared)                      # 达标线 = 10 × (出现有效词条的权重之和)
-    return round(max(aim, base), 1)               # k >= tier-1 时 aim 恒 >= base; k 小时用 base 兜底
+        return 0.0                                # A=0(必然 < B) → 该只最高只能到"保留"
+    return round(10 * sum(appeared), 1)           # 达标线 A = 10 × (出现有效词条的权重之和)
 
 
 class EnhanceEchoTask(BaseEchoTask, FindFeature):
@@ -868,9 +867,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
           通用=weight>0)即过, 不限分
         分层(旧规则线 base 是基准门槛, 达标线 aim 是在其之上的再筛选):
-          满级: score ≥ aim → pass达标; score ≥ base → hold保留; 有效≥2 且 ≥18 → keep建议重铸; 否则 fail不合格
+          满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
+                有效≥2 且 ≥18 → keep建议重铸; 否则 fail不合格
           未满级: score ≥ base → pending待强化; 否则 fail不合格
-        aim = _tier_threshold(出现有效词条平均档 × (tier-1), 下限=max(base, 通用线));
+        aim = _tier_threshold(10 × 出现有效词条权重之和) —— **不取 max(aim, base)**:
+          aim < base 说明"出现有效词条太少", 这只最高只能到"保留"; base = _legacy_threshold(旧规则线);
         强化流程不豁免(不达标仍丢弃), keep/hold 仅评估报告标注。
         """
         if tier <= 2:
@@ -888,9 +889,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             core = get_set_core_first(set_name) or []
             eff = sum(1 for n, _ in stats if n in core)
         if tier >= 5:                                     # 满级
-            if score >= aim:
+            if aim >= base and score >= aim:              # 达标: 达标线本身也要在基准线之上
                 return ('pass', '达标'), aim, False
-            if score >= base:                             # 过了基准门槛 → 保留(值得留着)
+            if score >= base:                             # 过了基准门槛(含 A<B 的情形) → 保留(值得留着)
                 return ('hold', '保留'), aim, False
             if eff >= 2 and score >= 18:                  # 基准线以下但底子够 → 建议重铸(锁2追3)
                 return ('keep', '建议重铸'), aim, False
