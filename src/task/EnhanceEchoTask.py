@@ -52,35 +52,40 @@ def _lcs_len(a: str, b: str) -> int:
 _GENERAL_WEIGHTS = (1.0, 0.9, 0.85, 0.7, 0.6, 0.5)
 
 
+def _legacy_threshold(set_name: str, tier: int) -> float:
+    """旧规则线(基准门槛) = 该套装有效键权重升序最低 (tier-1) 条 ×10 之和。
+    通用模式用代表集 _GENERAL_WEIGHTS → 11 / 18 / 26.5。
+    注意: 它作为"基准门槛"用, 但**单独作达标线已废弃** —— "键多但权重低"的套装(隐世回光/轻云出月)
+    会被压到 5~6 分(见 _tier_threshold 注释)。"""
+    if tier <= 2:
+        return 0.0
+    src = _GENERAL_WEIGHTS if (not set_name or set_name == '通用')         else tuple((get_set_weights(set_name) or {}).values())
+    return round(sum(sorted(10 * w for w in src if w > 0)[:tier - 1]), 1)
+
+
 def _tier_threshold(set_name: str, tier: int, stats=None) -> float:
     """达标线(锚线) = max( 新规则, 旧规则下限 ), L = tier-1。
 
-    **新规则**: 本只"出现的有效词条"(该套装权重>0, 且本次真的出现)的 10×权重平均值 × L ——
-      即"手上这些词条平均达到对应档位"的水平(平均档 = 有价值)。词条条数 k < L 时按现有 k 条
-      的平均外推(不另判死)。
-    **下限(旧规则, 兜底)**: 该套装有效键权重升序最低 L 条 ×10 之和(通用用代表集 → 11/18/26.5)。
-      为什么还要下限: 极端情况(k 很小且权重很低, 如只出现 1 条 0.1 权重的词条)新规则会算出 4.0
-      这种比旧规则还低的线 → 用旧规则兜住, 保证"再严也不会比原来松"。
+    **新规则**: 10 × (本只"出现的有效词条"(该套装权重>0 且本次真的出现)的权重之和) —— 相当于要求
+      "这些词条每条都达到自己的平均档位"的水平(平均档 = 有价值)。
+    **下限(旧规则线, 兜底)**: 该套装有效键权重升序最低 L 条 ×10 之和(配置未定制的套装它等于通用线
+      11/18/26.5)。为什么还要兜底: 数学上仅当 k = 出现有效词条数 ≥ L 时"新规则恒 ≥ 旧规则线",
+      而 k < L 时新规则求和项数变少、可能低于旧规则线(实测 34% 的样本 k < L, 其中 25 只真的更低)
+      → 用 max(新规则, 旧规则线) 保证"达标必然不弱于旧基准"; 出现有效词条 0 条则直接用旧规则线。
+    注: **不引入通用线**作额外下限 —— 套装配置若被定制, 说明其取向是刻意的(如隐世回光/轻云出月
+      用低权重"占位键"来压低基准线, 因为真正的核心词条少), 不应被通用标准覆盖。
     Lv5/10(tier<=2) 走"有效词条存在"结构判定 → 返回 0(不用分数)。
     **旧规则单独使用已废弃**: 它独自会把"键多但权重低"的套装锚线压到极低(实测 轻云出月 9 键/4 个
     专伤 0.15 → Lv25 仅 6.0; 隐世回光 9 键 → 5.0), 变成"词条种类越多越易达标"。"""
     if tier <= 2:
         return 0.0
-    if not set_name or set_name == '通用':
-        weight_map, legacy_src = DEFAULT_WEIGHTS, _GENERAL_WEIGHTS
-    else:
-        weight_map = get_set_weights(set_name) or {}
-        legacy_src = tuple(weight_map.values())
-    # 下限兜底 = max(旧规则: 套装有效键最低 L 条之和, 通用线: 代表集最低 L 条之和 = 11/18/26.5)
-    # 只取"旧规则(套装)"不够 —— 它对"键多但权重低"的套装本身就塌陷(隐世回光只有 2.0/3.5/5.0),
-    # 加通用线可保证"再严也不会比通用标准松"
-    legacy = max(sum(sorted(10 * w for w in legacy_src if w > 0)[:tier - 1]),
-                 sum(sorted(10 * w for w in _GENERAL_WEIGHTS)[:tier - 1]))
+    weight_map = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
+    base = _legacy_threshold(set_name, tier)      # 旧规则线(套装; 配置未定制的套装其值就等于通用线)
     appeared = [weight_map.get(n, 0.0) for n, _ in (stats or []) if weight_map.get(n, 0.0) > 0]
     if not appeared:
-        return round(legacy, 1)
-    new = sum(10 * w for w in appeared) / len(appeared) * (tier - 1)      # 新规则: 出现有效词条平均档
-    return round(max(new, legacy), 1)
+        return round(base, 1)
+    aim = 10 * sum(appeared)                      # 达标线 = 10 × (出现有效词条的权重之和)
+    return round(max(aim, base), 1)               # k >= tier-1 时 aim 恒 >= base; k 小时用 base 兜底
 
 
 class EnhanceEchoTask(BaseEchoTask, FindFeature):
@@ -862,10 +867,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, keep)。
         Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
           通用=weight>0)即过, 不限分
-        Lv15/20/25 (3-5 词条): 总分 ≥ 锚线(_tier_threshold = 本只"出现的有效词条"平均档加权分 × (tier-1))
-        verdict: pass(满级达标) / pending(达标且未满级) / fail(不达标)
-        keep: 满级不达标但"底子值得花钱重铸"——有效条数 ≥2 且有效分 ≥18(锁2追3 + 成本线);
-        强化流程 keep 不豁免(仍丢弃), 仅评估报告标注"建议保留"。
+        分层(旧规则线 base 是基准门槛, 达标线 aim 是在其之上的再筛选):
+          满级: score ≥ aim → pass达标; score ≥ base → hold保留; 有效≥2 且 ≥18 → keep建议重铸; 否则 fail不合格
+          未满级: score ≥ base → pending待强化; 否则 fail不合格
+        aim = _tier_threshold(出现有效词条平均档 × (tier-1), 下限=max(base, 通用线));
+        强化流程不豁免(不达标仍丢弃), keep/hold 仅评估报告标注。
         """
         if tier <= 2:
             if set_name == '通用':
@@ -874,19 +880,24 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 core = get_set_core_first(set_name) or []
                 ok = any(n in core for n, _ in stats)
             return (('pending', '待强化') if ok else ('fail', '不达标')), 0.0, False
-        threshold = _tier_threshold(set_name, tier, stats)
-        if score >= threshold:
-            return (('pass', '达标') if tier >= 5 else ('pending', '待强化')), threshold, False
-        # 不达标: 满级时判断是否"建议保留"(有效条数≥2 且 有效分≥18)
-        keep = False
-        if tier >= 5:
-            if set_name == '通用':
-                eff = sum(1 for n, _ in stats if DEFAULT_WEIGHTS.get(n, 0.0) > 0)
-            else:
-                core = get_set_core_first(set_name) or []
-                eff = sum(1 for n, _ in stats if n in core)
-            keep = eff >= 2 and score >= 18
-        return ('fail', '不达标'), threshold, keep
+        aim = _tier_threshold(set_name, tier, stats)      # 达标线 = max(出现有效平均档×(tier-1), 下限)
+        base = _legacy_threshold(set_name, tier)          # 旧规则线 = 基准门槛
+        if set_name == '通用':
+            eff = sum(1 for n, _ in stats if DEFAULT_WEIGHTS.get(n, 0.0) > 0)
+        else:
+            core = get_set_core_first(set_name) or []
+            eff = sum(1 for n, _ in stats if n in core)
+        if tier >= 5:                                     # 满级
+            if score >= aim:
+                return ('pass', '达标'), aim, False
+            if score >= base:                             # 过了基准门槛 → 保留(值得留着)
+                return ('hold', '保留'), aim, False
+            if eff >= 2 and score >= 18:                  # 基准线以下但底子够 → 建议重铸(锁2追3)
+                return ('keep', '建议重铸'), aim, False
+            return ('fail', '不合格'), aim, False
+        if score >= base:                                 # 未满级: 过基准门槛即继续督
+            return ('pending', '待强化'), aim, False
+        return ('fail', '不合格'), aim, False
 
     def compute_weighted_score(self, paired_stats, valid_stats, set_name=None):
         """

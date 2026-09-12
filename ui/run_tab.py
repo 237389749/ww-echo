@@ -585,11 +585,12 @@ def _build_eval_html(data):
     fail_n = sum(1 for r in results if r["verdict"] == "fail")
     zero_n = sum(1 for r in results if r["verdict"] == "zero")
     keep_n = sum(1 for r in results if r["verdict"] == "keep")
+    hold_n = sum(1 for r in results if r["verdict"] == "hold")
 
-    verdict_cn_map = {"pass": "达标", "pending": "待强化", "fail": "不合格",
-                      "keep": "建议保留重铸", "zero": "0级/无词条"}
-    color_map = {"pass": "#4caf50", "pending": "#ff9800", "fail": "#f44336",
-                 "keep": "#2196f3", "zero": "#9e9e9e"}
+    verdict_cn_map = {"pass": "达标", "hold": "保留", "keep": "建议重铸",
+                      "pending": "待强化", "fail": "不合格", "zero": "0级/无词条"}
+    color_map = {"pass": "#4caf50", "hold": "#009688", "keep": "#2196f3",
+                 "pending": "#ff9800", "fail": "#f44336", "zero": "#9e9e9e"}
 
     rows = []
     for r in results:
@@ -641,8 +642,9 @@ def _build_eval_html(data):
 <p>评估时间: {ts} | 共 <b>{total}</b> 个</p>
 <div class="summary">
 <span style="background:#e8f5e9;color:#2e7d32">达标 {pass_n}</span>
+<span style="background:#e0f2f1;color:#00695c">保留 {hold_n}</span>
+<span style="background:#e3f2fd;color:#1565c0">建议重铸 {keep_n}</span>
 <span style="background:#fff3e0;color:#e65100">待强化 {pend_n}</span>
-<span style="background:#e3f2fd;color:#1565c0">建议保留重铸 {keep_n}</span>
 <span style="background:#ffebee;color:#c62828">不合格 {fail_n}</span>
 <span style="background:#eceff1;color:#607d8b">0级/无词条 {zero_n}</span>
 </div>
@@ -655,8 +657,9 @@ def _build_eval_html(data):
 <span class="sep">|</span>
 <span>判定:</span>
 <label><input type="checkbox" class="fv" value="pass" checked> 达标</label>
+<label><input type="checkbox" class="fv" value="hold" checked> 保留</label>
+<label><input type="checkbox" class="fv" value="keep" checked> 建议重铸</label>
 <label><input type="checkbox" class="fv" value="pending" checked> 待强化</label>
-<label><input type="checkbox" class="fv" value="keep" checked> 建议保留重铸</label>
 <label><input type="checkbox" class="fv" value="fail" checked> 不合格</label>
 <label><input type="checkbox" class="fv" value="zero" checked> 0级</label>
 <span class="sep">|</span>
