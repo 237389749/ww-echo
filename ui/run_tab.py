@@ -481,6 +481,7 @@ function applyFilter(){
   var min=parseFloat(document.getElementById('fmin').value);
   var max=parseFloat(document.getElementById('fmax').value);
   var nm=document.getElementById('fname').value.trim();
+  var st=document.getElementById('fset').value;
   var vs=Array.prototype.slice.call(document.querySelectorAll('.fv'))
             .filter(function(c){return c.checked}).map(function(c){return c.value});
   var shown=0;
@@ -493,6 +494,7 @@ function applyFilter(){
     if(!isNaN(max)&&!(s<=max)) ok=false;
     if(vs.length&&vs.indexOf(v)<0) ok=false;
     if(nm&&n.indexOf(nm)<0) ok=false;
+    if(st&&(tr.getAttribute('data-set')||'')!==st) ok=false;
     tr.style.display=ok?'':'none';
     if(ok) shown++;
   });
@@ -500,12 +502,14 @@ function applyFilter(){
 }
 ['fmin','fmax','fname'].forEach(function(id){
   document.getElementById(id).addEventListener('input',applyFilter)});
+document.getElementById('fset').addEventListener('change',applyFilter);
 document.querySelectorAll('.fv').forEach(function(c){
   c.addEventListener('change',applyFilter)});
 document.getElementById('fclear').addEventListener('click',function(){
   document.getElementById('fmin').value='';
   document.getElementById('fmax').value='';
   document.getElementById('fname').value='';
+  document.getElementById('fset').value='';
   document.querySelectorAll('.fv').forEach(function(c){c.checked=true});
   applyFilter();
 });
@@ -615,6 +619,13 @@ def _build_eval_html(data):
 
     names = sorted({r.get("name", "") for r in results if r.get("name")})
     datalist = "".join(f'<option value="{n}">' for n in names)
+    set_counts = {}
+    for r in results:
+        name = r.get("set") or "通用"
+        set_counts[name] = set_counts.get(name, 0) + 1
+    set_options = '<option value="">全部套装</option>' + "".join(
+        f'<option value="{n}">{n}（{c}）</option>'
+        for n, c in sorted(set_counts.items(), key=lambda kv: -kv[1]))
     rules_html = _build_rules_html(results)
 
     return f'''<!DOCTYPE html>
@@ -647,6 +658,8 @@ def _build_eval_html(data):
 <label><input type="checkbox" class="fv" value="zero" checked> 0级</label>
 <span class="sep">|</span>
 <span>名称: <input id="fname" list="namelist" placeholder="包含匹配" style="width:130px"></span>
+<span class="sep">|</span>
+<span>套装: <select id="fset">{set_options}</select></span>
 <datalist id="namelist">{datalist}</datalist>
 <button id="fclear">清除筛选</button>
 <span id="cnt" class="cnt"></span>
