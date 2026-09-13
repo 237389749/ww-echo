@@ -868,7 +868,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
           通用=weight>0)即过, 不限分
         分层(旧规则线 base 是基准门槛, 达标线 aim 是在其之上的再筛选):
           满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
-                有效≥2 且 ≥18 → keep建议重铸; 否则 fail不合格
+                四有效打底 或 3条且平均档位≥105% → keep建议重铸; 否则 fail不合格
           未满级: score ≥ base → pending待强化; 否则 fail不合格
         aim = _tier_threshold(10 × 出现有效词条权重之和) —— **不取 max(aim, base)**:
           aim < base 说明"出现有效词条太少", 这只最高只能到"保留"; base = _legacy_threshold(旧规则线);
@@ -883,17 +883,24 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return (('pending', '待强化') if ok else ('fail', '不达标')), 0.0, False
         aim = _tier_threshold(set_name, tier, stats)      # 达标线 = max(出现有效平均档×(tier-1), 下限)
         base = _legacy_threshold(set_name, tier)          # 旧规则线 = 基准门槛
-        if set_name == '通用':
-            eff = sum(1 for n, _ in stats if DEFAULT_WEIGHTS.get(n, 0.0) > 0)
-        else:
-            core = get_set_core_first(set_name) or []
-            eff = sum(1 for n, _ in stats if n in core)
+        weights = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
+        eff = sum(1 for n, _ in stats if weights.get(n, 0.0) > 0)          # 出现的有效词条数
+        ratios = []
+        for n, v in stats:
+            if weights.get(n, 0.0) <= 0:
+                continue
+            tv, mn = snap_to_tier(n, v), get_mean(n)
+            if tv and mn:
+                ratios.append(tv / mn)                                    # 档位水平(档位值/均值)
+        avg_ratio = sum(ratios) / len(ratios) if ratios else 0.0
         if tier >= 5:                                     # 满级
             if aim >= base and score >= aim:              # 达标: 达标线本身也要在基准线之上
                 return ('pass', '达标'), aim, False
             if score >= base:                             # 过了基准门槛(含 A<B 的情形) → 保留(值得留着)
                 return ('hold', '保留'), aim, False
-            if eff >= 2 and score >= 18:                  # 基准线以下但底子够 → 建议重铸(锁2追3)
+            # 基准线以下但底子够 → 建议重铸: 四有效打底, 或 3 条但超高质量(平均档位 ≥105%)
+            # (散搭的主C专属声骸一般只吃 2 件套增益, 不到这个成色不如用一套过保留线的辅助套)
+            if eff >= 4 or (eff >= 3 and avg_ratio >= 1.05):
                 return ('keep', '建议重铸'), aim, False
             return ('fail', '不合格'), aim, False
         if score >= base:                                 # 未满级: 过基准门槛即继续督
