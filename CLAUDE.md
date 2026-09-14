@@ -1,7 +1,8 @@
 # CLAUDE.md — ww-echo 开发手册
 
 鸣潮(云游戏/本地)声骸强化 + 评估工具。基于 ok-script(截图/OCR/模板匹配/键鼠后端) + 自建 PySide6 UI。
-**本手册面向后续开发(含 AI 协作者)。演进历史与改动原因见 CHANGELOG.md, 使用说明见 README.md。**
+**本手册面向后续开发(含 AI 协作者)。演进历史与改动原因见 CHANGELOG.md, 使用说明见 README.md,
+判定规则的全景说明/分类审查/待讨论边界见 `eval_rules.md`。**
 
 ## 工作准则(项目级)
 
@@ -25,6 +26,7 @@ src/task/EnhanceEchoTask.py  强化(run) + 评估(evaluate_only v2 遍历, 核�
 src/task/BaseEchoTask.py  轻量基类(click 覆写/语言检测)
 assets/echo_icons/        34 个套装图标(76x76, 文件名=套装名) — 图标识别模板
 assets/echo_set_templates.json 套装配置存档
+eval_rules.md             判定规则全景说明 + 分类审查矩阵 + 待讨论边界(改判定前先读)
 tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 / 声骸名容错匹配
 tools/eval_icon_match.py  图标识别离线回归(用 logs/eval_debug 数据集, 无需开游戏)
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
