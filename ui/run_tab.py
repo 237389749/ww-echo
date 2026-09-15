@@ -665,6 +665,10 @@ def _build_eval_html(data):
         # 建议重铸: 附"锁哪几条 / 刷几条 / 约多少元 / 达标概率 / 期望量"(reforge_plan 的结果)
         # 判据已改为**蒙特卡洛达标概率 ≥ 60%** —— "期望达标"实际只有约五成把握, 而胚子可无限刷,
         # 不值得为低概率花频整器(30 元/个); 期望量(e_feat / r̄ / 期望分)仍列出供对照
+        # 未满级"待强化": 附"继续开到满级能过保留线的概率"(enchant_prospect 前瞻)
+        pr = r.get("prospect")
+        pr_html = (f'<br><span style="color:#999;font-size:11px">继续到满级过保留线 ≈ {pr * 100:.0f}%</span>'
+                   if pr is not None else '')
         rf = r.get("reforge")
         rf_html = (f'<br><span style="color:#999;font-size:11px">锁 {"+".join(rf["lock"])}'
                    f' · 刷 {rf["refresh"]} 条 · ≈ {rf["cost"]} 元'
@@ -680,7 +684,7 @@ def _build_eval_html(data):
             f'<td{name_title}>{name}</td>'
             f'<td title="{set_src}">{set_name}</td>'
             f'<td>{r["score"]}{comp_html}</td>'
-            f'<td style="color:{color};font-weight:bold">{vcn}{rf_html}</td>'
+            f'<td style="color:{color};font-weight:bold">{vcn}{pr_html}{rf_html}</td>'
             f'<td>{stats_html}</td></tr>')
 
     names = sorted({r.get("name", "") for r in results if r.get("name")})

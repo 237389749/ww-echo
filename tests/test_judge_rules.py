@@ -168,5 +168,46 @@ class TestReforgePlan(unittest.TestCase):
         self.assertTrue(all(p <= 1.0 for p in plans))
 
 
+class TestEnchantProspect(unittest.TestCase):
+    """未满级前瞻: Lv15/Lv20 用**满级**保留线 B(5) 判"继续开完能不能留"。"""
+
+    def test_none_when_already_full_level(self):
+        t = _task()
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
+            self.assertIsNone(t.enchant_prospect(SET_NAME, 5, _stats(['暴击', '暴击伤害', '攻击百分比'])))
+
+    @staticmethod
+    def _partial(names, r=1.0):
+        """未满级样本: **只有已开的 len(names) 条**(不要补满 5 条, 否则 need=0)。"""
+        return [(n, _val(n, r)) for n in names]
+
+    def test_probability_in_range(self):
+        t = _task()
+        for names in (['暴击'], ['暴击', '暴击伤害'], ['暴击', '暴击伤害', '攻击百分比']):
+            with self.subTest(names=names), patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
+                p = t.enchant_prospect(SET_NAME, len(names), self._partial(names, r=1.0))
+                self.assertIsNotNone(p)
+                self.assertGreaterEqual(p, 0.0)
+                self.assertLessEqual(p, 1.0)
+
+    def test_high_current_score_is_near_certain(self):
+        t = _task()
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
+            hi = t.enchant_prospect(SET_NAME, 4, self._partial(['暴击', '暴击伤害', '攻击百分比', '共鸣效率'], r=1.4))
+            lo = t.enchant_prospect(SET_NAME, 4, self._partial(['暴击'], r=0.7))
+        self.assertGreater(hi, lo)
+
+    def test_below_full_baseline_needs_prospect_to_stay_pending(self):
+        """未过满级保留线时: 前瞻达阈值 → 待强化; 否则 → 不合格。"""
+        t = _task()
+        stats = self._partial(['暴击', '生命', '防御', '生命百分比'], r=1.0)   # Lv20 样本, 肯定够不到满级线
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
+            p = t.enchant_prospect(SET_NAME, 4, stats)
+            (v, cn), thr, _ = t.judge_echo(SET_NAME, 4, 5.0, stats)
+            b5 = _legacy_threshold(SET_NAME, 5)      # 必须在 patch 块内取(该套装是 mock 的)
+        self.assertEqual(v, 'pending' if (p or 0) >= EnhanceEchoTask.ENCHANT_MIN_PROB else 'fail')
+        self.assertEqual(thr, b5)                    # 未满级返回的是**满级**保留线
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

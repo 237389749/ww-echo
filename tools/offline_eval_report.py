@@ -169,6 +169,9 @@ def main() -> int:
             "set": set_name, "set_src": set_src, "screenshot": ss_name,
             # 与 evaluate_only 同口径: 建议重铸时附"锁 N 条刷 M 条"的最优方案
             "reforge": task.reforge_plan(set_name, stats) if verdict == 'keep' else None,
+            # 未满级的"待强化": 附"继续开到满级能过保留线"的概率(enchant_prospect 前瞻)
+            "prospect": (round(task.enchant_prospect(set_name, tier, stats) or 0, 3)
+                         if verdict == 'pending' and tier < 5 else None),
             "stats": [{"name": n, "value": float(v), "detail": d,
                        "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
                       for (n, v), d in zip(stats, details)],

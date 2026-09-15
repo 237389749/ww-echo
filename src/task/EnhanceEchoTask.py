@@ -509,6 +509,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         (verdict, verdict_cn), threshold, keep = self.judge_echo(set_name, tier, score, stats)
                         if keep:
                             verdict, verdict_cn = 'keep', '建议保留'
+                        # 未满级的"待强化": 记下"继续开到满级能过保留线"的概率(前瞻), 供报告展示与核对
+                        prospect = (round(self.enchant_prospect(set_name, tier, stats) or 0, 3)
+                                    if verdict == 'pending' and tier < 5 else None)
                     else:
                         # 0级声骸(0词条): 无评估价值——**跳过不记录、不终止**。
                         # 0级集中在列表底部, 置 processed_any 让它继续滚动推进(不触发"无新格"提前结束),
@@ -535,6 +538,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         "name_raw": echo_name, "tier": tier, "score": round(score, 2),
                         "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
                         "set": set_name, "set_src": set_src, "screenshot": ss_name,
+                        "prospect": prospect,
                         # 建议重铸时附上"锁 N 条刷 M 条"的最优方案(锁哪几条 / 成本 / 期望分)供报告展示
                         "reforge": self.reforge_plan(set_name, stats) if verdict == 'keep' else None,
                         "stats": [{"name": n, "value": float(v), "detail": d,
@@ -882,6 +886,53 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
     REFORGE_TRIALS = 3000         # 每个候选方案的模拟次数(P 的估计误差 ≈ ±0.9%)
     REFORGE_MIN_PROB = 0.60       # 判"值得重铸"的最低达标概率(用户口径: 胚子可无限刷,
                                   # 花 30 元只买三成把握不值 —— 宁可去刷新胚子)
+    ENCHANT_TRIALS = 3000         # 未满级前瞻的模拟次数
+    ENCHANT_MIN_PROB = 0.60       # "继续开到满级能否过保留线"的最低概率(与重铸同口径)
+
+    def enchant_prospect(self, set_name, tier, stats):
+        """未满级前瞻: 继续强化到满级后"总分 ≥ 保留线 B(满级)"的概率(0~1); 无法前瞻返回 None。
+
+        为什么要前瞻: Lv15(剩 2 位) / Lv20(剩 1 位) 若**大概率**连保留线都够不到, 就没必要再花强化材料
+        —— 与"建议重铸"同理(期望只是均值, 而胚子可无限刷), 所以判据也用**概率**而非期望分。
+        模拟: 保留现有 tier 条不动, 从"可用池(13 − 已有类型)"**无放回**补 (5 − tier) 条, 每条按
+        **官方档位概率**抽档位 → 统计 (当前分 + 新分) ≥ B(5) 的比例。
+        已满级(无需前瞻) / 无候选池 → 返回 None, 由调用方按原逻辑处理。
+        """
+        import random
+
+        from src.echo_stats import _TIERS, _load_tier_probs
+
+        need = 5 - len(stats)
+        if need <= 0:
+            return None
+        weights = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
+        have, cur_score = set(), 0.0
+        for n, v in stats:
+            have.add(n)
+            tv, mn, w = snap_to_tier(n, v), get_mean(n), weights.get(n, 0.0)
+            if tv and mn and w > 0:
+                cur_score += w * tv / mn * 10
+        pool = [n for n in _TIERS if n not in have]
+        if len(pool) < need:
+            return None
+        base5 = _legacy_threshold(set_name, 5)
+        probs = _load_tier_probs()
+        feat: dict[str, tuple] = {}
+        for nm in pool:
+            p = probs.get(nm) or {}
+            tiers = [t for t in _TIERS[nm] if t in p]
+            feat[nm] = (tiers, [p[t] for t in tiers], 10 * weights.get(nm, 0.0) / (get_mean(nm) or 1.0))
+        rng = random.Random(20260915)                 # 固定种子 → 可复现
+        ok = 0
+        for _ in range(self.ENCHANT_TRIALS):
+            total = cur_score
+            for nm in rng.sample(pool, need):
+                tiers, tier_probs, coef = feat[nm]
+                if tiers:
+                    total += rng.choices(tiers, weights=tier_probs)[0] * coef
+            if total >= base5:
+                ok += 1
+        return ok / self.ENCHANT_TRIALS
 
     def reforge_plan(self, set_name, stats):
         """穷举"锁 L 条 + 刷 (5−L) 条" → **"刷成达标的概率 ≥ REFORGE_MIN_PROB"里成本最低的方案**; 无则 None。
@@ -987,7 +1038,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
               score < base 时再看"花频整器能不能把它**刷成达标**"(reforge_plan: 存在 r̄≥1.0 的锁定方案)
               → keep建议重铸; 否则 fail不合格
-        未满级: score ≥ base → pending待强化; 否则 fail不合格
+        未满级: score ≥ base → pending待强化; 未过线但"继续开到满级能过保留线"的概率 ≥ ENCHANT_MIN_PROB
+          (enchant_prospect 前瞻, 避免在没前途的件上浪费强化材料) → pending; 否则 fail不合格
         aim = _tier_threshold(10 × 出现有效词条权重之和) —— **不取 max(aim, base)**:
           aim < base 说明"出现有效词条太少", 这只最高只能到"保留"; base = _legacy_threshold(旧规则线);
         强化流程不豁免(不达标仍丢弃), keep/hold 仅评估报告标注。
@@ -1012,9 +1064,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             if plan:
                 return ('keep', '建议重铸'), aim, False
             return ('fail', '不合格'), aim, False
-        if score >= base:                                 # 未满级: 过基准门槛即继续督
-            return ('pending', '待强化'), aim, False
-        return ('fail', '不合格'), aim, False
+        # 未满级: 判据是**最终(满级)的保留线** —— 差得远就及时止损, 别把材料花在没前途的件上。
+        # (不用当前级别的 B(tier): 那只是"这一级够不够看", 与"最终能不能留"不是一回事)
+        base5 = _legacy_threshold(set_name, 5)
+        if score >= base5:                                # 已够满级保留线 → 稳了
+            return ('pending', '待强化'), base5, False
+        p = self.enchant_prospect(set_name, tier, stats)  # 前瞻: 继续开完能否达到满级保留线
+        if p is not None and p >= self.ENCHANT_MIN_PROB:
+            return ('pending', '待强化'), base5, False
+        return ('fail', '不合格'), base5, False
 
     def compute_weighted_score(self, paired_stats, valid_stats, set_name=None):
         """
