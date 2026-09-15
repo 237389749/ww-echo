@@ -1034,7 +1034,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
     def judge_echo(self, set_name, tier, score, stats):
         """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, keep)。
         Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
-          通用=weight>0)即过, 不限分
+          通用=weight>0)即过, 不限分; 文案与 Lv15/Lv20 统一为「建议强化/不建议强化」
         满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
               score < base 时再看"花频整器能不能把它**刷成达标**"(reforge_plan: 存在 r̄≥1.0 的锁定方案)
               → keep建议重铸; 否则 fail不合格
@@ -1050,7 +1050,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             else:
                 core = get_set_core_first(set_name) or []
                 ok = any(n in core for n, _ in stats)
-            return (('pending', '待强化') if ok else ('fail', '不合格')), 0.0, False
+            return (('pending', '建议强化') if ok else ('fail', '不建议强化')), 0.0, False
         aim = _tier_threshold(set_name, tier, stats)      # 达标线 = 10 × 出现有效词条权重之和
         base = _legacy_threshold(set_name, tier)          # 基准门槛 = 套装有效键最低 tier-1 条之和 ×10
         if tier >= 5:                                     # 满级

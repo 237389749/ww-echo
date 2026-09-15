@@ -113,8 +113,8 @@ class TestJudgeFiveGrades(unittest.TestCase):
              patch('src.task.EnhanceEchoTask.get_set_core_first', return_value=['暴击']):
             (v1, cn1), _, _ = t.judge_echo(SET_NAME, 2, 12.0, [('暴击', 8.1), ('生命', 320)])
             (v2, cn2), _, _ = t.judge_echo(SET_NAME, 2, 0.0, [('生命', 320), ('防御', 20)])
-        self.assertEqual((v1, cn1), ('pending', '待强化'))
-        self.assertEqual((v2, cn2), ('fail', '不合格'))
+        self.assertEqual((v1, cn1), ('pending', '建议强化'))
+        self.assertEqual((v2, cn2), ('fail', '不建议强化'))
 
 
 class TestReforgePlan(unittest.TestCase):
