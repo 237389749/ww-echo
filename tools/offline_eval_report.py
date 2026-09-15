@@ -32,7 +32,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from src.echo_stats import get_mean, is_stat_match, snap_to_tier                     # noqa: E402
-from src.echo_set_templates import get_expected_stats, get_set_by_echo, get_sets_by_echo  # noqa: E402
+from src.echo_set_templates import get_expected_stats, get_set_by_echo, get_sets_by_echo, normalize_echo_name  # noqa: E402
 from src.echo_icon_match import match_icon                                           # noqa: E402
 from src.task.EnhanceEchoTask import EnhanceEchoTask, parse_number                   # noqa: E402
 from ui.run_tab import _build_eval_html                                              # noqa: E402
@@ -162,9 +162,13 @@ def main() -> int:
         cv2.imwrite(os.path.join(ss_dir, ss_name),
                     frame[int(SS_BOX[1] * h):int(SS_BOX[3] * h), int(SS_BOX[0] * w):int(SS_BOX[2] * w)])
         results.append({
-            "index": idx, "name": name, "tier": tier, "score": round(score, 2),
+            # 与 evaluate_only 同口径: name 用容错匹配到的规范名, name_raw 保留 OCR 原文
+            "index": idx, "name": normalize_echo_name(name) or name, "name_raw": name,
+            "tier": tier, "score": round(score, 2),
             "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
             "set": set_name, "set_src": set_src, "screenshot": ss_name,
+            # 与 evaluate_only 同口径: 建议重铸时附"锁 N 条刷 M 条"的最优方案
+            "reforge": task.reforge_plan(set_name, stats) if verdict == 'keep' else None,
             "stats": [{"name": n, "value": float(v), "detail": d,
                        "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
                       for (n, v), d in zip(stats, details)],

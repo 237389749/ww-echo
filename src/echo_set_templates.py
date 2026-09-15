@@ -192,26 +192,26 @@ def _substring_hits(candidate: str, index: dict) -> list[str]:
             and (candidate in t or t in candidate)]
 
 
-def _match_echo_name(name: str, index: dict, chars: set) -> list[str]:
-    """声骸名 → 候选套装列表。三级容错(参照词条过滤 _normalize_stat):
-    ① 剥「异相」前缀 ② 精确 ③ 逐字白名单清洗(只留声骸名字符集内汉字, 剥 OCR 错字/杂字)
-    ④ 子串(唯一候选) ⑤ 最长公共子串 LCS(≥3 字且唯一)。匹配不到返回 []。"""
+def _match_echo_key(name: str, index: dict, chars: set) -> str | None:
+    """声骸名(可能是 OCR 错字) → **模板里的规范声骸名**; 匹配不到返回 None。
+    三级容错(参照词条过滤 _normalize_stat): ① 剥「异相」前缀 ② 精确 ③ 逐字白名单清洗
+    (只留声骸名字符集内汉字, 剥 OCR 错字/杂字) ④ 子串(唯一候选) ⑤ 最长公共子串 LCS(≥3 字且唯一)。"""
     if not name:
-        return []
+        return None
     name = _strip_echo_prefix(name)
     if not name:
-        return []
+        return None
     if name in index:
-        return list(index[name])
+        return name
     cleaned = ''.join(ch for ch in name if ch in chars)
     for candidate in (cleaned, name):
         if len(candidate) < 2:
             continue
         if candidate in index:
-            return list(index[candidate])
+            return candidate
         hits = _substring_hits(candidate, index)
         if len(hits) == 1:
-            return list(index[hits[0]])
+            return hits[0]
     # LCS 回退
     base = cleaned if len(cleaned) >= 2 else name
     scored = [(_lcs_len(base, t), t) for t in index]
@@ -220,19 +220,17 @@ def _match_echo_name(name: str, index: dict, chars: set) -> list[str]:
         best = max(l for l, _ in scored)
         top = [t for l, t in scored if l == best]
         if len(top) == 1:
-            return list(index[top[0]])
-    return []
+            return top[0]
+    return None
 
 
-def get_sets_by_echo(echo_name: str) -> list[str]:
-    """声骸名 → 所属套装名列表(一个声骸可属多个套装; 按模板声明顺序)。未录入返回 []。
-    先剥「异相」前缀, 再精确/子串/LCS 容错匹配(参照词条过滤)。索引随模板缓存重建。"""
+def _get_echo_index() -> tuple[dict, set]:
+    """声骸名 → 套装列表 的反向索引 + 声骸名汉字集(随模板缓存重建)。"""
     global _echo_index, _echo_chars
-    templates = load_templates()
     if _echo_index is None:
         idx: dict[str, list[str]] = {}
         chars: set[str] = set()
-        for set_name, info in templates.items():
+        for set_name, info in load_templates().items():
             for names in (info.get("echoes") or {}).values():
                 for n in names:
                     lst = idx.setdefault(n, [])
@@ -241,7 +239,31 @@ def get_sets_by_echo(echo_name: str) -> list[str]:
                     chars.update(ch for ch in n if '\u4e00' <= ch <= '\u9fff')
         _echo_index = idx
         _echo_chars = chars
-    return _match_echo_name(echo_name, _echo_index, _echo_chars)
+    return _echo_index, _echo_chars
+
+
+def normalize_echo_name(echo_name: str) -> str | None:
+    """OCR 声骸名 → 模板里的**规范名**(如 `冠顶械集` → `冠顶械隼`); 拿不准时返回 None。
+
+    供报告显示用: 套装映射本来就走了这条容错链(所以判定是对的), 但显示若沿用 OCR 原文,
+    就会把错字带进报告 —— 用户看到的名字与实际声骸不符。
+    **拿不准就不换**: 名字层的子串抢跑(阶段十一已知失效, 如 `梦魔·青羽鹭` 会命中作为独立声骸
+    存在的 `青羽鹭`)不该把错误名字带进报告 —— 只在"剥掉错字后命中、且命中名不比清洗名短"时替换。
+    """
+    index, chars = _get_echo_index()
+    key = _match_echo_key(echo_name, index, chars)
+    if key is None or key == echo_name:
+        return key
+    cleaned = ''.join(ch for ch in _strip_echo_prefix(echo_name) if ch in chars)
+    return key if len(key) >= len(cleaned) else None
+
+
+def get_sets_by_echo(echo_name: str) -> list[str]:
+    """声骸名 → 所属套装名列表(一个声骸可属多个套装; 按模板声明顺序)。未录入返回 []。
+    先剥「异相」前缀, 再精确/子串/LCS 容错匹配(参照词条过滤)。索引随模板缓存重建。"""
+    index, chars = _get_echo_index()
+    key = _match_echo_key(echo_name, index, chars)
+    return list(index[key]) if key else []
 
 
 def get_set_by_echo(echo_name: str, prefer: str | None = None) -> str | None:

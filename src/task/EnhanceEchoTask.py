@@ -9,9 +9,10 @@ from qfluentwidgets import FluentIcon
 from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
-from src.echo_stats import snap_to_tier, get_mean, is_stat_match, DEFAULT_WEIGHTS  # noqa
+from src.echo_stats import snap_to_tier, get_mean, is_stat_match, tier_percentile, DEFAULT_WEIGHTS  # noqa
 from src.echo_set_templates import (get_expected_stats, get_all_set_names, get_set_weights,
-                                    get_set_core_first, get_set_by_echo, get_sets_by_echo)
+                                    get_set_core_first, get_set_by_echo, get_sets_by_echo,
+                                    normalize_echo_name)
 from src.echo_icon_match import match_icon, MIN_MARGIN, MIN_SCORE
 from src.task.BaseEchoTask import BaseEchoTask
 
@@ -48,13 +49,21 @@ def _lcs_len(a: str, b: str) -> int:
     return best
 
 
-# 通用回退/下限兜底用的代表权重集(暴击/爆伤/攻%类/共效/一种专伤/固定攻)
-_GENERAL_WEIGHTS = (1.0, 0.9, 0.85, 0.7, 0.6, 0.5)
+# 通用回退/下限兜底用的代表权重集(权重降序: 暴击/爆伤/共效/大攻/一种专伤/小攻)。
+# **必须与 echo_stats.DEFAULT_WEIGHTS 同步** —— 它决定"通用"模式(套装未映射)的 B 线:
+# 最低 tier-1 条之和 ×10 = (0.25+0.4+0.5+0.6)×10 = 17.5。
+_GENERAL_WEIGHTS = (1.0, 0.7, 0.6, 0.5, 0.4, 0.25)
+
+# 注: 旧的"好词条"分位阈值常量 `HI_PERCENTILE` 已废弃 —— "建议重铸"档不再数"好词条条数",
+# 改为按 `reforge_plan` 的"锁 N 条刷 M 条期望分"判定(见 judge_echo)。分位本身仍用于报告展示词条的
+# `[前 X%]`(`echo_stats.tier_percentile`): 官方档位概率不等, 分位是唯一跨词条可比的度量
+# (旧口径"档位值/期望 ≥ 1.0"在暴击上覆盖前 53.33%、暴击伤害仅前 30.00%, 口径并不一致)。
+# 频整器成本见 `EnhanceEchoTask.REFORGE_PRICE`(官方: 锁 L 条 = L−1 个, 锁 1~2 条按 1 个计)。
 
 
 def _legacy_threshold(set_name: str, tier: int) -> float:
-    """旧规则线(基准门槛) = 该套装有效键权重升序最低 (tier-1) 条 ×10 之和。
-    通用模式用代表集 _GENERAL_WEIGHTS → 11 / 18 / 26.5。
+    """基准门槛 B = 该套装有效键权重升序最低 (tier-1) 条 ×10 之和。
+    通用模式走 _GENERAL_WEIGHTS 代表集 → tier=5 时为 (0.25+0.4+0.5+0.6)×10 = 17.5。
     注意: 它作为"基准门槛"用, 但**单独作达标线已废弃** —— "键多但权重低"的套装(隐世回光/轻云出月)
     会被压到 5~6 分(见 _tier_threshold 注释)。"""
     if tier <= 2:
@@ -194,7 +203,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
             '强化策略': '传统: 满级后一次判断\n渐进式: Lv5/10 有首核即过 → Lv15/20/25 ≥ 锚线11/18/26.5, 不及格即停',
             '当前套装': '在"套装配置"tab中管理词条和权重',
-            '启用评分模式': '条分=档位值÷均值×10×权重(每条上限12.5): 暴击1.0/爆伤0.9/攻%0.85/共效0.7/专伤0.6/固定三系0.5\n无效词条=0分',
+            '启用评分模式': '条分=档位值÷期望值×10×权重(期望=官方公示概率期望; 平均档=10分, 满档≈13.1~14.0): 暴击1.0/爆伤0.7/攻%等0.5/共效0.6/专伤0.4/固定三系0.25\n无效词条=0分',
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
         }
 
@@ -520,9 +529,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     cv2.imwrite(ss_path, echo_img)
 
                     results.append({
-                        "index": evaluated + 1, "name": echo_name, "tier": tier, "score": round(score, 2),
+                        # name 用容错匹配到的**规范名**(如 `冠顶械集` → `冠顶械隼`), 拿不准时沿用 OCR 原文;
+                        # name_raw 保留 OCR 原文供追溯(报告里作 title)
+                        "index": evaluated + 1, "name": normalize_echo_name(echo_name) or echo_name,
+                        "name_raw": echo_name, "tier": tier, "score": round(score, 2),
                         "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
                         "set": set_name, "set_src": set_src, "screenshot": ss_name,
+                        # 建议重铸时附上"锁 N 条刷 M 条"的最优方案(锁哪几条 / 成本 / 期望分)供报告展示
+                        "reforge": self.reforge_plan(set_name, stats) if verdict == 'keep' else None,
                         "stats": [{"name": n, "value": float(v), "detail": d,
                                    "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
                                   for (n, v), d in zip(stats, details)]
@@ -862,14 +876,118 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.log_info(f'[渐进T{tier}] {score:.2f} >= {threshold} ✅ 继续')
         return True
 
+    # 频整器(官方公示): 锁 L 条消耗 (L-1) 个, 但锁 1~2 条都按 1 个计(用户口径); 每个按 30 元估算。
+    REFORGE_PRICE = 30            # 元/个(仅用于报告展示的估算)
+    REFORGE_LOCK_MAX = 4          # 最多锁 4 条(要留 1 个刷新位)
+    REFORGE_TRIALS = 3000         # 每个候选方案的模拟次数(P 的估计误差 ≈ ±0.9%)
+    REFORGE_MIN_PROB = 0.60       # 判"值得重铸"的最低达标概率(用户口径: 胚子可无限刷,
+                                  # 花 30 元只买三成把握不值 —— 宁可去刷新胚子)
+
+    def reforge_plan(self, set_name, stats):
+        """穷举"锁 L 条 + 刷 (5−L) 条" → **"刷成达标的概率 ≥ REFORGE_MIN_PROB"里成本最低的方案**; 无则 None。
+
+        **为什么用概率而不是"期望分"**: 期望只是均值 —— "期望达标"实际只有约 50% 把握, 而分数分布
+        右偏(档位有上限、类型无放回)使真实概率更低。花 30 元买 5 成把握不值, 所以直接模拟
+        "这套方案刷完能不能真的达标"。
+
+        三层过滤(先代数后模拟, 避免对全部 30 个方案做蒙特卡洛):
+          ① 代数粗筛 `10 × Σw_after ≥ B` —— 重铸后的达标线站得住(A_after ≥ B), 否则这只永远达不到标
+             (典型: "锁 1 条低权重词条 + 刷 4 条" — 那些条 w=0, 对达标无贡献却占锁定名额)
+          ② 期望粗筛 `r̄ ≥ 1.0` —— 期望达标。P ≥ 50% 的方案必然通过它(均值必大于门槛), 故不会漏判;
+             (5−L)×E_feat = 10×W_new 两边抵消, 所以 ② 等价于"期望分 ≥ A_after"
+          ③ 蒙特卡洛精确: 锁 L 条 + 从"可用池(13−L 种)"**无放回**补 M 条, 每条按**官方档位概率**抽档位;
+             统计 `A_after ≥ B 且 新总分 ≥ A_after` 的比例 = 达标概率 P
+
+        成本 = max(1, L−1) × 30 元; 选法: 通过③(P ≥ 阈值)的方案里取**成本最低**(并列取 P 最高)。
+        方案里同时保留期望量(e_feat / r̄ / 期望分 / 重铸后达标线)供报告对照。
+        """
+        import random
+        from itertools import combinations
+
+        from src.echo_stats import _TIERS, _load_tier_probs
+
+        weights = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
+        per, wr = [], []                             # 每条词条的当前条分 / 当前 rᵢ·wᵢ
+        for n, v in stats:
+            tv, mn, w = snap_to_tier(n, v), get_mean(n), weights.get(n, 0.0)
+            if tv and mn and w > 0:
+                r = tv / mn
+                per.append(w * r * 10)
+                wr.append(r * w)
+            else:
+                per.append(0.0)
+                wr.append(0.0)
+        if len(per) < 2:
+            return None
+        total_w = sum(w for w in weights.values() if w > 0)
+        base = _legacy_threshold(set_name, len(per))
+        # 预计算每个词条的抽取表(tiers, 概率, 得分系数=10w/期望, 权重) —— 避免在模拟内反复查表
+        probs = _load_tier_probs()
+        feat: dict[str, tuple] = {}
+        for nm in _TIERS:
+            p = probs.get(nm) or {}
+            tiers = [t for t in _TIERS[nm] if t in p]
+            mean = get_mean(nm) or 1.0
+            w = weights.get(nm, 0.0)
+            feat[nm] = (tiers, [p[t] for t in tiers], 10 * w / mean, w)
+        all_names = list(_TIERS)
+        rng = random.Random(20260915)                # 固定种子 → 同一只的结果可复现
+        best = None
+        for limit in range(1, min(self.REFORGE_LOCK_MAX, len(per) - 1) + 1):
+            for idx in combinations(range(len(per)), limit):
+                locked_names = [stats[i][0] for i in idx]
+                locked_w = sum(weights.get(n, 0.0) for n in locked_names)
+                locked_score = sum(per[i] for i in idx)
+                need = len(per) - limit
+                avail = total_w - locked_w
+                e_feat = 10 * avail / (13 - limit)          # 一条随机新词的期望分
+                w_new = need * avail / (13 - limit)         # 新刷部分的期望权重和(其档位期望恰为 1.0)
+                sw_after = locked_w + w_new
+                if 10 * sw_after < base:                    # ① 代数粗筛: 重铸后的达标线站不住
+                    continue
+                rbar = (sum(wr[i] for i in idx) + w_new) / sw_after if sw_after > 0 else 0.0
+                if rbar < 1.0:                              # ② 期望粗筛: 期望都不到平均档
+                    continue
+                pool = [n for n in all_names if n not in locked_names]   # ③ 可用池(锁定类型不再出现)
+                ok = 0
+                for _ in range(self.REFORGE_TRIALS):
+                    new_score, new_w = 0.0, 0.0
+                    for nm in rng.sample(pool, need):
+                        tiers, tprobs, coef, w = feat[nm]
+                        if not tiers:
+                            continue
+                        new_score += rng.choices(tiers, weights=tprobs)[0] * coef
+                        new_w += w
+                    a_after = 10 * (locked_w + new_w)
+                    if a_after >= base and locked_score + new_score >= a_after:
+                        ok += 1
+                p_pass = ok / self.REFORGE_TRIALS
+                if p_pass < self.REFORGE_MIN_PROB:
+                    continue
+                plan = {
+                    'lock': locked_names,
+                    'refresh': need,
+                    'units': max(1, limit - 1),
+                    'cost': max(1, limit - 1) * self.REFORGE_PRICE,
+                    'p_pass': round(p_pass, 3),
+                    'trials': self.REFORGE_TRIALS,
+                    'e_feat': round(e_feat, 2),
+                    'rbar': round(rbar, 3),
+                    'a_after': round(10 * sw_after, 1),
+                    'expected': round(locked_score + need * e_feat, 2),
+                }
+                if best is None or (plan['cost'], -plan['p_pass']) < (best['cost'], -best['p_pass']):
+                    best = plan
+        return best
+
     def judge_echo(self, set_name, tier, score, stats):
         """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, keep)。
         Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
           通用=weight>0)即过, 不限分
-        分层(旧规则线 base 是基准门槛, 达标线 aim 是在其之上的再筛选):
-          满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
-                胚子信号(≥2条达平均档 或 四有效打底) → keep建议重铸; 否则 fail不合格
-          未满级: score ≥ base → pending待强化; 否则 fail不合格
+        满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
+              score < base 时再看"花频整器能不能把它**刷成达标**"(reforge_plan: 存在 r̄≥1.0 的锁定方案)
+              → keep建议重铸; 否则 fail不合格
+        未满级: score ≥ base → pending待强化; 否则 fail不合格
         aim = _tier_threshold(10 × 出现有效词条权重之和) —— **不取 max(aim, base)**:
           aim < base 说明"出现有效词条太少", 这只最高只能到"保留"; base = _legacy_threshold(旧规则线);
         强化流程不豁免(不达标仍丢弃), keep/hold 仅评估报告标注。
@@ -880,27 +998,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             else:
                 core = get_set_core_first(set_name) or []
                 ok = any(n in core for n, _ in stats)
-            return (('pending', '待强化') if ok else ('fail', '不达标')), 0.0, False
-        aim = _tier_threshold(set_name, tier, stats)      # 达标线 = max(出现有效平均档×(tier-1), 下限)
-        base = _legacy_threshold(set_name, tier)          # 旧规则线 = 基准门槛
-        weights = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
-        eff = sum(1 for n, _ in stats if weights.get(n, 0.0) > 0)          # 出现的有效词条数
-        hi_cnt = 0                                                        # 达到/超过平均档(档位值/均值 ≥1.0)的条数
-        for n, v in stats:
-            tv, mn = snap_to_tier(n, v), get_mean(n)
-            if tv and mn and tv / mn >= 1.0:
-                hi_cnt += 1
+            return (('pending', '待强化') if ok else ('fail', '不合格')), 0.0, False
+        aim = _tier_threshold(set_name, tier, stats)      # 达标线 = 10 × 出现有效词条权重之和
+        base = _legacy_threshold(set_name, tier)          # 基准门槛 = 套装有效键最低 tier-1 条之和 ×10
         if tier >= 5:                                     # 满级
             if aim >= base and score >= aim:              # 达标: 达标线本身也要在基准线之上
                 return ('pass', '达标'), aim, False
             if score >= base:                             # 过了基准门槛(含 A<B 的情形) → 保留(值得留着)
                 return ('hold', '保留'), aim, False
-            # 基准线以下但"胚子值得用重铸/频整器改造" → 建议重铸(锁二追三语义):
-            #   ① 已有 ≥2 条词条达到/超过平均档(档位水平 ≥100%) —— 好底子(如双暴满档 + 3 废; 重铸后
-            #      套装适配性可改, 故"好词条"按档位水平算, 不看该套装是否认);
-            #   ② 四有效打底(eff≥4) —— 只剩 1 条要改。
-            # 依据 README 旧注"单条高档位不保留(洗 4 条不值)": 1 条不够, 2 条起才值得。
-            if hi_cnt >= 2 or eff >= 4:
+            # 基准线以下 → 只有"花频整器能刷成达标"才留。reforge_plan 只在**存在 r̄≥1.0(期望达标)的锁定方案**
+            # 时返回(且取成本最低的方案), 所以这里直接判它是否存在 —— "只刷成一个保留档位不值得"。
+            plan = self.reforge_plan(set_name, stats)
+            if plan:
                 return ('keep', '建议重铸'), aim, False
             return ('fail', '不合格'), aim, False
         if score >= base:                                 # 未满级: 过基准门槛即继续督
@@ -909,7 +1018,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def compute_weighted_score(self, paired_stats, valid_stats, set_name=None):
         """
-        评分: 条分 = 档位/均值 × 10 × 权重(上限自然 12.5/条), 无效 0 分。
+        评分: 条分 = 档位/期望值 × 10 × 权重, 无效 0 分。期望 = get_mean 的官方概率期望档位值
+              (统一舍入 1 位小数, 见 _compute_means; 平均档 = 10.0 分, 满档 ≈ 13.1~14.0;
+              原按算术平均时分母偏大、上限才是 12.5)。
         权重来源: 套装 JSON (get_set_weights); 通用模式用 DEFAULT_WEIGHTS 表。
         set_name: 显式指定套装名(评估按声骸名映射时用); None 时回退 config['当前套装']。
         达标线: _tier_threshold = 本只"出现的有效词条"平均档加权分(10×权重) × (tier-1);
@@ -946,7 +1057,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
             contribution = (tier_val / mean_val) * 10 * weight
             total += contribution
-            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×10×{weight}={contribution:.2f}')
+            # 末尾附档位分位(跨词条可比的质量度量; 概率表不可用时不展示) —— 见 echo_stats.tier_percentile
+            pct = tier_percentile(tier_name, v)
+            pct_tag = f' [前{pct:g}%]' if pct is not None else ''
+            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×10×{weight}={contribution:.2f}{pct_tag}')
 
         return total, details
 
