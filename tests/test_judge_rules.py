@@ -197,6 +197,24 @@ class TestEnchantProspect(unittest.TestCase):
             lo = t.enchant_prospect(SET_NAME, 4, self._partial(['暴击'], r=0.7))
         self.assertGreater(hi, lo)
 
+    def test_full_baseline_shortcut_beats_tier_level_check(self):
+        """已过满级保留线 → 直接"建议强化"(不因"现有档位未达平均档"被误杀)。"""
+        t = _task()
+        stats = self._partial(['暴击', '生命', '防御', '生命百分比'], r=1.0)   # 只有 1 条有效 → A(4)=10
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
+            b5 = _legacy_threshold(SET_NAME, 5)
+            (v, cn), _, _ = t.judge_echo(SET_NAME, 4, b5 + 1.0, stats)
+        self.assertEqual((v, cn), ('pending', '建议强化'))
+
+    def test_needs_both_prospect_and_tier_level(self):
+        """未过满级线 且 前瞻/档位不达标 → 不建议强化。"""
+        t = _task()
+        stats = self._partial(['暴击', '生命', '防御', '生命百分比'], r=0.7)
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
+            b5 = _legacy_threshold(SET_NAME, 5)
+            (v, cn), _, _ = t.judge_echo(SET_NAME, 4, b5 - 2.0, stats)
+        self.assertEqual((v, cn), ('fail', '不建议强化'))
+
     def test_below_full_baseline_needs_prospect_to_stay_pending(self):
         """未过满级保留线时: 前瞻达阈值 → 待强化; 否则 → 不合格。"""
         t = _task()

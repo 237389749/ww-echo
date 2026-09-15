@@ -1064,15 +1064,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             if plan:
                 return ('keep', '建议重铸'), aim, False
             return ('fail', '不合格'), aim, False
-        # 未满级: 判据是**最终(满级)的保留线** —— 差得远就及时止损, 别把材料花在没前途的件上。
-        # (不用当前级别的 B(tier): 那只是"这一级够不够看", 与"最终能不能留"不是一回事)
+        # 未满级: 分两级 —— **建议强化 / 不建议强化**(素材有限, 要在没前途的件上及时止损)
+        #   判据 = ① 已够满级保留线(稳了) 或 ② 前瞻概率够 **且** 现有词条档位已达平均档
+        #   ② 的 `score ≥ aim` 是"现有几条词条自己站得住": 只看前瞻会放过"权重低但档位好"的件
+        #   (如 3.10 分却因 A=2.5 而"过 A"), 而只看 A 又会杀掉"已过线只是略低于平均档"的件 —— 故取"或已过线"。
+        #   基准用 **B(满级)** 而非 B(tier): 后者只回答"这一级够不够看", 与"最终能不能留"不是一回事。
         base5 = _legacy_threshold(set_name, 5)
-        if score >= base5:                                # 已够满级保留线 → 稳了
-            return ('pending', '待强化'), base5, False
-        p = self.enchant_prospect(set_name, tier, stats)  # 前瞻: 继续开完能否达到满级保留线
-        if p is not None and p >= self.ENCHANT_MIN_PROB:
-            return ('pending', '待强化'), base5, False
-        return ('fail', '不合格'), base5, False
+        if score >= base5:                                # ① 已够满级保留线 → 稳了
+            return ('pending', '建议强化'), base5, False
+        p = self.enchant_prospect(set_name, tier, stats)  # ② 前瞻: 继续开完能否达到满级保留线
+        if p is not None and p >= self.ENCHANT_MIN_PROB and score >= aim:
+            return ('pending', '建议强化'), base5, False
+        return ('fail', '不建议强化'), base5, False
 
     def compute_weighted_score(self, paired_stats, valid_stats, set_name=None):
         """
