@@ -511,9 +511,30 @@ document.getElementById('fclear').addEventListener('click',function(){
   document.getElementById('fmax').value='';
   document.getElementById('fname').value='';
   document.getElementById('fset').value='';
+  document.getElementById('fsort').value='orig';
   document.querySelectorAll('.fv').forEach(function(c){c.checked=true});
+  applySort();
   applyFilter();
 });
+// 按"完成度"排序(报告主指标): 同套装内跨件可比 —— 用 data-comp, 缺值(未评估/无套装)排最后
+var _origOrder=null;
+function applySort(){
+  var tb=document.getElementById('tbody');
+  var rows=Array.prototype.slice.call(tb.querySelectorAll('tr'));
+  if(_origOrder===null) _origOrder=rows.slice();          // 首次记录生成时的原始顺序
+  var mode=document.getElementById('fsort').value;
+  var arr = (mode==='orig') ? _origOrder.slice() : rows.slice();
+  if(mode!=='orig'){
+    arr.sort(function(a,b){
+      var x=parseFloat(a.getAttribute('data-comp')), y=parseFloat(b.getAttribute('data-comp'));
+      if(isNaN(x)) x=-1;
+      if(isNaN(y)) y=-1;
+      return (mode==='comp_desc') ? (y-x) : (x-y);
+    });
+  }
+  arr.forEach(function(tr){ tb.appendChild(tr); });        // appendChild 移动节点 = 排序
+}
+document.getElementById('fsort').addEventListener('change',applySort);
 applyFilter();
 """
 
@@ -652,7 +673,8 @@ def _build_eval_html(data):
                    f' · 届时达标线 {rf.get("a_after", "—")}</span>'
                    ) if rf else ''
         rows.append(
-            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}" data-set="{set_name}">'
+            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}" data-set="{set_name}"'
+            f' data-comp="{comp if comp is not None else -1}">'
             f'<td>{r["index"]}</td>'
             f'<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>'
             f'<td{name_title}>{name}</td>'
@@ -706,6 +728,8 @@ def _build_eval_html(data):
 <span>名称: <input id="fname" list="namelist" placeholder="包含匹配" style="width:130px"></span>
 <span class="sep">|</span>
 <span>套装: <select id="fset">{set_options}</select></span>
+<span class="sep">|</span>
+<span>排序: <select id="fsort"><option value="orig">默认</option><option value="comp_desc">完成度 ↓</option><option value="comp_asc">完成度 ↑</option></select></span>
 <datalist id="namelist">{datalist}</datalist>
 <button id="fclear">清除筛选</button>
 <span id="cnt" class="cnt"></span>
