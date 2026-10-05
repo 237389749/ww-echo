@@ -1,7 +1,6 @@
 """
-声骸任务轻量基类 — 仅保留 EnhanceEchoTask / ChangeEchoTask 实际使用的方法。
+声骸任务轻量基类 — 仅保留 EnhanceEchoTask 实际使用的方法。
 
-仅保留 EnhanceEchoTask / ChangeEchoTask 实际使用的方法:
   - click() 重写: 为 OCR 检测框设置合适的点击持续时间
   - game_lang: 从窗口标题检测游戏语言
 """

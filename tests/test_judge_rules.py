@@ -84,8 +84,9 @@ class TestJudgeFiveGrades(unittest.TestCase):
         stats = _stats(names, r)
         # 注意: score 必须与判定用**同一套装口径**(SET_NAME) —— 用通用口径会把填位词条也算分
         with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
-            score, _ = t.compute_weighted_score([(n, str(v)) for n, v in stats], None, set_name=SET_NAME)
-            (v, cn), thr, keep = t.judge_echo(SET_NAME, len(stats), score + score_delta, stats)
+            score, _ = t.compute_weighted_score([(n, str(v)) for n, v in stats], set_name=SET_NAME)
+            # 第三项 = 「建议重铸」的方案(本用例只关心 verdict)
+            (v, cn), thr, _ = t.judge_echo(SET_NAME, len(stats), score + score_delta, stats)
         return v, cn, score, thr
 
     def test_k1_or_k2_cannot_pass_because_aim_below_base(self):

@@ -11,19 +11,13 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                                QComboBox, QFileDialog, QMessageBox, QCheckBox,
                                QLabel, QFrame, QPushButton, QSizePolicy)
 
+from src.echo_set_templates import STAT_ORDER
 from src.echo_stats import DEFAULT_WEIGHTS
 
 TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
 
-ALL_STATS = [
-    "暴击", "暴击伤害",
-    "攻击百分比", "攻击",
-    "生命百分比", "生命",
-    "防御百分比", "防御",
-    "共鸣效率",
-    "普攻伤害加成", "重击伤害加成",
-    "共鸣解放伤害加成", "共鸣技能伤害加成",
-]
+# 词条表(含展示顺序)的唯一来源 = echo_set_templates.STAT_ORDER(以前这里另抄了一份)
+ALL_STATS = list(STAT_ORDER)
 
 
 class SetConfigTab(QWidget):
