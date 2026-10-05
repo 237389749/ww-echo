@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 用 CUE4Parse 把客户端松散资产(或 pak 目录)解成 PNG。
+       构建: dotnet build tools/icon_export/IconExport.csproj -c Release -p:CUE4PARSE_SKIP_NATIVE=true
+       依赖旁仓 checkout: <仓库>/../search/CUE4Parse-master（路径按本机布局，可按需改 ProjectReference）。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>IconExport</AssemblyName>
+    <RootNamespace>IconExport</RootNamespace>
+    <CUE4PARSE_SKIP_NATIVE>true</CUE4PARSE_SKIP_NATIVE>
+    <NoWarn>$(NoWarn);CS8632;NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\search\CUE4Parse-master\CUE4Parse\CUE4Parse.csproj" />
+    <ProjectReference Include="..\..\..\search\CUE4Parse-master\CUE4Parse-Conversion\CUE4Parse-Conversion.csproj" />
+  </ItemGroup>
+
+</Project>

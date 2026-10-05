@@ -31,8 +31,8 @@ import cv2
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from src.echo_stats import get_mean, is_stat_match, snap_to_tier                     # noqa: E402
-from src.echo_set_templates import get_expected_stats, get_set_by_echo, get_sets_by_echo, normalize_echo_name  # noqa: E402
+from src.echo_stats import is_stat_match                                            # noqa: E402
+from src.echo_set_templates import get_set_by_echo, get_sets_by_echo                    # noqa: E402
 from src.echo_icon_match import match_icon                                           # noqa: E402
 from src.task.EnhanceEchoTask import EnhanceEchoTask, parse_number                   # noqa: E402
 from ui.run_tab import _build_eval_html                                              # noqa: E402
@@ -60,10 +60,16 @@ def parse_report(path: str) -> dict:
 
 
 def split_rows(lines: list) -> tuple:
-    """复刻 read_detail: 名字=首个中文行; 丢掉 `+25`/`COST 4`/`Z | C` 等面板非属性行; 属性行取 `名 | 值`。"""
-    name, props = '', []
+    """复刻 read_detail: 名字=首个中文行; `+25`/`Z | C` 等面板非属性行丢掉;
+    `COST n` 行取角标(供 L2 的官方主属性方案判定); 属性行取 `名 | 值`。"""
+    name, props, cost = '', [], None
     for ln in lines:
-        if not ln or ln.startswith('+') or ln.startswith('COST') or ln.startswith('Z'):
+        if not ln or ln.startswith('+') or ln.startswith('Z'):
+            continue
+        if ln.startswith('COST'):
+            m = re.search(r'COST\s*([134])', ln)
+            if m and cost is None:
+                cost = int(m.group(1))
             continue
         if ln.startswith('声骸技能'):
             break
@@ -75,18 +81,7 @@ def split_rows(lines: list) -> tuple:
             props.append((head.strip(), tail.strip()))
         elif not name and re.search(r'[\u4e00-\u9fff]', ln):
             name = ln
-    return name, props
-
-
-def dedup_key(name: str, props: list) -> str:
-    """与 evaluate_only.dedup_key 一致: 名字 + 全行档位值, 防滚动重叠(每屏与上屏重叠~1行)重复记录。"""
-    parts = [name]
-    for raw_n, v_str in props:
-        norm = EnhanceEchoTask._normalize_stat(raw_n, v_str)
-        v = parse_number(v_str)
-        tier_v = snap_to_tier(norm, v)
-        parts.append(f'{norm}={tier_v if tier_v is not None else round(v, 2)}')
-    return '|'.join(parts)
+    return name, props, cost
 
 
 def pick_set(echo_name: str, frame) -> tuple:
@@ -128,8 +123,8 @@ def main() -> int:
         lines = report.get(tag)
         if not lines:
             continue
-        name, props = split_rows(lines)
-        key = dedup_key(name, props)
+        name, props, cost = split_rows(lines)
+        key = EnhanceEchoTask.dedup_key(name, props)
         if key in seen:
             n_dup += 1
             continue
@@ -148,38 +143,22 @@ def main() -> int:
 
         frame = cv2.imread(path)
         set_name, set_src, s1 = pick_set(name, frame)
-        tier = len(stats)
-        valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
-        score, details = task.compute_weighted_score(
-            [(n, str(v)) for n, v in stats], valid_stats, set_name=set_name)
-        (verdict, verdict_cn), threshold, keep = task.judge_echo(set_name, tier, score, stats)
-        if keep:
-            verdict, verdict_cn = 'keep', '建议保留'
+        # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与 evaluate_only 共用同一份实现)
+        # L2: 前 2 行主属性 + COST 角标一起传(报告据此标官方管理方案是否认可该主属性)
+        rec = task.evaluate_one(name, stats, set_name, set_src,
+                                main_props=props[:2], cost=cost)
 
         idx = len(results) + 1
-        ss_name = f'eval_{idx:03d}_{verdict}_{score:.1f}.png'
+        ss_name = f'eval_{idx:03d}_{rec["verdict"]}_{rec["score"]:.1f}.png'
         h, w = frame.shape[:2]
         cv2.imwrite(os.path.join(ss_dir, ss_name),
                     frame[int(SS_BOX[1] * h):int(SS_BOX[3] * h), int(SS_BOX[0] * w):int(SS_BOX[2] * w)])
-        results.append({
-            # 与 evaluate_only 同口径: name 用容错匹配到的规范名, name_raw 保留 OCR 原文
-            "index": idx, "name": normalize_echo_name(name) or name, "name_raw": name,
-            "tier": tier, "score": round(score, 2),
-            "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
-            "set": set_name, "set_src": set_src, "screenshot": ss_name,
-            # 与 evaluate_only 同口径: 建议重铸时附"锁 N 条刷 M 条"的最优方案
-            "reforge": task.reforge_plan(set_name, stats) if verdict == 'keep' else None,
-            # 未满级的"待强化": 附"继续开到满级能过保留线"的概率(enchant_prospect 前瞻)
-            "prospect": (round(task.enchant_prospect(set_name, tier, stats) or 0, 3)
-                         if verdict == 'pending' and tier < 5 else None),
-            "stats": [{"name": n, "value": float(v), "detail": d,
-                       "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
-                      for (n, v), d in zip(stats, details)],
-        })
+        results.append({"index": idx, "screenshot": ss_name, **rec})
         src_stat[set_src] = src_stat.get(set_src, 0) + 1
         set_stat[set_name] = set_stat.get(set_name, 0) + 1
-        verdict_stat[verdict] = verdict_stat.get(verdict, 0) + 1
-        log.append(f'{tag} {name} | {set_name}({set_src}, s1={s1:.3f}) | {tier}词条 {score:.1f} {verdict_cn}')
+        verdict_stat[rec["verdict"]] = verdict_stat.get(rec["verdict"], 0) + 1
+        log.append(f'{tag} {name} | {set_name}({set_src}, s1={s1:.3f}) | '
+                   f'{rec["tier"]}词条 {rec["score"]:.1f} {rec["verdict_cn"]}')
 
     data = {
         "set": "通用",

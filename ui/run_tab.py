@@ -1,7 +1,6 @@
 """
 运行面板 — 任务/策略/套装选择, 启停, 状态, 日志。
 """
-import json
 import os
 import threading
 
@@ -139,12 +138,13 @@ class RunTab(QWidget):
         # 评估说明 (选评估时可见)
         self.strategy_info_eval = QLabel(
             "评估模式 — 只读遍历背包, 截图+打分, 生成HTML报告\n\n"
-            "评估按声骸名自动映射套装权重/判定, 未录入的声骸回退通用\n\n"
+            "评估按详情面板的套装图标识别套装(低置信回退声骸名候选), 都拿不到则用通用权重\n\n"
             "完成后弹出保存框 → 生成 eval_report.html + 截图文件夹\n"
-            "报告: 截图+名称+得分+判定+词条明细(按档位着色), 可按得分/判定/名称筛选\n"
+            "报告: 截图+名称+套装+得分(完成度%)+判定+词条明细(按档位着色), 可按得分/判定/名称/套装筛选与排序\n"
             "不强化/不上锁/不丢弃 — 纯评估\n\n"
-            "达标线: Lv5/10 有首核即过 | Lv15/20/25 ≥ 11/18/26.5(通用) | 满级不达标但≥2条有效且≥18分 → 建议保留重铸\n"
-            "⏳待强化=未满级通过, ✅达标=满级通过, 🔵建议保留重铸=底子够可洗, ❌不合格"
+            "两条线: 达标线 A = 10×本只出现有效词条权重和 | 基准线 B(通用) = 6.5/11.5/17.5\n"
+            "满级: A≥B 且 总分≥A → 达标; 总分≥B → 保留; 锁N刷M 达标概率≥60% → 建议重铸; 否则 不合格\n"
+            "未满级: 总分≥B(满级) 或 (前瞻概率≥60% 且 总分≥A) → 建议强化; 否则 不建议强化"
         )
         self.strategy_info_eval.setWordWrap(True)
         self.strategy_info_eval.setStyleSheet(
@@ -224,11 +224,10 @@ class RunTab(QWidget):
         if strategy == "渐进式":
             self.strategy_info.setText(
                 "渐进式: 每级单独评估, 不达标即停丢\n"
-                "Lv5  首条 → 有首核词条即过(不限分)\n"
-                "Lv10 第二条 → 有≥1有效词条即过\n"
-                "Lv15 第三条 → 累积得分 ≥ 锚线11\n"
-                "Lv20 第四条 → 累积得分 ≥ 锚线18\n"
-                "Lv25 第五条 → 累积得分 ≥ 锚线26.5, 达标上锁\n"
+                "Lv5  第1条 → 有首核词条即过(不限分)\n"
+                "Lv10 第2条 → 有首核词条即过(不限分)\n"
+                "Lv15 第3条 / Lv20 第4条 → 总分 ≥ 基准线 B(通用 6.5/11.5); 或 前瞻概率≥60% 且 总分 ≥ 达标线 A\n"
+                "Lv25 第5条 → A≥B 且 总分≥A → 达标上锁; 不达标则丢弃\n"
                 "未满级声骸: 已有词条先做渐进判断, 通过则继续强化"
             )
         else:
@@ -267,14 +266,10 @@ class RunTab(QWidget):
 
     # ── 套装 ──
     def _load_sets(self):
-        path = os.path.join("assets", "echo_set_templates.json")
+        # 套装名单走模板模块(带校验与缓存的唯一来源), 不再自己 json.load 一份
+        from src.echo_set_templates import get_all_set_names
         current = self.set_combo.currentText()
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            names = list(data.get("sets", {}).keys())
-        except Exception:
-            names = []
+        names = get_all_set_names()
         self.set_combo.clear()
         self.set_combo.addItem("通用")
         self.set_combo.addItems(names)
@@ -450,6 +445,14 @@ class RunTab(QWidget):
             return None
 
 
+# 判定档位的中文名与配色。**权威文案来自判定层** —— JSON 记录里的 `verdict_cn`(judge_echo 产出);
+# 这两张表只在旧报告缺 `verdict_cn` 字段时兜底。曾用它在渲染时**覆盖**记录里的文案,
+# 导致阶段二十三的「建议强化 / 不建议强化」在报告里根本显示不出来(审阅 A 类问题)。
+VERDICT_CN = {"pass": "达标", "hold": "保留", "keep": "建议重铸",
+              "pending": "建议强化", "fail": "不建议强化", "zero": "0级/无词条"}
+VERDICT_COLOR = {"pass": "#4caf50", "hold": "#009688", "keep": "#2196f3",
+                 "pending": "#ff9800", "fail": "#f44336", "zero": "#9e9e9e"}
+
 # 评估报告样式: 词条按档位(档位/均值)着色, 筛选区样式
 _EVAL_CSS = """
 body{font-family:'Microsoft YaHei',sans-serif;margin:20px;background:#f5f5f5}
@@ -578,36 +581,45 @@ def _build_rules_html(results):
 <h3>达标线（锚线）</h3>
 <p><b>达标线 A = 10 × 本只"出现的有效词条"的权重之和</b>（n = 词条数，L = n−1）。<br>
 "有效" = 该套装启用、权重 &gt; 0 的词条；<b>基准线 B</b>（旧规则）= 该套装有效键最低 L 条之和 × 10
-（配置未定制的套装即通用线 <b>11 / 18 / 26.5</b>）。<br>
+（配置未定制的套装即通用线 <b>6.5 / 11.5 / 17.5</b>）。<br>
 A 要求"这只有效词条每条都达到自己的平均档位"（平均档 = 有价值）。出现有效词条数 k ≥ L 时
 <b>A ≥ B 恒成立</b>；k &lt; L 时 A 的求和项变少、可能低于 B —— 此时该只<b>最高只能到"保留"</b>（基准线是下限）。<br>
 Lv5 / Lv10 为结构判定：只要存在"首条核心词条"即通过，不限分。</p>
-<h3>判定（五档）</h3>
+<h3>判定（六档）</h3>
 <p>两条线：<b>达标线 A</b>（平均档水平）、<b>基准线 B</b>（旧规则线）。满级按下表逐级命中：</p>
 <ul>
 <li><b>达标</b>：<b>A ≥ B</b> 且 总分 ≥ A —— 达标线本身必须站在基准线之上</li>
 <li><b>保留</b>：总分 ≥ B —— 过了基准门槛即算（<b>含 A &lt; B 的情形</b>：出现有效词条太少、达标线不成立的，最高只能到这档）</li>
-<li><b>建议重铸</b>：值得花频整器 —— 判据是<b>「锁 L 条 + 刷 5−L 条」后能不能<b>期望达标</b></b>（穷举 L=1~4 与"锁哪几条"）：
+<li><b>建议重铸</b>：值得花频整器 —— 判据是<b>「锁 L 条 + 刷 5−L 条」后真正达标的概率 ≥ 60%</b>（穷举 L=1~4 与"锁哪几条"）：
 <b>E_feat = 10 × Σw(可用池) ÷ (13−L)</b>（官方：词条类型等概率、锁定的类型不会再出现）；
 <b>期望档位 r̄ = [Σ(rᵢ·wᵢ)锁定 + W_new] ÷ [Σw锁定 + W_new]</b>（新刷的那部分按档位 1.0 计）。<br>
-方案要<b>同时</b>满足两道门：<b>① 重铸后的达标线站得住</b>（10×Σw_after ≥ B —— 否则这只永远达不到标，
-最典型的就是"锁 1 条低权重词条 + 刷 4 条"）、<b>② r̄ ≥ 1.0</b>（等价于"期望分 ≥ 重铸后的达标线"）。
+方案要<b>同时</b>满足三道门：<b>① 重铸后的达标线站得住</b>（10×Σw_after ≥ B —— 否则这只永远达不到标，
+最典型的就是"锁 1 条低权重词条 + 刷 4 条"）、<b>② r̄ ≥ 1.0</b>（等价于"期望分 ≥ 重铸后的达标线"）、
 <b>③ 蒙特卡洛达标概率 ≥ 60%</b>（3000 次模拟：期望只是均值、实际约五成把握，而胚子可无限刷，
 花 30 元买低概率不值）。在满足的方案里取<b>成本最低</b>（<b>成本 = max(1, L−1) 个频整器</b>），报告给出
 「锁哪几条 · 刷几条 · 约多少元 · <b>达标概率</b> · 期望分 · r̄ · 届时达标线」。判据刻意不是"期望分 ≥ 保留线 B"——
 那会允许"花 60 元只买到一个保留档位"</li>
-<li><b>不合格</b>：其余</li>
+<li><b>不合格</b>（满级）：其余</li>
 </ul>
 <p><b>得分下方的「完成度 X%」</b>：本只得分 ÷ <b>该套装 Top-5 权重词条全满档</b>的分数 —— 100% = 毕业；
 只出 3 条有效的件上限天然约 72%。它同时反映"有效条数"与"档位高低"，是看"离毕业多远"的主指标。<br>
 （早期版本还展示过「击败 X%」= 按官方概率模拟"随机满级声骸"分布后本只的分位；它<b>主要反映"抽到几条有效词条"</b>、
 而档位高低只影响 ±40%，"5 条全最低档"就已击败 97% —— 与玩家"离毕业多远"的比较习惯不符，已<b>不再展示</b>。）</p>
-<p><b>待强化</b>：未满级 且 总分 ≥ B；未达 B 则 <b>不合格</b>。<br>
+<p><b>建议强化</b>（未满级）：总分 ≥ B(满级)（已达保留线, 稳了）；或「继续开到满级达 B(满级) 的概率 ≥ 60%」<b>且</b>
+现有条分 ≥ A(现有) —— 后者是"现有几条自己站得住"，只看前瞻会放过"权重低但档位好"的件。<br>
+<b>不建议强化</b>（未满级）：两者都不满足 —— 强化材料有限, 没前途的件及时止损。<br>
 <b>0 级 / 无词条</b>：无评估价值，不写入报告。<br>
 <b>保留 / 建议重铸仅为报告建议，强化流程不豁免</b>（不达标仍丢弃）。</p>
 <h3>套装如何判定</h3>
 <p>优先读游戏详情面板的<b>套装图标</b>（与 <code>assets/echo_icons/</code> 34 套模板做灰度 ZNCC，s1 ≥ 0.60 且与次优间隔 ≥ 0.05 才采信）；
-置信不足时回退"声骸名 → 套装候选"，都拿不到则按通用。报告中「套装」列可悬停查看来源。</p>
+置信不足时回退"声骸名 → 套装候选"（官方配置表 229 个显示名，<code>异相·X</code> 皮肤条目按自己的套装），都拿不到则按通用。
+报告中「套装」列可悬停查看来源。</p>
+<h3>COST 与官方主属性方案</h3>
+<p>「COST/主属性」列给出面板 COST 角标（1/3/4）、两条主属性，以及游戏内置<b>声骸管理方案</b>
+（<code>PhantomManagePlanV2</code>，经 <code>tools/gen_echo_data.py</code> 生成到 <code>assets/gamedata/</code>）
+对该套装该 COST 的判定：<b style="color:#2e7d32">✔</b> = 在官方保留组、
+<b style="color:#c62828">✘</b> = 被官方列入丢弃组、<b style="color:#999">·</b> = 官方未表态（合法但不推荐）。
+悬停可看该 (套装, COST) 的保留/丢弃组。</p>
 <h3>本次报告涉及的套装权重</h3>
 <p>权重决定该词条算多少分，也决定达标线取哪些词条（权重越低越先被算进锚线）。</p>
 {weights_html}
@@ -628,16 +640,12 @@ def _build_eval_html(data):
     keep_n = sum(1 for r in results if r["verdict"] == "keep")
     hold_n = sum(1 for r in results if r["verdict"] == "hold")
 
-    verdict_cn_map = {"pass": "达标", "hold": "保留", "keep": "建议重铸",
-                      "pending": "待强化", "fail": "不合格", "zero": "0级/无词条"}
-    color_map = {"pass": "#4caf50", "hold": "#009688", "keep": "#2196f3",
-                 "pending": "#ff9800", "fail": "#f44336", "zero": "#9e9e9e"}
-
     rows = []
     for r in results:
         v = r["verdict"]
-        color = color_map.get(v, "#888")
-        vcn = verdict_cn_map.get(v, r.get("verdict_cn", ""))
+        color = VERDICT_COLOR.get(v, "#888")
+        # 判定文案**以记录里的 verdict_cn 为准**(判定层产出); 旧报告缺该字段时才用 VERDICT_CN 兜底
+        vcn = r.get("verdict_cn") or VERDICT_CN.get(v, "")
         stat_lines = []
         for s in r.get("stats", []):
             detail = s.get("detail") or f"{s.get('name')}={s.get('value')}"
@@ -665,7 +673,7 @@ def _build_eval_html(data):
         # 建议重铸: 附"锁哪几条 / 刷几条 / 约多少元 / 达标概率 / 期望量"(reforge_plan 的结果)
         # 判据已改为**蒙特卡洛达标概率 ≥ 60%** —— "期望达标"实际只有约五成把握, 而胚子可无限刷,
         # 不值得为低概率花频整器(30 元/个); 期望量(e_feat / r̄ / 期望分)仍列出供对照
-        # 未满级"待强化": 附"继续开到满级能过保留线的概率"(enchant_prospect 前瞻)
+        # 未满级"建议强化": 附"继续开到满级能过保留线的概率"(enchant_prospect 前瞻)
         pr = r.get("prospect")
         pr_html = (f'<br><span style="color:#999;font-size:11px">继续到满级过保留线 ≈ {pr * 100:.0f}%</span>'
                    if pr is not None else '')
@@ -676,13 +684,32 @@ def _build_eval_html(data):
                    f' · 期望 {rf["expected"]} 分 · r̄ {rf.get("rbar", "—")}'
                    f' · 届时达标线 {rf.get("a_after", "—")}</span>'
                    ) if rf else ''
+        # COST + 主属性 + 官方管理方案(PhantomManagePlanV2)判定: L2 起由 evaluate_one 提供;
+        # 旧报告没有这些字段 → 整格显示 "—"(不报错)
+        mp_html = "".join(
+            f'<div class="stat">{m.get("name")} {m.get("value"):g}</div>'
+            for m in (r.get("main_props") or [])) or '<span style="color:#bbb">—</span>'
+        pc = r.get("plan_check") or {}
+        plan_mark = {"ok": ("✔", "#2e7d32", "官方方案认可该主属性"),
+                     "off": ("✘", "#c62828", "官方方案把它列入丢弃组"),
+                     "other": ("·", "#999", "官方方案未表态(合法但不推荐)"),
+                     "unknown": ("?", "#999", "主属性名没认出来")}.get(pc.get("state"))
+        plan_html = ""
+        if plan_mark:
+            plan = pc.get("plan") or {}
+            plan_html = (f'<div title="官方管理方案: 保留 {plan.get("lock", [])} / '
+                         f'丢弃 {plan.get("discard", [])}" style="color:{plan_mark[1]};font-size:11px">'
+                         f'{plan_mark[0]} 官方方案</div>')
+        cost_txt = f'{r["cost"]}C' if r.get("cost") else "—"
         rows.append(
             f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}" data-set="{set_name}"'
+            f' data-cost="{r.get("cost") or ""}" data-plan="{pc.get("state") or ""}"'
             f' data-comp="{comp if comp is not None else -1}">'
             f'<td>{r["index"]}</td>'
             f'<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>'
             f'<td{name_title}>{name}</td>'
             f'<td title="{set_src}">{set_name}</td>'
+            f'<td><b>{cost_txt}</b>{plan_html}{mp_html}</td>'
             f'<td>{r["score"]}{comp_html}</td>'
             f'<td style="color:{color};font-weight:bold">{vcn}{pr_html}{rf_html}</td>'
             f'<td>{stats_html}</td></tr>')
@@ -710,8 +737,8 @@ def _build_eval_html(data):
 <span style="background:#e8f5e9;color:#2e7d32">达标 {pass_n}</span>
 <span style="background:#e0f2f1;color:#00695c">保留 {hold_n}</span>
 <span style="background:#e3f2fd;color:#1565c0">建议重铸 {keep_n}</span>
-<span style="background:#fff3e0;color:#e65100">待强化 {pend_n}</span>
-<span style="background:#ffebee;color:#c62828">不合格 {fail_n}</span>
+<span style="background:#fff3e0;color:#e65100">建议强化 {pend_n}</span>
+<span style="background:#ffebee;color:#c62828">不建议强化 {fail_n}</span>
 <span style="background:#eceff1;color:#607d8b">0级/无词条 {zero_n}</span>
 </div>
 </div>
@@ -725,9 +752,9 @@ def _build_eval_html(data):
 <label><input type="checkbox" class="fv" value="pass" checked> 达标</label>
 <label><input type="checkbox" class="fv" value="hold" checked> 保留</label>
 <label><input type="checkbox" class="fv" value="keep" checked> 建议重铸</label>
-<label><input type="checkbox" class="fv" value="pending" checked> 待强化</label>
-<label><input type="checkbox" class="fv" value="fail" checked> 不合格</label>
-<label><input type="checkbox" class="fv" value="zero" checked> 0级</label>
+<label><input type="checkbox" class="fv" value="pending" checked> 建议强化</label>
+<label><input type="checkbox" class="fv" value="fail" checked> 不建议强化</label>
+<label><input type="checkbox" class="fv" value="zero" checked> 0级/无词条</label>
 <span class="sep">|</span>
 <span>名称: <input id="fname" list="namelist" placeholder="包含匹配" style="width:130px"></span>
 <span class="sep">|</span>
@@ -739,7 +766,7 @@ def _build_eval_html(data):
 <span id="cnt" class="cnt"></span>
 </div>
 <table>
-<thead><tr><th>#</th><th>截图</th><th>名称</th><th>套装</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
+<thead><tr><th>#</th><th>截图</th><th>名称</th><th>套装</th><th>COST/主属性</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
 <tbody id="tbody">{"".join(rows)}</tbody>
 </table>
 </div>

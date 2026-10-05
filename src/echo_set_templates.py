@@ -27,8 +27,9 @@ from ok import Logger
 
 logger = Logger.get_logger(__name__)
 
-# 游戏中实际存在的 13 个副词条名称（白名单）
-VALID_STAT_NAMES: frozenset[str] = frozenset({
+# 游戏中实际存在的 13 个副词条名称(白名单)。**展示顺序也以这里为唯一来源** ——
+# 套装配置表格(ui/set_config_tab) 与强化配置下拉(EnhanceEchoTask) 都直接用 STAT_ORDER, 不再各抄一份。
+STAT_ORDER: tuple[str, ...] = (
     "暴击", "暴击伤害",
     "攻击百分比", "攻击",
     "生命百分比", "生命",
@@ -36,7 +37,8 @@ VALID_STAT_NAMES: frozenset[str] = frozenset({
     "共鸣效率",
     "普攻伤害加成", "重击伤害加成",
     "共鸣解放伤害加成", "共鸣技能伤害加成",
-})
+)
+VALID_STAT_NAMES: frozenset[str] = frozenset(STAT_ORDER)
 
 # 套装模板特殊键: Lv5 首条核心词条集合(可选, 缺省=全部有效词条)
 _CORE_FIRST = '_core_first'
@@ -48,6 +50,9 @@ _ICON = '_icon'
 
 # JSON 模板文件路径
 _TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
+# 官方配置表生成物(见 tools/gen_echo_data.py): 声骸↔套装 / 皮肤本体名 / 官方主属性方案。
+# 存在时声骸↔套装以它为准(含 3.7 新套装与皮肤条目), 模板的 `_echoes` 只作回退。
+_GAMEDATA_PATH = os.path.join("assets", "gamedata", "echo_data.json")
 
 # 缓存
 _template_cache: dict | None = None
@@ -56,7 +61,13 @@ _cache_mtime: float = 0
 _echo_index: dict[str, list[str]] | None = None
 # 所有声骸名的汉字字符集(逐字白名单, 参照词条过滤 _STAT_CHARS): 用于剥离 OCR 错字/杂字
 _echo_chars: set[str] = set()
-# 声骸名"皮肤前缀"——OCR 出「异相·XXX」时剥掉, 用本体名匹配; 「梦魇·」是真实前缀(独立声骸), 保留
+# 皮肤声骸名(如 `异相·巡游骑士`) → 本体名(`巡游骑士`); 仅来自生成物
+_skin_bases: dict[str, str] = {}
+# 生成物缓存
+_gamedata_cache: dict | None = None
+_gamedata_mtime: float = 0
+# 声骸名"皮肤前缀"——`异相·X` 在配置里是**独立声骸, 有自己的套装**;
+# 「梦魇·」是真实前缀(独立声骸), 保留。仅在生成物缺失时退回"剥前缀复用本体套装"的旧口径。
 _ECHO_SKIN_PREFIXES = ('异相·', '异相')
 
 
@@ -157,10 +168,47 @@ def load_templates(force: bool = False) -> dict[str, dict]:
         return {}
 
 
+def _get_gamedata_path() -> str:
+    """生成物路径(与模板同套路: 支持打包后的 exe 和源码运行)。"""
+    if os.path.exists(_GAMEDATA_PATH):
+        return _GAMEDATA_PATH
+    alt = Path(__file__).parent.parent / "assets" / "gamedata" / "echo_data.json"
+    return str(alt) if alt.exists() else _GAMEDATA_PATH
+
+
+def load_gamedata(force: bool = False) -> dict | None:
+    """加载官方配置表生成物 `assets/gamedata/echo_data.json`; 缺失/损坏返回 None(退回模板口径)。"""
+    global _gamedata_cache, _gamedata_mtime, _echo_index
+    path = _get_gamedata_path()
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    if not force and _gamedata_cache is not None and mtime == _gamedata_mtime:
+        return _gamedata_cache
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        logger.warning(f"生成物不可用({e}), 声骸↔套装退回模板 _echoes: {path}")
+        return None
+    _gamedata_cache, _gamedata_mtime = data, mtime
+    _echo_index = None            # 生成物变化 → 反向索引失效
+    logger.info(f"加载官方数据: {len(data.get('sets', {}))} 套装 / "
+                f"{len(data.get('echoes', {}))} 声骸 from {path}")
+    return data
+
+
 def get_set_echoes(set_name: str | None) -> dict[str, list[str]] | None:
-    """获取指定套装包含的声骸清单 {'4c': [...], '3c': [...], '1c': [...]}; 通用/未知返回 None。"""
+    """获取指定套装包含的声骸清单 {'4c': [...], '3c': [...], '1c': [...]}; 通用/未知返回 None。
+
+    有生成物时以官方表为准(含 3.7 新套装与皮肤条目), 否则退回模板的 `_echoes`。
+    """
     if not set_name or set_name == "通用":
         return None
+    gd = load_gamedata()
+    if gd and set_name in gd.get("sets", {}):
+        return gd["sets"][set_name]["echoes"]
     info = load_templates().get(set_name)
     return info.get("echoes") if info else None
 
@@ -192,54 +240,80 @@ def _substring_hits(candidate: str, index: dict) -> list[str]:
             and (candidate in t or t in candidate)]
 
 
-def _match_echo_key(name: str, index: dict, chars: set) -> str | None:
-    """声骸名(可能是 OCR 错字) → **模板里的规范声骸名**; 匹配不到返回 None。
-    三级容错(参照词条过滤 _normalize_stat): ① 剥「异相」前缀 ② 精确 ③ 逐字白名单清洗
-    (只留声骸名字符集内汉字, 剥 OCR 错字/杂字) ④ 子串(唯一候选) ⑤ 最长公共子串 LCS(≥3 字且唯一)。"""
+def _match_echo_key(name: str, index: dict, chars: set, skins: dict | None = None) -> str | None:
+    """声骸名(可能是 OCR 错字) → **索引里的规范声骸名**; 匹配不到返回 None。
+
+    三级容错(参照词条过滤 _normalize_stat): ① 精确 ② 逐字白名单清洗
+    (只留声骸名字符集内汉字, 剥 OCR 错字/杂字) ③ 子串(唯一候选) ④ 最长公共子串 LCS(≥3 字且唯一)。
+
+    有生成物时(`skins` 非空) **皮肤名与本体名分池匹配**: 配置里 `异相·X` 是独立声骸、有自己的套装,
+    与本体 X 不同者实测 13 例, 所以皮肤名只在皮肤池里找、本体名只在本体池里找 —— **绝不跨池回退**,
+    跨池回退正是"剥前缀复用本体套装"那个错。生成物缺失时退回旧口径(剥前缀后用全表)。
+    """
     if not name:
         return None
-    name = _strip_echo_prefix(name)
-    if not name:
-        return None
-    if name in index:
-        return name
-    cleaned = ''.join(ch for ch in name if ch in chars)
-    for candidate in (cleaned, name):
-        if len(candidate) < 2:
+    skins = skins or {}
+    is_skin = any(name.startswith(p) for p in _ECHO_SKIN_PREFIXES)
+    if skins:
+        pool = {k: v for k, v in index.items() if (k in skins) == is_skin}
+        variants = (name,)
+    else:
+        pool = index
+        variants = (_strip_echo_prefix(name), name)
+    for v in variants:
+        if v and v in pool:
+            return v
+    for v in variants:
+        if not v:
             continue
-        if candidate in index:
-            return candidate
-        hits = _substring_hits(candidate, index)
-        if len(hits) == 1:
-            return hits[0]
+        cleaned = ''.join(ch for ch in v if ch in chars)
+        for candidate in (cleaned, v):
+            if len(candidate) < 2:
+                continue
+            if candidate in pool:
+                return candidate
+            hits = _substring_hits(candidate, pool)
+            if len(hits) == 1:
+                return hits[0]
     # LCS 回退
-    base = cleaned if len(cleaned) >= 2 else name
-    scored = [(_lcs_len(base, t), t) for t in index]
-    scored = [(l, t) for l, t in scored if l >= 3]
-    if scored:
-        best = max(l for l, _ in scored)
-        top = [t for l, t in scored if l == best]
-        if len(top) == 1:
-            return top[0]
+    for v in variants:
+        if not v:
+            continue
+        cleaned = ''.join(ch for ch in v if ch in chars)
+        base = cleaned if len(cleaned) >= 2 else v
+        scored = [(l, t) for l, t in ((_lcs_len(base, t), t) for t in pool) if l >= 3]
+        if scored:
+            best = max(l for l, _ in scored)
+            top = [t for l, t in scored if l == best]
+            if len(top) == 1:
+                return top[0]
     return None
 
 
-def _get_echo_index() -> tuple[dict, set]:
-    """声骸名 → 套装列表 的反向索引 + 声骸名汉字集(随模板缓存重建)。"""
-    global _echo_index, _echo_chars
+def _get_echo_index() -> tuple[dict, set, dict]:
+    """声骸名 → 套装列表 的反向索引 + 声骸名汉字集 + 皮肤名→本体名(随生成物/模板缓存重建)。"""
+    global _echo_index, _echo_chars, _skin_bases
     if _echo_index is None:
         idx: dict[str, list[str]] = {}
         chars: set[str] = set()
-        for set_name, info in load_templates().items():
-            for names in (info.get("echoes") or {}).values():
-                for n in names:
-                    lst = idx.setdefault(n, [])
-                    if set_name not in lst:
-                        lst.append(set_name)
-                    chars.update(ch for ch in n if '\u4e00' <= ch <= '\u9fff')
-        _echo_index = idx
-        _echo_chars = chars
-    return _echo_index, _echo_chars
+        skins: dict[str, str] = {}
+        gd = load_gamedata()
+        if gd:
+            for n, e in (gd.get("echoes") or {}).items():
+                idx[n] = list(e.get("sets") or [])
+                if e.get("base"):
+                    skins[n] = e["base"]
+                chars.update(ch for ch in n if '\u4e00' <= ch <= '\u9fff')
+        else:
+            for set_name, info in load_templates().items():
+                for names in (info.get("echoes") or {}).values():
+                    for n in names:
+                        lst = idx.setdefault(n, [])
+                        if set_name not in lst:
+                            lst.append(set_name)
+                        chars.update(ch for ch in n if '\u4e00' <= ch <= '\u9fff')
+        _echo_index, _echo_chars, _skin_bases = idx, chars, skins
+    return _echo_index, _echo_chars, _skin_bases
 
 
 def normalize_echo_name(echo_name: str) -> str | None:
@@ -250,8 +324,8 @@ def normalize_echo_name(echo_name: str) -> str | None:
     **拿不准就不换**: 名字层的子串抢跑(阶段十一已知失效, 如 `梦魔·青羽鹭` 会命中作为独立声骸
     存在的 `青羽鹭`)不该把错误名字带进报告 —— 只在"剥掉错字后命中、且命中名不比清洗名短"时替换。
     """
-    index, chars = _get_echo_index()
-    key = _match_echo_key(echo_name, index, chars)
+    index, chars, skins = _get_echo_index()
+    key = _match_echo_key(echo_name, index, chars, skins)
     if key is None or key == echo_name:
         return key
     cleaned = ''.join(ch for ch in _strip_echo_prefix(echo_name) if ch in chars)
@@ -259,10 +333,13 @@ def normalize_echo_name(echo_name: str) -> str | None:
 
 
 def get_sets_by_echo(echo_name: str) -> list[str]:
-    """声骸名 → 所属套装名列表(一个声骸可属多个套装; 按模板声明顺序)。未录入返回 []。
-    先剥「异相」前缀, 再精确/子串/LCS 容错匹配(参照词条过滤)。索引随模板缓存重建。"""
-    index, chars = _get_echo_index()
-    key = _match_echo_key(echo_name, index, chars)
+    """声骸名 → 所属套装名列表(一个声骸可属多个套装; 按索引声明顺序)。未录入返回 []。
+
+    有生成物时索引来自官方配置表(229 个显示名, 含皮肤条目各自独立的套装);
+    否则退回模板 `_echoes` + 剥「异相」前缀的旧口径。索引随生成物/模板缓存重建。
+    """
+    index, chars, skins = _get_echo_index()
+    key = _match_echo_key(echo_name, index, chars, skins)
     return list(index[key]) if key else []
 
 
@@ -275,14 +352,6 @@ def get_set_by_echo(echo_name: str, prefer: str | None = None) -> str | None:
     if prefer and prefer in sets:
         return prefer
     return sets[0]
-
-
-def get_set_icon(set_name: str | None) -> str | None:
-    """套装图标文件名(assets/echo_icons/ 下的 `{套装名}.png`, 供将来图标模板匹配); 未配置返回 None。"""
-    if not set_name or set_name == "通用":
-        return None
-    info = load_templates().get(set_name)
-    return (info.get("icon") or None) if info else None
 
 
 def get_all_set_names() -> list[str]:
@@ -318,16 +387,3 @@ def get_set_core_first(set_name: str | None) -> list[str] | None:
     if core:
         return list(core)
     return list(info["weights"].keys())
-
-
-def get_expected_stats(set_name: str | None) -> list[str]:
-    """
-    获取指定套装的预期词条列表（即权重字典的键）。
-    用于渐进式 T1 校验。
-    """
-    weights = get_set_weights(set_name)
-    if weights:
-        return list(weights.keys())
-    # 通用默认
-    return ["暴击", "暴击伤害", "攻击百分比", "攻击", "共鸣效率"]
-

@@ -113,17 +113,49 @@ class TestCropIcon(unittest.TestCase):
 class TestMatchIconClosedLoop(unittest.TestCase):
     """用合成帧锁死闭环: 不需要 logs/eval_debug 数据集。"""
 
+    # 已知**灰度孪生**对(28x28 + 圆形 mask 的 ZNCC ≥ 0.79; 官方贴图):
+    #   星构寻辉之环↔逆光跃彩之约 0.878 / 幽夜隐匿之帷↔轻云出月 0.815(这两对换官方图前就在, 真实面板判定正常)
+    #   凝夜白霜↔茜染怀想之花 0.799
+    # 合成帧(灰度纯图贴黑底)下孪生会抢跑, `match_icon` 因 margin < MIN_MARGIN 返回 None —— 这是**正确**行为,
+    # 真实面板口径由 tools/eval_icon_match.py 的离线回归基线(217/219)守。
+    TWINS = (frozenset(('星构寻辉之环', '逆光跃彩之约')),
+             frozenset(('幽夜隐匿之帷', '轻云出月')),
+             frozenset(('凝夜白霜', '茜染怀想之花')))
+
     def test_synthetic_frame_hits_own_template(self):
+        """合成帧闭环: 非孪生模板必须**精确命中自己**; 孪生模板允许"命中孪生/因 margin 拒判"。"""
         paths = template_paths()
         if not paths:
             self.skipTest('assets/echo_icons 缺失')
-        for path in paths[:5]:
+        for path in paths:
             name = os.path.splitext(os.path.basename(path))[0]
+            twin_of = [p for p in self.TWINS if name in p]
             with self.subTest(set_name=name):
-                got, score, margin = M.match_icon(synth_frame(path))
-                self.assertEqual(got, name)
-                self.assertGreaterEqual(score, M.MIN_SCORE)
-                self.assertGreaterEqual(margin, M.MIN_MARGIN)
+                got, score, _margin = M.match_icon(synth_frame(path))
+                self.assertGreaterEqual(score, M.MIN_SCORE, '自身匹配分不应低于置信线')
+                if twin_of:
+                    self.assertTrue(got is None or got == name or frozenset((got, name)) in self.TWINS,
+                                    f'{name} 认成了 {got}(不在已知孪生里)')
+                else:
+                    self.assertEqual(got, name, '非孪生模板必须精确命中自己')
+
+    def test_known_grayscale_twins_are_still_pairs(self):
+        """孪生对必须仍然"像"(≥0.79): 若哪天不像了, 上面的容忍就该收紧 —— 反向 tripwire。"""
+        for a, b in (tuple(p) for p in self.TWINS):
+            with self.subTest(pair=(a, b)):
+                self.assertGreaterEqual(self._gray_sim(a, b), 0.79)
+
+    @staticmethod
+    def _gray_sim(a: str, b: str) -> float:
+        """两张模板在 match_icon 口径下的 ZNCC(28x28 + 圆形 mask)。"""
+        sel = M._mask_sel()
+
+        def vec(n):
+            g = M._template_gray(os.path.join(M.icons_dir(), n + '.png'))
+            v = M._to_canvas(g, 29).reshape(-1)[sel].astype('float32')
+            return (v - v.mean()) / (np.linalg.norm(v - v.mean()) + 1e-9)
+
+        return float(vec(a) @ vec(b))
 
     def test_shift_tolerance_within_2px(self):
         paths = template_paths()

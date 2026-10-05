@@ -18,3 +18,12 @@ ocr.txt
 offline_eval.html
 offline_eval.json
 pic.html
+
+# .NET 构建产物(tools/icon_export)
+tools/icon_export/bin/
+tools/icon_export/obj/
+
+# CUE4Parse 运行时下载的原生库(出现在当前工作目录)
+oodle-data-shared.dll
+zlib-ng2.dll
+oodle-data-shared.dll.gz

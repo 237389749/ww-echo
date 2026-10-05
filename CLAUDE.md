@@ -17,15 +17,17 @@
 
 ```
 mainui.py                 唯一入口(PySide6); 启动先按 QSettings run_mode 调 apply_run_mode 再 OK(config)
+                          (阶段二十四删除了 main.py/main_debug.py/run.py — 见下"阶段二十四要点")
 config.py                 全套 ok-script 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
 ui/                       7 tab; settings_tab 含"运行模式"(本地/云游戏)开关, 重启生效
 src/echo_stats.py         词条档位表 _TIERS + 官方档位概率 + snap_to_tier/get_mean(概率期望)/tier_percentile(分位)/is_stat_match
-src/echo_set_templates.py 34 套装 JSON 模板(词条/权重/声骸清单) + 声骸名容错匹配
+src/echo_set_templates.py 37 套装 JSON 模板(词条/权重/声骸清单) + 声骸名容错匹配(生成物优先: 官方 229 个显示名)
+src/wuwa_data.py          官方配置表读取层: BinData(目录/zip, 两种序列化) + Textmaps + 管理方案 FlatBuffers 解码
 src/echo_icon_match.py    详情面板套装图标识别(灰度 ZNCC 模板匹配) — 名字消歧硬信号
 src/echo_score_sim.py     整只声骸分位: 按官方概率模拟"随机满级声骸"分数分布 → "击败 X%"
 src/task/EnhanceEchoTask.py  强化(run) + 评估(evaluate_only v2 遍历, 核心)
 src/task/BaseEchoTask.py  轻量基类(click 覆写/语言检测)
-assets/echo_icons/        34 个套装图标(76x76, 文件名=套装名) — 图标识别模板
+assets/echo_icons/        37 个套装图标(76x76, 文件名=套装名) — **全部来自客户端官方贴图**(见「官方静态数据层」)
 assets/echo_set_templates.json 套装配置存档
 assets/echo_probability.json   官方声骸副词条概率表(词条类型等概率 + 各档位概率, 见阶段十六)
 eval_rules.md             判定规则全景说明 + 分类审查矩阵 + 已评估不改的项(改判定前先读; 已对齐阶段十八口径)
@@ -89,24 +91,55 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 
 ## 声骸名容错匹配(勿回退成精确查表)
 
-`get_sets_by_echo(名)` 走 `_match_echo_name`(照词条过滤的三级思路): ①剥「异相」皮肤前缀(`异相·双极·星升辉铳`→本体名) — **「梦魇·」保留**(真实前缀, 独立声骸) ②精确命中 ③逐字白名单清洗(`_echo_chars` = 全部声骸名汉字集 **341 字**, 剥 OCR 错字/杂字) ④子串(唯一候选) ⑤最长公共子串 LCS(≥3 字且唯一); 全不中返回 `[]`。**返回候选列表**(不是取首个)。
+`get_sets_by_echo(名)` 走 `_match_echo_key`(照词条过滤的三级思路): ①**精确命中显示名**(含 `异相·X` 皮肤名) ②逐字白名单清洗(`_echo_chars` = 全部声骸名汉字集, 剥 OCR 错字/杂字) ③子串(唯一候选) ④最长公共子串 LCS(≥3 字且唯一); 全不中返回 `[]`。**返回候选列表**(不是取首个)。
+
+★ **`异相·X` 是独立声骸, 有自己的套装**(官方配置表: **13 例与本体不同**, 如 `异相·巡游骑士`→彻空冥雷/熔山裂谷 而 `巡游骑士`→凌冽决断之心/幽夜隐匿之帷) → 匹配时**皮肤名与本体名分池, 绝不跨池回退**; 只有生成物缺失时才退回"剥前缀复用本体套装"的旧口径(旧安装兜底)。有生成物时索引来自官方配置表(**229 个显示名**; 旧口径 181 个)。
 名字天生多义(**181 个声骸名中 120 个属 ≥2 套装**) + OCR 错字, 名字层无法完全消歧。已实证失效: `梦魔·青羽鹭`(清洗后含子串「青羽鹭」且该名独立存在于索引 → 子串分支抢跑 → 误配 `[啸谷长风, 浮星祛暗]`, 应 `[息界同调之律]`)、`侏侏驼`(驼→鸵, 清洗后仅「侏侏」2 字)、`咔嘧`/`阿磁磁`(真名 咔嚓嚓/阿嗞嗞, 清洗后仅 1 字)。详见 CHANGELOG 阶段十一。**这类由套装图标识别兜底(已实现, 见下)。**
 
 ## 套装图标识别(名字消歧硬信号, 阶段十二; 勿回退成"只用名字")
 
-`src/echo_icon_match.py`: 详情面板图标区 → 灰度 28x28 → 与 `assets/echo_icons/{套装名}.png`(**34 个**)做 **ZNCC**:
+`src/echo_icon_match.py`: 详情面板图标区 → 灰度 28x28 → 与 `assets/echo_icons/{套装名}.png`(**37 张, 全部来自客户端官方贴图**)做 **ZNCC**:
 ①模板 76px 缩到 29px(尺度 1.05)中心裁 28, 两端同分辨率 1:1 比 ②**±2px 平移搜索**(消 bbox 抖动; 不搜索时 s1 从 0.9 掉到 0.23) ③圆形 mask(r≤12)排除外发光与面板背景 ④置信线 `MIN_SCORE=0.60` + 与次优间隔 `MIN_MARGIN=0.05`, 不达线返回 None 交调用方回退名字候选。
-**颜色/环色特征不可用**: 34 个模板同构(彩色圆环 + 白底 + 深色图案), 缩到 28px 后轮廓主导 → 环色 top1 命中仅 28/183; 灰度 ZNCC 才是有效判据。
+**颜色/环色特征不可用**: 37 个模板同构(彩色圆环 + 白底 + 深色图案), 缩到 28px 后轮廓主导 → 环色 top1 命中仅 28/183; 灰度 ZNCC 才是有效判据。
 `EnhanceEchoTask.resolve_set_name(名)`: 图标优先(**与名字候选不一致也以图标为准** — 名字层错字无解) → 低置信回退 `get_set_by_echo(名, prefer=config套装)` → 再回退 config(评估=通用); 来源 `icon`/`name`/`default` 记入报告 JSON 的 `set`/`set_src`。
 离线回归: `python tools/eval_icon_match.py [debug目录]`(用 `logs/eval_debug/<时间戳>/` 全屏图, 无需开游戏)。**当前基线: 219 张中 217 张高置信(99.1%, s1 中位 0.894); 名字候选非空 211 张中 196 一致(92.9%), 15 张不一致全部是名字层错字案例且图标给出正确套装(`梦魔·青羽鹭/啾啾河豚/咕咕河豚` → `息界同调之律`, s1=0.93); 2 张详情面板无图标(`无归的谬误`)s1≈0.22 → 回退名字候选。改判定逻辑后跑一次该工具对比基线。**
+
+## 官方静态数据层(L0~L2, 2026-10-02; 生成物只读, 勿手改)
+
+**动机**: 声骸↔套装/图标名/主属性方案/属性名原本是手抄(wuther.in 页面 + `1.txt`), 3.7 改版后已落后 3 套且皮肤条目归属错。
+**做法**: 由官方配置表生成 —— 数据源是**离线导出**的游戏表(不是运行时读游戏/内存, 定位不变)。
+
+| 文件 | 作用 |
+|---|---|
+| `src/wuwa_data.py` | `BinData`(目录/zip 自适应, 兼容 `[{Key,Value}]` 与 `{k:v}` 两种序列化) + `load_textmaps` + `parse_plan_bin`(管理方案 FlatBuffers 解码) + `read_version` |
+| `tools/gen_echo_data.py` | 生成器 → `assets/gamedata/echo_data.json`(37 套 / 229 声骸 / `plan` / `props` / `main_prop_names`); `--sync-templates` 把 `_echoes`/`_icon` 同步进策略文件(**不动权重/`_core_first`**) |
+| `assets/gamedata/echo_data.json` | 生成物: `sets{icon_asset,icon_file,fetter_ids,effects,echoes,plan}` + `echoes{cost,sets,base}` + `props` + `main_prop_names` |
+| `tests/test_gamedata.py` / `test_main_prop_check.py` / `test_echo_stats_consistency.py` | 生成物结构自洽 + 3.7 回归锚点 + COST/方案判定 + 档位↔概率一致性断言 |
+
+- **数据源与刷新**: `Arikatsu/WutheringWaves_Data` 分支 `3.7`(Global 3.7.0 / Resource 3.7.8; 本机 `search/wwdata37`, sparse checkout 只取 `Textmaps/zh-Hans` + `BinData/phantom*` + `property`; 刷新 = 该目录 `git pull`)。生成命令见 `tools/gen_echo_data.py` 文档串(需 `--bindata`/`--textmaps`)。
+- **不变量**: 任何文本键解析不出 → **退出码 2 且不写文件**(宁失败不静默丢数据); 生成物**只读**, 策略(权重/`_core_first`)仍手写在 `echo_set_templates.json`。
+- **官方管理方案**(`PhantomManagePlanV2`): 每 (套装, COST) 的主属性**保留组/丢弃组**(PropId)。客户端表是 FlatBuffers `BinData`, 解码器已用服务端显式字段表**逐行 100/100 验证**; 它同时覆盖 3.7 的 3 个新套装(服务端表只到 34 套)。
+- **已知偏差(勿"修")**: `防御百分比` 的 8 个档位以**官方公示原文**为准(8.1/9.0/10.0/10.9/11.8/12.8/13.8/14.7; 18 张真实面板也只出现这 8 个值); zigrika 服务端的 `(std*mult+5000)//10000*10` 会多出 +0.1 的 5 个档 —— 那是服务端口径。
+- **3.7 新增 3 套**: 衔梦照世之心(36, 导电) / 镜影流电之瞬(37, 导电) / 茜染怀想之花(38, 治疗); 已用通用权重播种。
+- **套装图标已全部换成客户端官方贴图**(37 张, `assets/echo_icons/`): 与旧模板逐像素对比 **29 张完全一致**(corr=1.000)、**5 张不同**(失序彼岸之梦/奔狼燎原之焰/愿戴荣光之旅/此间永驻之光/流云逝尽之空 —— 旧版图标, 已换当前官方版)、**3 张新增**。
+  复现路径(需客户端安装 + 工作区 `search/CUE4Parse-master` + .NET 10 SDK):
+  ① `.scratch/scan_icons.py`(复用 ww-explore 的 pak 解析)列出 `IconElementAttri*` 条目; `.scratch/extract_icons.py` 用同一套 pak 解析导出 uasset/uexp 到松散文件树(`.scratch/loose/Aki/UI/...`);
+  ② `.scratch/iconexport/`(CUE4Parse 控制台程序)`IconExport <松散树> <aesKey> <输出目录> IconElementAttri` 解出 PNG(76×76; `...128_*` 是 128×128);
+  ③ `.scratch/swap_icons.py` 按 `gamedata` 的 `icon_file` 覆盖 `assets/echo_icons/`(先备份到 `.scratch/echo_icons_before/`)。
+  要点: `TextureDecoder.UseAssetRipperTextureDecoder = true`(纯 C# BC7 解码, 免 CUE4Parse-Natives/Detex 原生库)、`-p:CUE4PARSE_SKIP_NATIVE=true` 跳过 CMake、中文路径传参易失败(用 `mklink /J` 建 ASCII 联接)。
+- **灰度孪生(改图标/调阈值前必读)**: 图标是"彩色圆环+白底+深色图案", 灰度 ZNCC 下有几对天生相近 ——
+  `星构寻辉之环↔逆光跃彩之约 0.878`、`幽夜隐匿之帷↔轻云出月 0.815`(**换官方图前就存在, 真实面板判定正常**)、
+  `凝夜白霜↔茜染怀想之花 0.799`(3.7 新图标带来的新对)。合成帧测试下孪生会抢跑使 margin < 0.05 → `match_icon` 返回 None(正确行为, 测试已显式列白名单);
+  真实口径以 `tools/eval_icon_match.py` 离线基线(217/219)为准; 若真机出现孪生误判, 再考虑用环色/色相做 tie-breaker(当前刻意不用颜色)。
 
 ## 评估遍历 v2 现状与约束
 
 - 前置: 游戏已在**背包声骸列表界面**(无需预选)
 - 流程: 网格 OCR `+xx` 角标 → 聚行 → 6 列基准(跨屏记忆 `col_centers`)补全缺列防漏 → 逐格点选 → 右侧详情 OCR → 档位过滤词条 → 评分/截图/记录
-- **评估按套装图标优先映射套装**(阶段十二): `resolve_set_name` → 图标识别(高置信直接用, 可纠正名字候选) → 否则 `get_sets_by_echo` 候选(prefer=config 套装) → 否则回退"通用"; 套装模板含 `_echoes`(4C/3C/1C 声骸清单)供名字兜底
+- **评估按套装图标优先映射套装**(阶段十二): `resolve_set_name` → 图标识别(高置信直接用, 可纠正名字候选) → 否则 `get_sets_by_echo` 候选(prefer=config 套装) → 否则回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底
+- **面板 COST 与主属性**(L2): `read_detail` 用 `parse_cost` 读 COST 角标(合框 `COST 4` 或"标签 + 同行右侧数字框"; 实测线上 219/219 可读), 前 2 行主属性与 COST 一起交给 `evaluate_one` → 报告「COST/主属性」列 + 官方管理方案判定
 - 套装语境(权重/键/首核/声骸清单)供评估自动映射 + 强化模式使用; run_tab 评估仍隐藏套装下拉(靠图标+名字映射), 未映射时用通用
-- **数据来源/工具备注**: 声骸清单由 wuther.in 页面(用户浏览器保存)解析——条目左上角 `IconElementAttri*.webp` ↔ 筛选按钮"图标+套装名"; 解析脚本 `tools/parse_wutherin_echoes.py <页面.html>`(只覆盖解析到数据的套装, **保留手补值**, 自动补 `_icon`/新增套, 生成 `echoes_check.md`); **kurobbs/wuther.in 均不可脚本爬取**(前者要令牌, 后者 robots.txt Disallow AI 爬虫); 当前 34 套(31 原 + 3 新), 清单以 `1.txt`(用户手工整理) 为准——已移除错误前缀「异相」(正确为「梦魇」)、剔除误录角色/多余声骸, `剪心辑梦之影` 等已补全
+- **数据来源/工具备注**: 声骸↔套装 / 套装图标名 / 官方主属性方案 / 属性名 全部由 **`tools/gen_echo_data.py`** 从官方配置表生成(数据源是离线导出的客户端表 + zh-Hans 文本表, 见「官方静态数据层」一节; 生成物 `assets/gamedata/echo_data.json`, **只读**)。旧的 `tools/parse_wutherin_echoes.py` + `1.txt` + `echoes_check.md` 手工口径**已被取代**(脚本留着但不必再跑; `echoes_check.md` 是旧转录且已被手改过, 别当输入)
 - 空格/未切换格**跳过继续**(不提前滚屏防漏真实格); 本屏无新内容才滚动 15 notches; 连续 3 次滚动无新格兜底
 - **步数限定(read_count)**: 左上 `声骸N/3000` 取 **N**(总数或滚动位置, 非 3000 容量) 作上限, `handled >= N` 终止; **每屏动态重读并 max 跟随**(N 若为滚动位置会随滚动增大, 不误截断; 防 OCR 抖动回退)
 - **0级声骸(0词条)跳过不记录、不终止**: 无评估价值, 不入报告; 置 processed_any 继续滚动推进; 0 级角标是 `+0` 也能被网格识别; 列表真到底 = 滚动后网格区**连续 2 次扫描为空**(empty_scan); 首屏即空且零记录才 raise 防呆
@@ -131,8 +164,23 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
   未满级: `score ≥ B(满级)` → **建议强化**; 否则 `enchant_prospect` 前瞻(继续开到满级能过 B(满级) 的概率) ≥ `ENCHANT_MIN_PROB`=0.60 **且** `score ≥ A(现有)` → **建议强化**; 否则 **不建议强化**。
   **强化流程不豁免**(不达标/不建议强化仍丢弃), 保留/建议重铸/建议强化仅报告标注。**为什么用概率而非期望**: 期望只是均值(≈五成把握)且分布右偏, 而胚子可无限刷 → 不为低概率花资源(用户原则)。
 - **套装模板校验**: `_core_first`(可选, 首条核心词条) + **键数<5 → 评估/强化启动硬拒**(强化后必有 5 词条)
-- 报告(`_build_eval_html`): 名称独立列 + **套装列**(`set`, 来源 `set_src` 放单元格 `title`: 套装图标判定/声骸名兜底/默认(通用); 旧报告缺字段显示 `—`) + **评估规则折叠卡片**(`_build_rules_html`, `<details>`: 评分公式/达标线/判定四档/套装判定来源 + **本次报告涉及套装的权重表**, 让每行分数可追溯) + 得分区间/判定多选/名称包含/**套装下拉**(选项=本次出现的套装+全部, 带条目数)筛选(原生 JS 全靠 `data-*`, **不依赖列索引**, 加列不影响筛选) + **主指标「完成度」**(= 得分 ÷ 该套装 Top-5 权重词条全满档分; **同套装内跨件可比, 跨套装不可比**)与**按完成度排序**(默认/升/降; `data-comp` 驱动) + 未满级件附「继续到满级过保留线 ≈X%」(`prospect` 前瞻) + 词条按档位 ratio 单色相连续渐变着色(`hue=210`, 亮度 92%→46%, **越深越高档**; 白底细描边)
+- 报告(`_build_eval_html`): 名称独立列 + **套装列**(`set`, 来源 `set_src` 放单元格 `title`: 套装图标判定/声骸名兜底/默认(通用); 旧报告缺字段显示 `—`) + **「COST/主属性」列**(COST 角标 + 两条主属性 + 官方管理方案判定 `✔`/`✘`/`·`; 行上带 `data-cost`/`data-plan` 便于后续加筛选) + **评估规则折叠卡片**(`_build_rules_html`, `<details>`: 评分公式/达标线/判定四档/套装判定来源/官方主属性方案 + **本次报告涉及套装的权重表**, 让每行分数可追溯) + 得分区间/判定多选/名称包含/**套装下拉**(选项=本次出现的套装+全部, 带条目数)筛选(原生 JS 全靠 `data-*`, **不依赖列索引**, 加列不影响筛选) + **主指标「完成度」**(= 得分 ÷ 该套装 Top-5 权重词条全满档分; **同套装内跨件可比, 跨套装不可比**)与**按完成度排序**(默认/升/降; `data-comp` 驱动) + 未满级件附「继续到满级过保留线 ≈X%」(`prospect` 前瞻) + 词条按档位 ratio 单色相连续渐变着色(`hue=210`, 亮度 92%→46%, **越深越高档**; 白底细描边)
 - **已知缺陷(原版 ok-ww 同款)**: 强化 `run()` 无"切下一只"推进, 依赖丢弃后游戏自动前移; 评估遍历在网格布局/字体变化时坐标常量需复核
+
+## 阶段二十四要点(2026-09-16, 完整记录见 CHANGELOG)
+
+- **判定文案的唯一来源 = 判定层**: 报告用记录里的 `verdict_cn`(judge_echo 产出), `ui/run_tab.VERDICT_CN`
+  只兜底旧报告 —— 曾因 `verdict_cn_map` 在渲染时**覆盖**它, 导致新文案在报告里显示不出来。**勿再加渲染期改写文案的表**
+- **`EnhanceEchoTask.evaluate_one()` 是评估的唯一收口**: 评分 + 判定 + 前瞻 + 重铸方案 + 词条明细;
+  `evaluate_only` 与 `tools/offline_eval_report.py` 共用(改判定/明细只改这一处)。`dedup_key` 同理(静态方法)
+- **单一来源**: 词条表与展示顺序 = `echo_set_templates.STAT_ORDER`(套装配置表格 / 强化下拉都由它派生);
+  通用基准线代表集 `_GENERAL_WEIGHTS` = `DEFAULT_WEIGHTS` 的去重权重值(不再手抄两处); 套装名单 = `get_all_set_names()`
+- **`judge_echo` 第三项 = reforge 方案**(不是旧 `keep`): 「建议重铸」时给方案, 其余 `None` —— 调用方**不要**再调一次
+  `reforge_plan`(穷举锁定组合 + 蒙特卡洛, ≈190ms/次)
+- **debug 数据集默认关**: `EnhanceEchoTask.SAVE_DEBUG_DATASET = False`; 需要 `logs/eval_debug/` 素材
+  (两个 tools 的数据源)时改 `True`
+- **唯一入口 `mainui.py`**: `main.py`/`main_debug.py`/`run.py` 已删; `ChangeEchoTask` 已删(自建 UI 无入口);
+  `MouseResetTask` **保留**(TriggerTask, 默认 `_enabled=True` 且自建 UI 无开关)
 
 ## 接力状态 / 下一棒(2026-09-15)
 
@@ -143,6 +191,8 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 
 **工作区 / 推送**: 本地 **领先 origin/main 4 个提交、未推送**(`1998ddb` 完成度排序 / `cd5b75b` 未满级前瞻 /
 `1c6adfd` 未满级细分 / `f537452` 文案统一) —— 接手请与用户确认后 `git push origin main`。
+**阶段二十四(审阅驱动的统一与清理)改动尚未提交** —— 提交前跑 `python -m unittest discover -s tests` 与
+`python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)。
 
 **唯一未验证: 真机实跑**。阶段十六~二十三 的判定链路变化极大(概率期望 / 新权重 / 概率门 / 前瞻 / 完成度),
 跑一次评估核对三点: ① `[评估#N]` 的判定文案是否为新六档 ② 报告「完成度」与排序是否正常 ③ 整轮耗时
@@ -151,7 +201,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 **下一棒候选(按价值排序)**:
 - **真机实跑核对**(见上, 唯一阻塞)
 - **图标识别兜底到强化模式**: 现在强化套装由用户在下拉里选定, 不用图标; 若要"自动套装"强化可复用 `match_icon`
-- **新增套装素材**: 新版本套装需补 `assets/echo_icons/{套装名}.png`(文件名 = 套装名 = `echo_set_templates.json` 的键), 否则该类声骸只能走名字兜底
+- **新增套装素材: 已自动化**(阶段二十五) —— 新版本套装的图标从客户端 pak 抽取(命令见「官方静态数据层」), `assets/gamedata/echo_data.json` 的 `icon_asset` 就是客户端贴图名; 只有拿不到客户端安装时才需要手工补 PNG
 - **黑边校准: 暂不做**(用户确认云平台大概率全屏自适应)。触发条件: 若 `s1 < 0.60` 的低置信集中在某一分辨率/窗口模式, 再按黑边导致的整体偏移排查
 
 ## 待办(与 README TODO 同步)

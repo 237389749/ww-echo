@@ -673,3 +673,112 @@ ww-echo/
 - [x] 剪心辑梦之影 套装的 4C/3C/1C 声骸清单: **已补**——以 `1.txt` 为准(4C 无铭探索者 / 3C 迷胧幻蛾·莳植机麋·矿岩机麋·重工铁蹄 / 1C 矿岩熊蜂·莳植熊蜂·冰盈舞者)
 - [x] 声骸名容错匹配: **已实现(阶段十一)**; 已知失效(错字丢字→`[]` 或子串抢跑误配)由套装图标识别兜底
 - [x] **套装图标识别**: **已实现(阶段十二)** —— `src/echo_icon_match.py` 灰度 ZNCC + ±2px 平移搜索 + 圆形 mask, 置信线 0.60/0.05; `resolve_set_name` 图标优先映射(**与名字候选不一致时也以图标为准**); 离线回归(219 张)高置信 99.1% / 名字口径一致 92.9%, 15 张名字层错字全部由图标纠正; 回归工具 `tools/eval_icon_match.py`
+
+---
+
+## 阶段二十四：审阅驱动的统一与清理 (2026-09-16)
+
+一次针对"旧代码残留 / 多入口 / 口径不统一"的完整审阅后的收敛。**判定逻辑与数值一律未改**，
+只统一文案来源、删除死代码、消除重复实现与重复计算。
+
+**判定文案：唯一来源 = 判定层**
+- `ui/run_tab.py` 的 `verdict_cn_map` 曾**覆盖**记录里的 `verdict_cn` → 阶段二十三的「建议强化/不建议强化」
+  在报告里根本显示不出来（渲染实测：「建议强化」命中 False、「待强化」True）。现改为
+  `vcn = r["verdict_cn"] or VERDICT_CN.get(v)`，模块级 `VERDICT_CN` 只兜底旧报告；summary / 判定筛选 /
+  规则卡片同步六档。
+- 旧阈值清理：规则卡片与"评估说明 / 渐进式说明"的通用线 `11/18/26.5` → **6.5/11.5/17.5**（与
+  `_legacy_threshold` 一致）、"判定（五档）" → "（六档）"、「建议重铸」那段自相矛盾的"期望达标"改为三道门；
+  README 渐进式表（还是第一代 `≥20/26/32`）改两线口径；`eval_rules.md` 的文案名同步。
+- docstring 与实现对齐：`_tier_threshold`（首行仍写 `max(新规则, 旧规则下限)`）、`judge_echo`（reforge 旧述）、
+  `compute_weighted_score`（达标线旧定义）、`check_echo_progressive`（旧锚线）、config 描述。
+
+**死代码 / 死参数 / 重复计算**
+- `judge_echo` 第三项 `keep` 恒为 `False`：调用方 `if keep: verdict = 'keep','建议保留'` 是**死分支**，且
+  `results["reforge"]` 又按 `verdict == 'keep'` **重算**一次 `reforge_plan`（穷举锁定组合 + 3000 次蒙特卡洛，
+  实测单次 ≈187ms）。改为 `judge_echo` 直接返回方案 → 死分支删除 + 零重算。
+- `compute_weighted_score(paired_stats, valid_stats, …)` 的 `valid_stats` **从未被使用**（白名单口径早已废弃）→
+  去掉该参数并同步 4 个调用点；连带删除只由它喂值的 `get_expected_stats()` 与从未被调用的 `get_set_icon()`。
+- 删除 `src/echo_stats_data.txt`（旧键名 `暴击率/百分比攻击/固定数值攻击`，无引用）、`src/gui/`（只剩 `__pycache__`）、
+  ok-ww 时期的 `*-36.pyc`、`WWScene` 未使用的 `FluentIcon` import。
+
+**一份实现，两处共用（离线重放不再复制逻辑）**
+- 新增 `EnhanceEchoTask.evaluate_one(echo_name, stats, set_name, set_src)` —— "评分 + 判定 + 前瞻 + 重铸方案 +
+  词条明细"收口到一处；`evaluate_only` 与 `tools/offline_eval_report.py` 都调它（离线工具以前**整段复刻**，
+  连上面那个死分支一起复制了）。`dedup_key` 同时提为 `EnhanceEchoTask.dedup_key` 静态方法复用。
+
+**重复定义收敛（单一来源）**
+- `echo_set_templates.STAT_ORDER` 成为 13 词条表与展示顺序的唯一来源：`VALID_STAT_NAMES`、
+  `ui/set_config_tab.ALL_STATS`、`EnhanceEchoTask` 的"有效词条"下拉全部由它派生。
+- `_GENERAL_WEIGHTS` 不再手抄 → 改为 `DEFAULT_WEIGHTS` 的**去重权重值**（降序）：集合仍是
+  `(1.0, 0.7, 0.6, 0.5, 0.4, 0.25)`，通用线仍是 6.5/11.5/17.5，以后改权重档位会自动同步。
+- 套装下拉走 `get_all_set_names()`（带校验/缓存的唯一来源），不再自己 `json.load` 一份。
+
+**多入口收敛（用户决定）**
+- 删除 `main.py` / `main_debug.py` / `run.py`：三者都走 ok-script 自带 GUI、且不 `apply_run_mode()`（云游戏模式下
+  行为与 `mainui.py` 不一致）；`run.py` 还"注释说禁 GUI、代码却开 GUI、加载的 JSON 从未使用"。**`mainui.py` 是唯一入口**。
+- 从 `config['onetime_tasks']` 摘掉 `ChangeEchoTask`（批量改主属性，自建 UI 无任何入口）并删除该文件；
+  `MouseResetTask` 按用户要求**保留**（注：`default_config` 为 `_enabled=True`，自建 UI 无开关）。
+
+**debug 数据集默认关**
+- `evaluate_only` 的 `if True:` 采集改为模块级 `SAVE_DEBUG_DATASET = False`：以前默认每格写全屏 PNG + ROI 叠图，
+  200 只约数百 MB~1GB；需要 `logs/eval_debug/` 素材（两个 tools 的数据源）时再打开。
+
+**验证**：`python -m unittest discover -s tests` 40 passed / 1 skipped；`tools/offline_eval_report.py` 离线重放正常；
+报告渲染断言（六档文案 + 6.5/11.5/17.5，不再出现 11/18/26.5）；旧口径文案 grep 归零。
+**未验证**：真机实跑（仍需游戏窗口）。
+
+---
+
+## 阶段二十五：官方静态数据层 L0~L2（2026-10-02）
+
+**动机**：声骸↔套装 / 套装图标名 / 官方主属性方案 / 属性名原本是手抄（wuther.in 页面 + `1.txt` + 人工补图标），
+3.7 改版后已**落后 3 套**（34/37），且 `异相·X` 皮肤条目的套装归属按"剥前缀复用本体套装"处理是错的（实测 13 例不同）。
+3.7 客户端归档 `Arikatsu/WutheringWaves_Data@3.7`（Global 3.7.0 / Resource 3.7.8）到手后，这些知识全部可由官方表生成。
+
+**L0 数据层**
+- `src/wuwa_data.py`（新）：`BinData`（目录/zip 自适应、兼容客户端 `[{Key,Value}]` 与服务端 `{k:v}` 两种序列化）、
+  `load_textmaps`、`parse_plan_bin`（`PhantomManagePlanV2` 的 FlatBuffers 解码；**用服务端显式字段表逐行 100/100 验证**）、
+  `read_version`。纯标准库，不 import ok-script。
+- `tools/gen_echo_data.py`（新）：生成 `assets/gamedata/echo_data.json` = 37 套 / 229 声骸 / 官方主属性方案 /
+  属性名 / `main_prop_names`；带 `_source`（版本戳 + 数据源路径）；**任何文本键解析不出 → 退出码 2 且不写文件**。
+  `--sync-templates` 只把 `_echoes`/`_icon` 同步进策略文件（实测 0 处权重、0 处 `_core_first` 改动）。
+- 生成结果：套装 34→37（新增 **衔梦照世之心 / 镜影流电之瞬 / 茜染怀想之花**）；套装-声骸对 351→440；
+  数据源以**客户端表**为准（与服务端 3.7.1.0 仅差 2 对）。
+
+**L1 名字层与档位表**
+- `异相·X` 作一等公民：索引按**显示名**建（229 个），皮肤名与本体名**分池匹配、绝不跨池回退**；
+  生成物缺失时退回旧口径（旧安装兜底）。真实 OCR 案例 `异相·双极·星升辉`（截断）现可唯一命中 `流金溯真之式`。
+- **防御百分比 0.1: 结论反转 → 不改数据**。两条独立证据：① 官方公示原文（`logic.htm`「방어력 보너스」）
+  = `8.1/9.0/10.0/10.9/11.8/12.8/13.8/14.7`，全页 `9.1/11.0/11.9/12.9/14.8` **0 次**；
+  ② 18 张真实面板（`offline_eval_report` 存的是 OCR 原始值，不吸附档位）只出现这 8 个值。
+  → 偏差属于 zigrika 服务端 `(std*mult+5000)//10000*10` 的取整，已在 `echo_stats.py` 写下取证注释。
+- `tests/test_echo_stats_consistency.py`（新）：把"档位↔概率漂移时**静默回退算术平均**"改为构建期断言
+  （档位集合 == 概率键集合、期望值必须来自概率、分位可用、防御% 逐档锁定 + 5 个错值禁止入表）。
+
+**L2 COST / 主属性 / 官方管理方案进报告**
+- `parse_cost`：详情面板 COST 角标（合框 `COST 4` 或"标签 + 同行右侧数字框"）—— 线上 OCR 实测 **219/219** 可读。
+- `EnhanceEchoTask.check_main_prop(set, cost, main_props)`：拿面板第一条主属性去比官方管理方案的
+  保留组/丢弃组 → `ok` / `off` / `other`（官方未表态）/ `unknown`；OCR 前缀污染（`X攻击`/`茶暴击伤害`）不影响识别。
+- `evaluate_one(..., main_props=None, cost=None)`：**加法式**扩展 —— 不传时记录里一个键都不多（旧报告/旧调用方不变），
+  传了才出现 `cost`/`main_props`/`plan_check`；`evaluate_only` 与 `tools/offline_eval_report.py` 同步接入。
+- 报告：新增「COST/主属性」列（COST + 两条主属性 + `✔/✘/·` 官方方案判定，行上带 `data-cost`/`data-plan`），
+  规则卡片新增「COST 与官方主属性方案」小节。
+
+**验证**：`python -m unittest discover -s tests` **70 passed / 1 skipped**（新增 3 个测试文件共 29 项）；
+离线重放 109 只 / 8~9 秒，`套装来源 {icon:108, name:1}`、判定分布 `hold 38 / fail 24 / pass 39 / keep 1 / pending 7`
+—— **与 L1 前完全一致（无判定语义变化）**；COST 覆盖 109/109、官方方案判定 109/109（`ok 88 / other 21 / off 0`）。
+**图标**：3 个新套装的 icon 与旧图刷新见下一节（已从客户端 pak 抽到官方贴图，37/37 齐）；
+L2.5 经查无实质待办（`声骸N/3000` 的容量并未写死，代码只用分子）。
+
+**套装图标全部换成客户端官方贴图**（37 张，`assets/echo_icons/`）
+- 从本地 3.7 客户端 pak 抽取 `IconElementAttri*`（复用 ww-explore 的 pak 解析导出 uasset/uexp → 松散文件树），
+  再用 **CUE4Parse**（工作区 `search/CUE4Parse-master`，.NET 10）解成 PNG：`TextureDecoder.UseAssetRipperTextureDecoder = true`
+  走纯 C# BC7 解码（免 CUE4Parse-Natives/Detex 原生库），`-p:CUE4PARSE_SKIP_NATIVE=true` 跳过 CMake。
+- 与旧模板逐像素对比：**29 张完全一致**（corr=1.000，旧图本就出自这套资源）、**5 张不同**（失序彼岸之梦 / 奔狼燎原之焰 /
+  愿戴荣光之旅 / 此间永驻之光 / 流云逝尽之空 —— 旧版图标，已换当前官方版）、**3 张新增**（3.7 新套装，此前只能走名字层）。
+- 验证：`tools/eval_icon_match.py` 离线回归 **217/219（99.1%）、s1 中位 0.894**，与换图前逐项一致；
+  219 张真实面板的新旧模板 A/B：**s1 变化中位 0.0000、最大 0.0006，名称判定 0 处不同**。
+- 顺带查明**灰度孪生**（改图标/调阈值前必读）：`星构寻辉之环↔逆光跃彩之约 0.878`、`幽夜隐匿之帷↔轻云出月 0.815`
+  （这两对换图前就存在、真实面板判定正常）、`凝夜白霜↔茜染怀想之花 0.799`（新图标带来的新对）；
+  合成帧测试因此改为"非孪生必须精确命中 / 孪生允许命中孪生或拒判"，并加孪生相似度 tripwire。
+- 测试：全仓 **71 passed / 1 skipped**（`test_gamedata` 新增"每套图标文件必须存在"断言 —— 正是这次 3 套缺图的兜底）。

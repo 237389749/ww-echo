@@ -10,9 +10,9 @@ from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
 from src.echo_stats import snap_to_tier, get_mean, is_stat_match, tier_percentile, DEFAULT_WEIGHTS  # noqa
-from src.echo_set_templates import (get_expected_stats, get_all_set_names, get_set_weights,
+from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights,
                                     get_set_core_first, get_set_by_echo, get_sets_by_echo,
-                                    normalize_echo_name)
+                                    normalize_echo_name, load_gamedata)
 from src.echo_icon_match import match_icon, MIN_MARGIN, MIN_SCORE
 from src.task.BaseEchoTask import BaseEchoTask
 
@@ -28,6 +28,30 @@ _TIERS_ORDER = ['共鸣技能伤害加成', '共鸣解放伤害加成', '普攻�
 # 逐字白名单: 全部标准词条名 + 常见主属性名的单字并集。
 # OCR 把属性图标误识成汉字(艾攻击/众共鸣…)或拆字(共呜效率)时, 不在字典的字直接剥离。
 _STAT_CHARS = set(''.join(_TIERS_ORDER) + '治疗效果加成')
+
+# 详情面板的 COST 角标: 实测 219 张面板里 117 张 OCR 把数字并进同一个框(`COST 4`/`COST4`),
+# 其余 102 张只读到标签 `COST` —— 后者取**同一行右侧**的数字框(102/102 都能找到)。
+_COST_RE = re.compile(r'COST\s*([134])')
+
+
+def parse_cost(boxes) -> int | None:
+    """详情面板 OCR 框 → COST(1/3/4); 认不出返回 None。"""
+    items = list(boxes)
+    for b in items:
+        m = _COST_RE.search(str(b.name))
+        if m:
+            return int(m.group(1))
+    for b in items:
+        if str(b.name).strip() != 'COST':
+            continue
+        right = sorted((x for x in items
+                        if x is not b and abs(x.y - b.y) <= 12 and x.x >= b.x + b.width - 12),
+                       key=lambda x: x.x)
+        for x in right:
+            m = re.fullmatch(r'([134])\D{0,2}', str(x.name).strip())
+            if m:
+                return int(m.group(1))
+    return None
 
 
 def _strip_stat_chars(raw: str) -> str:
@@ -49,10 +73,14 @@ def _lcs_len(a: str, b: str) -> int:
     return best
 
 
-# 通用回退/下限兜底用的代表权重集(权重降序: 暴击/爆伤/共效/大攻/一种专伤/小攻)。
-# **必须与 echo_stats.DEFAULT_WEIGHTS 同步** —— 它决定"通用"模式(套装未映射)的 B 线:
-# 最低 tier-1 条之和 ×10 = (0.25+0.4+0.5+0.6)×10 = 17.5。
-_GENERAL_WEIGHTS = (1.0, 0.7, 0.6, 0.5, 0.4, 0.25)
+# 通用模式(套装未映射)算基准线 B 用的**代表权重集** = DEFAULT_WEIGHTS 的**去重权重值**(降序)。
+# 它不是"手抄的第二份表": 改 DEFAULT_WEIGHTS 的权重档位会自动跟着变(以前要求两处手工同步)。
+# 当前去重值 = (1.0, 0.7, 0.6, 0.5, 0.4, 0.25) → 最低 tier-1 条之和×10 = (0.25+0.4+0.5+0.6)×10 = 17.5。
+_GENERAL_WEIGHTS = tuple(sorted({w for w in DEFAULT_WEIGHTS.values() if w > 0}, reverse=True))
+
+# 评估遍历的 debug 数据集开关(**默认关**): 每格存 全屏 PNG + ROI 叠图 + 三个区域裁剪, 200 只约数百 MB~1GB。
+# 需要离线核对坐标/OCR/图标回归时改 True —— 它是 tools/eval_icon_match.py 与 tools/offline_eval_report.py 的数据源。
+SAVE_DEBUG_DATASET = False
 
 # 注: 旧的"好词条"分位阈值常量 `HI_PERCENTILE` 已废弃 —— "建议重铸"档不再数"好词条条数",
 # 改为按 `reforge_plan` 的"锁 N 条刷 M 条期望分"判定(见 judge_echo)。分位本身仍用于报告展示词条的
@@ -73,7 +101,7 @@ def _legacy_threshold(set_name: str, tier: int) -> float:
 
 
 def _tier_threshold(set_name: str, tier: int, stats=None) -> float:
-    """达标线(锚线) = max( 新规则, 旧规则下限 ), L = tier-1。
+    """达标线(锚线) A = 10 × (本只"出现的有效词条"权重之和), L = tier-1; **返回纯 A, 不取 max(A, B)**。
 
     返回**纯 A** = 10 × (本只"出现的有效词条"(该套装权重>0 且真的出现)权重之和) —— 相当于要求
       "这些词条每条都达到自己的平均档位"的水平(平均档 = 有价值)。**不在此处取 max(A, B)**:
@@ -144,6 +172,36 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         return p
 
     @staticmethod
+    def check_main_prop(set_name, cost, main_props) -> dict | None:
+        """官方「声骸管理方案」(`PhantomManagePlanV2`, 见 tools/gen_echo_data.py) 的主属性判定。
+
+        游戏内置方案按 (套装, COST) 给出主属性的**保留组/丢弃组**(PropId)，这里拿面板第一行主属性去比：
+        返回 `{"prop": 名, "prop_id": id, "state": "ok"|"off"|"other"|"unknown", "plan": {...}}`。
+        `other` = 官方两组都没列(合法但未表态)。无生成物/该套装无方案/读不到主属性 → None
+        (调用方不加该字段, 旧报告与离线重放不受影响)。
+        """
+        if not main_props or cost not in (1, 3, 4):
+            return None
+        gd = load_gamedata()
+        plan = (((gd or {}).get("sets") or {}).get(set_name) or {}).get("plan", {}).get(str(cost))
+        if not plan:
+            return None
+        names = gd.get("main_prop_names") or {}
+        raw = str(main_props[0][0])
+        # 最长优先: `暴击伤害` 先于 `暴击`; OCR 前缀污染(`X攻击`)不影响子串命中
+        key = max((k for k in names if k in raw), key=len, default=None)
+        if key is None:
+            return {"prop": raw, "prop_id": None, "state": "unknown", "plan": plan}
+        pid = names[key]
+        if pid in plan.get("lock", []):
+            state = "ok"
+        elif pid in plan.get("discard", []):
+            state = "off"
+        else:
+            state = "other"
+        return {"prop": key, "prop_id": pid, "state": state, "plan": plan}
+
+    @staticmethod
     def _pair_props(properties, values):
         """按 y 坐标(相对行序, 分辨率无关)配对待属性名和数值, 返回 [(name, value_str), ...].
         先对两侧按 y 排序: OCR 返回顺序不保证有序, 不排序则"前 2 行=主属性"等行序语义会错。"""
@@ -182,12 +240,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '启用评分模式': False,
             '最低得分>=': 32.0,
         })
+        # 词条表唯一来源 = echo_set_templates.STAT_ORDER(与"套装配置"表格同序)
         self.config_type["有效词条"] = {'type': "multi_selection",
-                                        'options': ['暴击伤害', '暴击', '攻击百分比', '生命百分比', '防御百分比',
-                                                    '攻击', '生命', '防御',
-                                                    '共鸣效率', '普攻伤害加成',
-                                                    '重击伤害加成', '共鸣解放伤害加成',
-                                                    '共鸣技能伤害加成']}
+                                        'options': list(STAT_ORDER)}
         self.config_type['强化策略'] = {'type': "drop_down",
                                         'options': ['传统', '渐进式']}
         self.config_type['当前套装'] = {'type': "drop_down",
@@ -201,7 +256,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '第一条必须为有效词条': '如果开启，第一个副词条必须在有效词条列表中且符合数值要求，否则直接丢弃',
             '有效词条': '定义哪些属性被视为有效',
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
-            '强化策略': '传统: 满级后一次判断\n渐进式: Lv5/10 有首核即过 → Lv15/20/25 ≥ 锚线11/18/26.5, 不及格即停',
+            '强化策略': '传统: 满级后一次判断\n渐进式: Lv5/10 有首核即过 → Lv15+ 走两线判定(达标线 A = 10×本只出现有效词条权重和; 基准线 B = 通用 6.5/11.5/17.5), 不及格即停',
             '当前套装': '在"套装配置"tab中管理词条和权重',
             '启用评分模式': '条分=档位值÷期望值×10×权重(期望=官方公示概率期望; 平均档=10分, 满档≈13.1~14.0): 暴击1.0/爆伤0.7/攻%等0.5/共效0.6/专伤0.4/固定三系0.25\n无效词条=0分',
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
@@ -263,7 +318,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         #    输出目录 logs/eval_debug/<时间戳>/, 独立于报告临时目录, 不随报告删除(约1GB/200声骸)。
         dbg_dir = None
         dbg_no = 0
-        if True:   # 不需要数据集时改为 False
+        if SAVE_DEBUG_DATASET:   # 见模块级开关注释(默认关, 避免 GB 级磁盘占用)
             dbg_dir = os.path.join('logs', 'eval_debug', time.strftime('%Y%m%d_%H%M%S'))
             os.makedirs(dbg_dir, exist_ok=True)
 
@@ -382,10 +437,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_debug(f'scroll failed: {e}')
 
         def read_detail():
-            """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig):
+            """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost):
               echo_name  声骸名(面板顶部唯一中文行, y < 0.28*fh; 用于签名唯一性)
               paired_all 全部属性行 [(name, value_str), ...]  (主属性+词条, 按 y 序)
               detail_sig 名字 + 全量属性行签名(点选切换/唯一性检测)
+              cost       面板 COST 角标(1/3/4; 认不出为 None)
             词条筛选由调用方按词条档位 is_stat_match 过滤(主属性数值超档自动丢弃)。
 
             布局注意: detail_box 下界 0.635(归一化) 是为覆盖第 5 词条(y≈0.607 + 文字高≈0.025);
@@ -393,6 +449,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             """
             texts = self.ocr(*detail_box)
             dbg_ocr('detail', texts)
+            cost = parse_cost(texts)
             fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
             properties = [p for p in self.find_boxes(texts, match=property_pattern)
                           if p.name.strip() not in ('声骸技能', 'COST', 'Z', 'C')]
@@ -408,22 +465,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     p.name = m.group()
             values = self.find_boxes(texts, match=number_pattern)
             if not properties:
-                return echo_name, [], ''
+                return echo_name, [], '', cost
             paired_all = self._pair_props(properties, values)
             detail_sig = f'{echo_name}|' + '|'.join(f'{n}={v}' for n, v in paired_all)
-            return echo_name, paired_all, detail_sig
-
-        def dedup_key(echo_name, paired_all):
-            """去重签名 = 声骸名 + 全部属性行的档位值(主属性+词条), 档位值稳定不受 OCR 抖动影响。
-            全量 OCR 文本签名(含原始数值)对同一只每次识别会因个别字符抖动而不同 → 跨屏重叠时
-            seen_sigs 拦不住 → 重复记录; 档位值是离散集合, 同一声骸多次识别结果一致。"""
-            parts = [echo_name]
-            for raw_n, v_str in paired_all:
-                norm = self._normalize_stat(raw_n, v_str)
-                v = parse_number(v_str)
-                tier_v = snap_to_tier(norm, v)
-                parts.append(f'{norm}={tier_v if tier_v is not None else round(v, 2)}')
-            return '|'.join(parts)
+            return echo_name, paired_all, detail_sig, cost
 
         try:
             # 键数硬拒: 套装有效词条 <5 不允许评估(通用跳过)
@@ -463,12 +508,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 点格子 → 右侧详情
                     self.click(nx, ny, after_sleep=0.8)
                     dbg_shot(f'click_{nx:.2f}_{ny:.2f}')
-                    echo_name, paired_all, sig = read_detail()
+                    echo_name, paired_all, sig, cost = read_detail()
                     if not paired_all:
                         # 详情可能未刷新 → 再点一次重读
                         self.click(nx, ny, after_sleep=0.8)
-                        echo_name, paired_all, sig = read_detail()
-                    key = dedup_key(echo_name, paired_all) if paired_all else ''
+                        echo_name, paired_all, sig, cost = read_detail()
+                    key = self.dedup_key(echo_name, paired_all) if paired_all else ''
                     if (not paired_all
                             or (last_sig is not None and sig == last_sig)
                             or (key and key in seen_sigs)):
@@ -500,18 +545,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
                         # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
                         set_name, set_src = self.resolve_set_name(echo_name)
-                        valid_stats = get_expected_stats(set_name if set_name != '通用' else None)
-                        # compute_weighted_score 内部会 parse_number(value_str), 需传字符串; 显式传套装名让其用映射套装权重
-                        score, details = self.compute_weighted_score(
-                            [(n, str(v)) for n, v in stats], valid_stats, set_name=set_name
-                        )
-                        # 判定与渐进强化共用同一份逻辑 (见 judge_echo); 满级不达标但底子够(有效≥2条且≥18分) → 建议保留
-                        (verdict, verdict_cn), threshold, keep = self.judge_echo(set_name, tier, score, stats)
-                        if keep:
-                            verdict, verdict_cn = 'keep', '建议保留'
-                        # 未满级的"待强化": 记下"继续开到满级能过保留线"的概率(前瞻), 供报告展示与核对
-                        prospect = (round(self.enchant_prospect(set_name, tier, stats) or 0, 3)
-                                    if verdict == 'pending' and tier < 5 else None)
+                        # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
+                        # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
+                        rec = self.evaluate_one(echo_name, stats, set_name, set_src,
+                                                main_props=paired_all[:2], cost=cost)
+                        verdict, verdict_cn, score = rec["verdict"], rec["verdict_cn"], rec["score"]
                     else:
                         # 0级声骸(0词条): 无评估价值——**跳过不记录、不终止**。
                         # 0级集中在列表底部, 置 processed_any 让它继续滚动推进(不触发"无新格"提前结束),
@@ -531,20 +569,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     echo_img = self.box_of_screen(0.665, 0.07, 0.995, 0.65).crop_frame(self.frame)
                     cv2.imwrite(ss_path, echo_img)
 
-                    results.append({
-                        # name 用容错匹配到的**规范名**(如 `冠顶械集` → `冠顶械隼`), 拿不准时沿用 OCR 原文;
-                        # name_raw 保留 OCR 原文供追溯(报告里作 title)
-                        "index": evaluated + 1, "name": normalize_echo_name(echo_name) or echo_name,
-                        "name_raw": echo_name, "tier": tier, "score": round(score, 2),
-                        "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
-                        "set": set_name, "set_src": set_src, "screenshot": ss_name,
-                        "prospect": prospect,
-                        # 建议重铸时附上"锁 N 条刷 M 条"的最优方案(锁哪几条 / 成本 / 期望分)供报告展示
-                        "reforge": self.reforge_plan(set_name, stats) if verdict == 'keep' else None,
-                        "stats": [{"name": n, "value": float(v), "detail": d,
-                                   "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
-                                  for (n, v), d in zip(stats, details)]
-                    })
+                    # 记录字段来自 evaluate_one, 这里补报告用的序号与截图名
+                    results.append({"index": evaluated + 1, "screenshot": ss_name, **rec})
                     self.log_info(f"[评估#{evaluated + 1}] {echo_name} | {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
                     evaluated += 1
                     handled += 1
@@ -816,7 +842,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
         # 评分模式：计算加权词条得分
         if self.config.get('启用评分模式'):
-            score, detail_lines = self.compute_weighted_score(paired_stats, valid_stats)
+            score, detail_lines = self.compute_weighted_score(paired_stats)
             self.info_set('声骸得分', f'{score:.2f}')
             self.log_info(f'评分详情: {" | ".join(detail_lines)}')
             self.log_info(f'声骸总分: {score:.2f}')
@@ -828,13 +854,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         return True
 
     def check_echo_progressive(self, properties, values):
-        """
-        渐进式强化判断(新标度 条分≈7.5~12.5):
-          Lv5  第一条 → 必须在套装预期词条中
-          Lv10 第二条 → 有≥1有效词条
-          Lv15 第三条 → 累积得分 ≥ 锚线11(通用)
-          Lv20 第四条 → 累积得分 ≥ 锚线18(通用)
-          Lv25 第五条 → 累积得分 ≥ 锚线26.5(通用), 否则丢弃
+        """渐进式强化判断 —— 判定统一走 `judge_echo`(与评估同源), 这里只负责取数与丢弃动作:
+          Lv5/Lv10(1~2 条) → 结构判定: 存在首核词条即过, 不限分
+          Lv15/Lv20(3~4 条) → 总分 ≥ 基准线 B, 或 前瞻概率 ≥ ENCHANT_MIN_PROB(0.60) 且 总分 ≥ 达标线 A
+          Lv25(5 条) → A ≥ B 且 总分 ≥ A 才算达标, 否则丢弃
+        通用线 B = 6.5 / 11.5 / 17.5(Lv15/20/25); 套装模式按该套装权重算。
         """
         self.fail_reason = ""
 
@@ -850,9 +874,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             v = parse_number(v_str)
             normalized.append((p, v))
 
-        # 3. 确定预期词条列表
+        # 3. 套装(权重来源; 判定两线见 judge_echo)
         set_name = self.config.get('当前套装', '通用')
-        expected_stats = get_expected_stats(set_name if set_name != '通用' else None)
 
         # 4. 渐进式判断(与评估共用 judge_echo: Lv5/10 结构判定, Lv15+ 锚线)
         if tier <= 2:
@@ -866,7 +889,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
         # tier 3-5: 先算总分再判定
         score, details = self.compute_weighted_score(
-            [(n, str(v)) for n, v in normalized], expected_stats
+            [(n, str(v)) for n, v in normalized]
         )
         self.info_set('声骸得分', f'{score:.2f}')
         self.log_info(f'[渐进T{tier}] 得分: {" | ".join(details)}')
@@ -1031,18 +1054,76 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     best = plan
         return best
 
+    @staticmethod
+    def dedup_key(echo_name, paired_all):
+        """去重签名 = 声骸名 + 全部属性行的档位值(主属性+词条), 档位值稳定不受 OCR 抖动影响。
+        全量 OCR 文本签名(含原始数值)对同一只每次识别会因个别字符抖动而不同 → 跨屏重叠时
+        seen_sigs 拦不住 → 重复记录; 档位值是离散集合, 同一声骸多次识别结果一致。
+        **评估遍历与 tools/offline_eval_report 共用这一份**(以前两边各写一遍, 改一处漏一处)。"""
+        parts = [echo_name]
+        for raw_n, v_str in paired_all:
+            norm = EnhanceEchoTask._normalize_stat(raw_n, v_str)
+            v = parse_number(v_str)
+            tier_v = snap_to_tier(norm, v)
+            parts.append(f'{norm}={tier_v if tier_v is not None else round(v, 2)}')
+        return '|'.join(parts)
+
+    def evaluate_one(self, echo_name, stats, set_name, set_src, main_props=None, cost=None):
+        """一只声骸 → 报告记录字段(不含 index/screenshot): 评分 + 判定 + 前瞻 + 重铸方案 + 词条明细。
+
+        **评估遍历与离线重放(tools/offline_eval_report)共用这一份** —— 以前两边各写一遍
+        (score / judge / prospect / reforge / stats 明细), 改判定时容易只改一边、离线报告与线上不一致。
+        调用方负责: 取数(OCR 或转录)、套装映射(resolve_set_name / pick_set)、截图、index。
+
+        `main_props` / `cost` 是**可选**的 L2 输入(面板前 2 行主属性 + COST 角标): 不传则记录里
+        不出现 `cost`/`main_props`/`plan_check` 三个键 —— 旧报告与旧调用方行为完全不变。
+        """
+        tier = len(stats)
+        # compute_weighted_score 内部会 parse_number(value_str), 需传字符串; 显式传套装名让其用映射套装权重
+        score, details = self.compute_weighted_score([(n, str(v)) for n, v in stats], set_name=set_name)
+        # 判定与渐进强化共用同一份逻辑 (见 judge_echo); 第三项 = 「建议重铸」的最优方案(内部已算)
+        (verdict, verdict_cn), threshold, reforge = self.judge_echo(set_name, tier, score, stats)
+        # 未满级的"建议强化": 记下"继续开到满级能过保留线"的概率(前瞻), 供报告展示与核对
+        prospect = (round(self.enchant_prospect(set_name, tier, stats) or 0, 3)
+                    if verdict == 'pending' and tier < 5 else None)
+        rec = {
+            # name 用容错匹配到的**规范名**(如 `冠顶械集` → `冠顶械隼`), 拿不准时沿用 OCR 原文;
+            # name_raw 保留 OCR 原文供追溯(报告里作 title)
+            "name": normalize_echo_name(echo_name) or echo_name, "name_raw": echo_name,
+            "tier": tier, "score": round(score, 2),
+            "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
+            "set": set_name, "set_src": set_src,
+            "prospect": prospect, "reforge": reforge,
+            "stats": [{"name": n, "value": float(v), "detail": d,
+                       "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
+                      for (n, v), d in zip(stats, details)],
+        }
+        # L2: 主属性 / COST / 官方管理方案判定 —— 全部可选, 不给就一个键都不加(旧报告不受影响)
+        if cost in (1, 3, 4):
+            rec["cost"] = cost
+        if main_props:
+            rec["main_props"] = [{"name": n, "value": parse_number(v)}
+                                 for n, v in list(main_props)[:2]]
+            pc = self.check_main_prop(set_name, cost, main_props)
+            if pc:
+                rec["plan_check"] = pc
+        return rec
+
     def judge_echo(self, set_name, tier, score, stats):
-        """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, keep)。
+        """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, reforge)。
         Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
           通用=weight>0)即过, 不限分; 文案与 Lv15/Lv20 统一为「建议强化/不建议强化」
         满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
-              score < base 时再看"花频整器能不能把它**刷成达标**"(reforge_plan: 存在 r̄≥1.0 的锁定方案)
+              score < base 时再看"花频整器能不能把它**刷成达标**"(reforge_plan: 存在
+              **蒙特卡洛达标概率 ≥ REFORGE_MIN_PROB(0.60)** 的锁定方案, 取成本最低者)
               → keep建议重铸; 否则 fail不合格
-        未满级: score ≥ base → pending待强化; 未过线但"继续开到满级能过保留线"的概率 ≥ ENCHANT_MIN_PROB
-          (enchant_prospect 前瞻, 避免在没前途的件上浪费强化材料) → pending; 否则 fail不合格
+        未满级: score ≥ base(满级) → pending建议强化; 未过线但"继续开到满级能过保留线"的概率 ≥
+          ENCHANT_MIN_PROB(0.60) **且** score ≥ aim → pending(建议强化); 否则 fail(不建议强化)
         aim = _tier_threshold(10 × 出现有效词条权重之和) —— **不取 max(aim, base)**:
           aim < base 说明"出现有效词条太少", 这只最高只能到"保留"; base = _legacy_threshold(旧规则线);
         强化流程不豁免(不达标仍丢弃), keep/hold 仅评估报告标注。
+        第三项 **reforge** = 「建议重铸」时那个最优锁定方案(其余档位为 None)。判定内部本来就要算
+          reforge_plan(穷举锁定组合 + 蒙特卡洛, 单次约 0.2 秒) —— 直接带出来给报告用, 不让调用方重算。
         """
         if tier <= 2:
             if set_name == '通用':
@@ -1050,20 +1131,20 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             else:
                 core = get_set_core_first(set_name) or []
                 ok = any(n in core for n, _ in stats)
-            return (('pending', '建议强化') if ok else ('fail', '不建议强化')), 0.0, False
+            return (('pending', '建议强化') if ok else ('fail', '不建议强化')), 0.0, None
         aim = _tier_threshold(set_name, tier, stats)      # 达标线 = 10 × 出现有效词条权重之和
         base = _legacy_threshold(set_name, tier)          # 基准门槛 = 套装有效键最低 tier-1 条之和 ×10
         if tier >= 5:                                     # 满级
             if aim >= base and score >= aim:              # 达标: 达标线本身也要在基准线之上
-                return ('pass', '达标'), aim, False
+                return ('pass', '达标'), aim, None
             if score >= base:                             # 过了基准门槛(含 A<B 的情形) → 保留(值得留着)
-                return ('hold', '保留'), aim, False
-            # 基准线以下 → 只有"花频整器能刷成达标"才留。reforge_plan 只在**存在 r̄≥1.0(期望达标)的锁定方案**
-            # 时返回(且取成本最低的方案), 所以这里直接判它是否存在 —— "只刷成一个保留档位不值得"。
+                return ('hold', '保留'), aim, None
+            # 基准线以下 → 只有"花频整器能刷成达标"才留。reforge_plan 只返回**蒙特卡洛达标概率 ≥
+            # REFORGE_MIN_PROB(0.60)** 的最省成本方案, 所以这里直接判它是否存在 —— "只刷成一个保留档位不值得"。
             plan = self.reforge_plan(set_name, stats)
             if plan:
-                return ('keep', '建议重铸'), aim, False
-            return ('fail', '不合格'), aim, False
+                return ('keep', '建议重铸'), aim, plan
+            return ('fail', '不合格'), aim, None
         # 未满级: 分两级 —— **建议强化 / 不建议强化**(素材有限, 要在没前途的件上及时止损)
         #   判据 = ① 已够满级保留线(稳了) 或 ② 前瞻概率够 **且** 现有词条档位已达平均档
         #   ② 的 `score ≥ aim` 是"现有几条词条自己站得住": 只看前瞻会放过"权重低但档位好"的件
@@ -1071,21 +1152,20 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         #   基准用 **B(满级)** 而非 B(tier): 后者只回答"这一级够不够看", 与"最终能不能留"不是一回事。
         base5 = _legacy_threshold(set_name, 5)
         if score >= base5:                                # ① 已够满级保留线 → 稳了
-            return ('pending', '建议强化'), base5, False
+            return ('pending', '建议强化'), base5, None
         p = self.enchant_prospect(set_name, tier, stats)  # ② 前瞻: 继续开完能否达到满级保留线
         if p is not None and p >= self.ENCHANT_MIN_PROB and score >= aim:
-            return ('pending', '建议强化'), base5, False
-        return ('fail', '不建议强化'), base5, False
+            return ('pending', '建议强化'), base5, None
+        return ('fail', '不建议强化'), base5, None
 
-    def compute_weighted_score(self, paired_stats, valid_stats, set_name=None):
+    def compute_weighted_score(self, paired_stats, set_name=None):
         """
         评分: 条分 = 档位/期望值 × 10 × 权重, 无效 0 分。期望 = get_mean 的官方概率期望档位值
               (统一舍入 1 位小数, 见 _compute_means; 平均档 = 10.0 分, 满档 ≈ 13.1~14.0;
               原按算术平均时分母偏大、上限才是 12.5)。
         权重来源: 套装 JSON (get_set_weights); 通用模式用 DEFAULT_WEIGHTS 表。
         set_name: 显式指定套装名(评估按声骸名映射时用); None 时回退 config['当前套装']。
-        达标线: _tier_threshold = 本只"出现的有效词条"平均档加权分(10×权重) × (tier-1);
-                Lv5/10 走"有效词条存在"结构判定, 不用分数。
+        判定用的两条线(A 达标线 / B 基准线)见 judge_echo; 本方法只做"档位值 ÷ 期望值 × 10 × 权重"的求和。
         """
         if set_name is None:
             set_name = self.config.get('当前套装', '通用')
