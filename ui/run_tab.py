@@ -1,13 +1,21 @@
 """
 运行面板 — 任务/策略/套装选择, 启停, 状态, 日志。
+
+布局(2026-10 重构): 顶部**状态卡**(当前任务 + 大主按钮 + 进度 + 计数/耗时) → 任务卡组(模式/策略/套装/传统选项/暂停)
+→ 可折叠的「规则与评分说明」→ 上次评估摘要 → **日志卡**(级别过滤/自动滚动/复制/清空/导出)。
 """
+import html
 import os
 import threading
+import time
 
-from PySide6.QtCore import QTimer, QSettings, Signal, QObject
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
-                               QPushButton, QLabel, QFrame,
-                               QCheckBox)
+from PySide6.QtCore import QTimer, QSettings, Signal, QObject, Qt
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+
+from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF,
+                            HeaderCardWidget, IndeterminateProgressBar, InfoBar, InfoBarPosition,
+                            PrimaryPushButton, PushButton, SettingCard, SettingCardGroup,
+                            StrongBodyLabel, SubtitleLabel, SwitchButton, ToolTipFilter)
 
 from ok import og
 
@@ -21,6 +29,9 @@ class RunTab(QWidget):
     _eval_error_signal = Signal(str)
     _task_done_signal = Signal(str)  # message
 
+    LOG_LEVELS = ("全部", "信息", "警告", "错误")     # 日志级别过滤下拉
+    _LEVEL_COLOR = {"ERROR": "#c62828", "WARNING": "#b06000", "INFO": None}
+
     def __init__(self, ok_engine, log_bridge, log_area, parent=None):
         super().__init__(parent)
         self.ok_engine = ok_engine
@@ -29,6 +40,10 @@ class RunTab(QWidget):
         self._running = False
         self._thread = None
         self._settings = QSettings("OK-Echo", "RunTab")
+        # 日志级别过滤要拿原文重渲染, 所以自己留一份缓冲(上限防内存膨胀)
+        self._log_lines: list[tuple[str, str]] = []
+        self._log_filter = "全部"
+        self._run_since: float | None = None
 
         self._setup_ui()
         self._load_settings()
@@ -45,180 +60,275 @@ class RunTab(QWidget):
         self._status_timer.timeout.connect(self._refresh_status)
         self._status_timer.start(500)
 
+    # ══════════════════ 界面 ══════════════════
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 12, 16, 16)
+        layout.setSpacing(12)
+        # 构建顺序有讲究: 「规则」框必须在「任务卡组」之前 —— 任务卡组末尾会调 _on_task_changed,
+        # 那里要 setVisible(self.strategy_info); 而规则框的初始文案要读 strategy_combo,
+        # 所以把"填文案"这一步延后到两者都建好之后。
+        layout.addWidget(self._build_status_card())
+        layout.addWidget(self._build_rules_box())
+        layout.addWidget(self._build_task_group())
+        layout.addWidget(self._build_eval_card())
+        layout.addWidget(self._build_log_card(), 1)
+        self._update_strategy_info(self.strategy_combo.currentText())
+        self._update_status_text()
 
-        # ── 第1行: 任务选择 + 策略 ──
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("模式:"))
-        self.task_combo = QComboBox()
+    @staticmethod
+    def _cap(text: str) -> CaptionLabel:
+        lbl = CaptionLabel()
+        lbl.setText(text)
+        return lbl
+
+    @staticmethod
+    def _add_card_widget(card: SettingCard, widget: QWidget):
+        # Gallery 的标准写法: 控件追加到 hBoxLayout 末尾(即右侧) + 补 16px 边距
+        card.hBoxLayout.addWidget(widget, 0, Qt.AlignRight)
+        card.hBoxLayout.addSpacing(16)
+
+    @staticmethod
+    def _card_body(card: HeaderCardWidget) -> QVBoxLayout:
+        """HeaderCardWidget 的 viewLayout 是**横向**的(库源码: QHBoxLayout(self.view)), 正文要自己套一层纵向。"""
+        body = QWidget()
+        vb = QVBoxLayout(body)
+        vb.setContentsMargins(0, 0, 0, 0)
+        vb.setSpacing(10)
+        card.viewLayout.addWidget(body)
+        return vb
+
+    def _build_status_card(self) -> HeaderCardWidget:
+        card = HeaderCardWidget()
+        card.setTitle("运行")
+        self.status_task = SubtitleLabel()
+        self.status_state = CaptionLabel()
+        body = self._card_body(card)
+        body.addWidget(self.status_task)
+        body.addWidget(self.status_state)
+
+        row = QHBoxLayout()
+        self.start_btn = PrimaryPushButton(FIF.PLAY, "开始")
+        self.start_btn.setMinimumWidth(120)
+        self.start_btn.clicked.connect(self._start)
+        self.stop_btn = PushButton(FIF.PAUSE, "停止")
+        self.stop_btn.setMinimumWidth(110)
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self._stop)
+        row.addWidget(self.start_btn)
+        row.addWidget(self.stop_btn)
+        row.addStretch()
+        self.elapsed_label = CaptionLabel()
+        row.addWidget(self.elapsed_label)
+        body.addLayout(row)
+
+        self.progress = IndeterminateProgressBar()
+        self.progress.setVisible(False)
+        body.addWidget(self.progress)
+
+        counts = QHBoxLayout()
+        self.success_label = StrongBodyLabel()
+        self.fail_label = StrongBodyLabel()
+        self.score_label = StrongBodyLabel()
+        self.success_label.setText("成功: 0")
+        self.fail_label.setText("失败: 0")
+        self.score_label.setText("得分: -")
+        for lbl in (self.success_label, self.fail_label, self.score_label):
+            counts.addWidget(lbl)
+            counts.addSpacing(18)
+        counts.addStretch()
+        body.addLayout(counts)
+        return card
+
+    def _build_task_group(self) -> SettingCardGroup:
+        g = SettingCardGroup("任务与策略", self)
+
+        self.task_card = SettingCard(
+            FIF.ROBOT, "模式", "强化: 强化到满级并按规则丢弃/上锁; 评估: 只读遍历, 打分并生成 HTML 报告", self)
+        self.task_combo = ComboBox()
         self.task_combo.addItems(["强化声骸", "评估声骸"])
-        row1.addWidget(self.task_combo)
+        self._add_card_widget(self.task_card, self.task_combo)
 
-        row1.addSpacing(16)
-        row1.addWidget(QLabel("策略:"))
-        self.strategy_combo = QComboBox()
+        self.strategy_card = SettingCard(
+            FIF.SPEED_HIGH, "策略", "渐进式: 每级单独评估, 不达标立即止损; 传统: 拉满后一次性判断", self)
+        self.strategy_combo = ComboBox()
         self.strategy_combo.addItems(["渐进式", "传统"])
-        row1.addWidget(self.strategy_combo)
+        self._add_card_widget(self.strategy_card, self.strategy_combo)
 
-        row1.addSpacing(16)
-        self.set_label = QLabel("套装:")
-        row1.addWidget(self.set_label)
-        self.set_combo = QComboBox()
-        self.set_combo.setMinimumWidth(140)
+        self.set_label = SettingCard(
+            FIF.LIBRARY, "套装", "强化按该套装权重与 A/B 两条线判定; 评估忽略此项(按面板图标/声骸名自动映射)", self)
+        self.set_combo = ComboBox()
+        self.set_combo.setMinimumWidth(150)
         self._load_sets()
-        row1.addWidget(self.set_combo)
+        self._add_card_widget(self.set_label, self.set_combo)
 
-        row1.addStretch()
-        layout.addLayout(row1)
-
-        # 传统评分选项 (先创建, 后面放进 traditional_opts)
-        self.opt_score_enable = QCheckBox("启用评分模式")
-        self.opt_score_min = QComboBox()
+        # ── 传统模式选项(整块塞进卡片右侧; 仅「传统」策略可见) ──
+        self.opt_score_enable = CheckBox("启用评分模式")
+        self.opt_score_min = ComboBox()
         self.opt_score_min.setMinimumWidth(60)
         for v in [24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48]:
             self.opt_score_min.addItem(str(v))
         self.opt_score_min.setCurrentText("32")
 
-        # ── 第2行: 传统模式选项 ──
         self.traditional_opts = QWidget()
         trad = QHBoxLayout(self.traditional_opts)
         trad.setContentsMargins(0, 0, 0, 0)
-        self.opt_double_crit = QCheckBox("必须有双爆")
+        trad.setSpacing(10)
+        self.opt_double_crit = CheckBox("必须有双爆")
         self.opt_double_crit.setChecked(True)
-        trad.addWidget(self.opt_double_crit)
-        self.opt_all_valid_before_crit = QCheckBox("双爆前全有效")
+        self.opt_all_valid_before_crit = CheckBox("双爆前全有效")
         self.opt_all_valid_before_crit.setChecked(True)
-        trad.addWidget(self.opt_all_valid_before_crit)
-        self.opt_first_must_valid = QCheckBox("首条必须有效")
+        self.opt_first_must_valid = CheckBox("首条必须有效")
         self.opt_first_must_valid.setChecked(True)
-        trad.addWidget(self.opt_first_must_valid)
-        trad.addSpacing(8)
+        for w in (self.opt_double_crit, self.opt_all_valid_before_crit, self.opt_first_must_valid):
+            trad.addWidget(w)
+        trad.addSpacing(6)
         trad.addWidget(self.opt_score_enable)
-        trad.addWidget(QLabel("最低得分≥"))
+        trad.addWidget(self._cap("最低得分≥"))
         trad.addWidget(self.opt_score_min)
-        trad.addWidget(QLabel("首条双爆≥"))
-        self.opt_first_crit = QComboBox()
+
+        self.opt_first_crit = ComboBox()
         self.opt_first_crit.setMinimumWidth(60)
         self.opt_first_crit.addItems([str(x) for x in [6.3, 6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5]])
         self.opt_first_crit.setCurrentText("6.9")
+        trad.addWidget(self._cap("首条双爆≥"))
         trad.addWidget(self.opt_first_crit)
-        trad.addWidget(QLabel("双爆总计≥"))
-        self.opt_total_crit = QComboBox()
+
+        self.opt_total_crit = ComboBox()
         self.opt_total_crit.setMinimumWidth(60)
-        self.opt_total_crit.addItems([str(x) for x in [6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5, 12.0, 13.8, 15.0, 16.5, 18.0]])
+        self.opt_total_crit.addItems([str(x) for x in [6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5,
+                                                       12.0, 13.8, 15.0, 16.5, 18.0]])
         self.opt_total_crit.setCurrentText("13.8")
+        trad.addWidget(self._cap("双爆总计≥"))
         trad.addWidget(self.opt_total_crit)
-        trad.addWidget(QLabel("有效词条≥"))
-        self.opt_valid_count = QComboBox()
+
+        self.opt_valid_count = ComboBox()
         self.opt_valid_count.setMinimumWidth(50)
         self.opt_valid_count.addItems(["1", "2", "3", "4", "5"])
         self.opt_valid_count.setCurrentText("3")
+        trad.addWidget(self._cap("有效词条≥"))
         trad.addWidget(self.opt_valid_count)
         trad.addStretch()
-        self.traditional_opts.setVisible(False)
-        layout.addWidget(self.traditional_opts)
 
-        self.strategy_combo.currentTextChanged.connect(
-            lambda s: self.traditional_opts.setVisible(s == "传统"))
-        self.strategy_combo.currentTextChanged.connect(
-            lambda s: self._update_strategy_info(s))
+        self.traditional_card = SettingCard(FIF.TILES, "传统模式选项", "仅在「传统」策略下生效", self)
+        self.traditional_card.hBoxLayout.addWidget(self.traditional_opts, 0, Qt.AlignRight)
+        self.traditional_card.hBoxLayout.addSpacing(16)
+        self.traditional_card.setVisible(False)
 
-        # 策略说明
-        self.strategy_info = QLabel()
+        self.pause_card = SettingCard(FIF.PAUSE, "成功后暂停", "一轮任务结束后暂停, 便于查看结果与报告", self)
+        self.opt_pause = SwitchButton()
+        self.opt_pause.setChecked(True)
+        self._add_card_widget(self.pause_card, self.opt_pause)
+
+        g.addSettingCards([self.task_card, self.strategy_card, self.set_label,
+                           self.traditional_card, self.pause_card])
+        self.strategy_combo.currentTextChanged.connect(self._on_strategy_changed)
+        self.task_combo.currentTextChanged.connect(self._on_task_changed)
+        self._on_task_changed(self.task_combo.currentText())
+        return g
+
+    def _on_strategy_changed(self, strategy: str):
+        self.traditional_card.setVisible(strategy == "传统" and "强化" in self.task_combo.currentText())
+        self._update_strategy_info(strategy)
+        self._update_status_text()
+
+    def _build_rules_box(self) -> QWidget:
+        wrap = QWidget()
+        v = QVBoxLayout(wrap)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(6)
+        self.rules_toggle = PushButton(FIF.INFO, "规则与评分说明")
+        self.rules_toggle.clicked.connect(self._toggle_rules)
+        v.addWidget(self.rules_toggle)
+
+        self.rules_box = QWidget()
+        rb = QVBoxLayout(self.rules_box)
+        rb.setContentsMargins(2, 0, 2, 0)
+        rb.setSpacing(6)
+        self.strategy_info = CaptionLabel()
         self.strategy_info.setWordWrap(True)
-        self.strategy_info.setStyleSheet(
-            "QLabel { color: #555; font-size: 11px; padding: 4px 8px; "
-            "background: rgba(128,128,128,0.06); border-radius: 4px; }"
-        )
-        layout.addWidget(self.strategy_info)
-
-        # 评估说明 (选评估时可见)
-        self.strategy_info_eval = QLabel(
-            "评估模式 — 只读遍历背包, 截图+打分, 生成HTML报告\n\n"
+        self.strategy_info_eval = CaptionLabel()
+        self.strategy_info_eval.setWordWrap(True)
+        self.strategy_info_eval.setText(
+            "评估模式 — 只读遍历背包, 截图+打分, 生成 HTML 报告\n\n"
             "评估按详情面板的套装图标识别套装(低置信回退声骸名候选), 都拿不到则用通用权重\n\n"
             "完成后弹出保存框 → 生成 eval_report.html + 截图文件夹\n"
-            "报告: 截图+名称+套装+得分(完成度%)+判定+词条明细(按档位着色), 可按得分/判定/名称/套装筛选与排序\n"
+            "报告: 截图+名称+套装+COST/主属性+得分(完成度%)+判定+词条明细(按档位着色), 可按得分/判定/名称/套装筛选与排序\n"
             "不强化/不上锁/不丢弃 — 纯评估\n\n"
             "两条线: 达标线 A = 10×本只出现有效词条权重和 | 基准线 B(通用) = 6.5/11.5/17.5\n"
             "满级: A≥B 且 总分≥A → 达标; 总分≥B → 保留; 锁N刷M 达标概率≥60% → 建议重铸; 否则 不合格\n"
-            "未满级: 总分≥B(满级) 或 (前瞻概率≥60% 且 总分≥A) → 建议强化; 否则 不建议强化"
-        )
-        self.strategy_info_eval.setWordWrap(True)
-        self.strategy_info_eval.setStyleSheet(
-            "QLabel { color: #555; font-size: 11px; padding: 4px 8px; "
-            "background: rgba(128,128,128,0.06); border-radius: 4px; }"
-        )
-        self.strategy_info_eval.setVisible(False)
-        layout.addWidget(self.strategy_info_eval)
-
-        # 评分说明 (始终可见)
-        self.score_info = QLabel(
+            "未满级: 总分≥B(满级) 或 (前瞻概率≥60% 且 总分≥A) → 建议强化; 否则 不建议强化")
+        self.score_info = CaptionLabel()
+        self.score_info.setWordWrap(True)
+        self.score_info.setText(
             "评分: 条分 = 档位值÷期望值 ×10×权重(期望 = 官方公示概率期望; 平均档 = 10 分, 满档 ≈ 13.1~14.0)\n"
             "通用权重: 暴击1.0 爆伤0.7 攻击%/生命%/防御% 0.5 共效0.6 专伤0.4 小攻/小生命/小防御 0.25\n"
             "暴击6.3%→8.40分, 10.5%→14.00分; 套装模式权重由套装模板决定, 无效词条=0分\n"
             "判定: 达标线 A = 10×本只出现有效词条的权重和; 基准线 B = 套装有效键最低 tier-1 条之和 ×10\n"
-            "满级: A≥B 且 总分≥A → 达标; 总分≥B → 保留; 未过线但「锁 N 刷 M 后达标概率≥60%」→ 建议重铸; Lv5/10 有首核即过"
-        )
-        self.score_info.setWordWrap(True)
-        self.score_info.setStyleSheet(
-            "QLabel { color: #555; font-size: 11px; padding: 4px 8px; "
-            "background: rgba(128,128,128,0.06); border-radius: 4px; }"
-        )
-        layout.addWidget(self.score_info)
+            "满级: A≥B 且 总分≥A → 达标; 总分≥B → 保留; 未过线但「锁 N 刷 M 后达标概率≥60%」→ 建议重铸; Lv5/10 有首核即过")
+        for w in (self.strategy_info, self.strategy_info_eval, self.score_info):
+            rb.addWidget(w)
+        self.rules_box.setVisible(False)
+        v.addWidget(self.rules_box)
+        return wrap
 
-        self._update_strategy_info(self.strategy_combo.currentText())
+    def _toggle_rules(self):
+        show = not self.rules_box.isVisible()
+        self.rules_box.setVisible(show)
+        self.rules_toggle.setText("规则与评分说明（收起）" if show else "规则与评分说明")
 
-        # 通用选项
-        row_gen = QHBoxLayout()
-        self.opt_pause = QCheckBox("成功后暂停")
-        self.opt_pause.setChecked(True)
-        row_gen.addWidget(self.opt_pause)
-        row_gen.addStretch()
-        layout.addLayout(row_gen)
+    def _build_eval_card(self) -> HeaderCardWidget:
+        card = HeaderCardWidget()
+        card.setTitle("上次评估结果")
+        self.sum_verdicts = StrongBodyLabel()
+        self.sum_verdicts.setText("—")
+        self.sum_avg = CaptionLabel()
+        self.sum_avg.setText("跑一次「评估声骸」后, 这里显示判定分布与平均完成度")
+        body = self._card_body(card)
+        body.addWidget(self.sum_verdicts)
+        body.addWidget(self.sum_avg)
+        card.setVisible(False)
+        self.eval_card = card
+        return card
 
+    def _build_log_card(self) -> HeaderCardWidget:
+        card = HeaderCardWidget()
+        card.setTitle("运行日志")
+        bar = QHBoxLayout()
+        bar.addWidget(self._cap("级别"))
+        self.log_level_combo = ComboBox()
+        self.log_level_combo.addItems(list(self.LOG_LEVELS))
+        self.log_level_combo.setMinimumWidth(90)
+        self.log_level_combo.currentTextChanged.connect(self._on_log_filter)
+        bar.addWidget(self.log_level_combo)
+        bar.addSpacing(10)
+        self.log_autoscroll = SwitchButton()
+        self.log_autoscroll.setChecked(True)
+        self.log_autoscroll.setOnText("自动滚动")
+        self.log_autoscroll.setOffText("手动滚动")
+        bar.addWidget(self.log_autoscroll)
+        bar.addStretch()
+        for icon, text, slot in ((FIF.COPY, "复制", self._copy_log),
+                                 (FIF.DELETE, "清空", self._clear_log),
+                                 (FIF.SAVE, "导出", self._export_log)):
+            btn = PushButton(icon, text)
+            btn.clicked.connect(slot)
+            btn.installEventFilter(ToolTipFilter(btn, 400))
+            bar.addWidget(btn)
+            bar.addSpacing(6)
+        body = self._card_body(card)
+        body.addLayout(bar)
+        body.addWidget(self.log_area, 1)
+        return card
 
-        self.task_combo.currentTextChanged.connect(
-            lambda t: self._on_task_changed(t))
-        self._on_task_changed(self.task_combo.currentText())
-
-        # ── 第3行: 启停按钮 ──
-        row3 = QHBoxLayout()
-
-        self.start_btn = QPushButton("▶ 开始")
-        self.start_btn.setMinimumWidth(100)
-        self.start_btn.setStyleSheet("QPushButton { font-weight: bold; font-size: 14px; }")
-        self.start_btn.clicked.connect(self._start)
-        row3.addWidget(self.start_btn)
-
-        self.stop_btn = QPushButton("⏹ 停止")
-        self.stop_btn.setMinimumWidth(100)
-        self.stop_btn.setEnabled(False)
-        self.stop_btn.clicked.connect(self._stop)
-        row3.addWidget(self.stop_btn)
-
-        row3.addStretch()
-        # 状态
-        self.success_label = QLabel("成功: 0")
-        self.fail_label = QLabel("失败: 0")
-        self.score_label = QLabel("得分: -")
-        for lbl in [self.success_label, self.fail_label, self.score_label]:
-            lbl.setStyleSheet("font-weight: bold; font-size: 13px; padding: 2px 8px;")
-            row3.addWidget(lbl)
-
-        layout.addLayout(row3)
-
-        # ── 分隔 ──
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        layout.addWidget(sep)
-
-        hint = QLabel('运行日志 → 见「调试工具」tab')
-        hint.setStyleSheet("color: #888; font-size: 11px;")
-        layout.addWidget(hint)
-        layout.addStretch()
+    def _update_status_text(self):
+        mode = self.task_combo.currentText()
+        if "强化" in mode:
+            mode += f" · {self.strategy_combo.currentText()} · {self.set_combo.currentText()}"
+        self.status_task.setText(mode)
+        if not self._running:
+            self.status_state.setText("空闲 — 选好模式与策略后点「开始」")
+            self.elapsed_label.setText("耗时 —")
 
     def _update_strategy_info(self, strategy):
         if strategy == "渐进式":
@@ -240,16 +350,17 @@ class RunTab(QWidget):
 
     def _on_task_changed(self, task_name):
         is_enhance = "强化" in task_name
-        self.strategy_combo.setVisible(is_enhance)
+        self.strategy_card.setVisible(is_enhance)
         self.strategy_info.setVisible(is_enhance)
-        self.traditional_opts.setVisible(is_enhance and self.strategy_combo.currentText() == "传统")
-        # 套装语境只对强化有意义(评估=通用权重; 声骸个体与套装无自动映射)
+        self.traditional_card.setVisible(is_enhance and self.strategy_combo.currentText() == "传统")
+        # 套装语境只对强化有意义(评估=通用权重; 声骸个体与套装无自动映射) —— 隐藏整张卡而不是只藏控件
         self.set_label.setVisible(is_enhance)
         self.set_combo.setVisible(is_enhance)
         if not is_enhance:
             self.strategy_info_eval.setVisible(True)
         else:
             self.strategy_info_eval.setVisible(False)
+        self._update_status_text()
 
     # ── 设置持久化 ──
     def _load_settings(self):
@@ -277,11 +388,58 @@ class RunTab(QWidget):
             self.set_combo.setCurrentText(current)
 
     def _append_log(self, text):
-        self.log_area.append(text)
-        sb = self.log_area.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        """写日志: 判定级别 → 入缓冲(供级别过滤重渲染) → 过筛则追加, 并按需自动滚到底。"""
+        level = ("ERROR" if ("ERROR" in text or "Traceback" in text)
+                 else "WARNING" if ("WARN" in text or "⚠" in text) else "INFO")
+        self._log_lines.append((level, text))
+        if len(self._log_lines) > 3000:      # 上限防内存膨胀: 丢最旧的 1/3
+            del self._log_lines[:1000]
+        if self._passes_filter(level):
+            self._render_line(level, text)
+
+    def _passes_filter(self, level: str) -> bool:
+        f = self._log_filter
+        return (f == "全部"
+                or (f == "信息" and level == "INFO")
+                or (f == "警告" and level == "WARNING")
+                or (f == "错误" and level == "ERROR"))
+
+    def _render_line(self, level: str, text: str):
+        color = self._LEVEL_COLOR.get(level)
+        self.log_area.append(f'<span style="color:{color}">{html.escape(text)}</span>' if color else text)
+        if self.log_autoscroll.isChecked():
+            sb = self.log_area.verticalScrollBar()
+            sb.setValue(sb.maximum())
+
+    def _on_log_filter(self, level: str):
+        self._log_filter = level
+        self.log_area.clear()
+        for lv, text in self._log_lines[-1500:]:
+            if self._passes_filter(lv):
+                self._render_line(lv, text)
+
+    def _copy_log(self):
+        QGuiApplication.clipboard().setText(self.log_area.toPlainText())
+        InfoBar.success("已复制", "日志内容已复制到剪贴板", duration=1500,
+                        position=InfoBarPosition.TOP_RIGHT, parent=self)
+
+    def _clear_log(self):
+        self._log_lines.clear()
+        self.log_area.clear()
+
+    def _export_log(self):
+        path, _ = QFileDialog.getSaveFileName(self, "导出运行日志", "ww-echo.log", "日志 (*.log);;文本 (*.txt)")
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(t for _, t in self._log_lines))
+            InfoBar.success("已导出", path, duration=3000, position=InfoBarPosition.TOP_RIGHT, parent=self)
+        except OSError as e:
+            InfoBar.error("导出失败", str(e), duration=4000, position=InfoBarPosition.TOP_RIGHT, parent=self)
 
     def _refresh_status(self):
+        self._refresh_run_state()
         task = self._get_task()
         if task is None:
             return
@@ -295,6 +453,27 @@ class RunTab(QWidget):
                 self.score_label.setText(f"评估: {eval_count}个")
         except Exception:
             pass
+
+    def _refresh_run_state(self):
+        """运行态 → 状态卡(进度条/耗时/文案)。放在 _refresh_status 最前面: 任务未就绪时也要更新。"""
+        if self._running:
+            if self._run_since is None:
+                self._run_since = time.monotonic()
+                self.progress.setVisible(True)
+                self.progress.start()
+            self.status_state.setText("运行中…")
+            self.elapsed_label.setText(f"耗时 {self._fmt_elapsed(time.monotonic() - self._run_since)}")
+        elif self._run_since is not None:
+            self.progress.stop()
+            self.progress.setVisible(False)
+            self.status_state.setText(f"已结束 · 本轮 {self._fmt_elapsed(time.monotonic() - self._run_since)}")
+            self.elapsed_label.setText("耗时 —")
+            self._run_since = None
+
+    @staticmethod
+    def _fmt_elapsed(sec: float) -> str:
+        sec = int(max(0.0, sec))
+        return f"{sec} 秒" if sec < 60 else f"{sec // 60} 分 {sec % 60} 秒"
 
     # ── 启停 ──
     def _start(self):
@@ -412,6 +591,7 @@ class RunTab(QWidget):
             with open(json_path, "r", encoding="utf-8") as f:
                 data = _json.load(f)
 
+            self._update_eval_summary(data)
             html = _build_eval_html(data)
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(html)
@@ -427,6 +607,30 @@ class RunTab(QWidget):
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
             self._append_log("══════════ 评估结束 ══════════")
+
+    def _update_eval_summary(self, data: dict):
+        """报告数据 → 「上次评估结果」卡: 判定分布 + 平均完成度(同套装内跨件可比)。"""
+        results = data.get("results") or []
+        if not results:
+            return
+        names = {"pass": "达标", "hold": "保留", "keep": "建议重铸",
+                 "pending": "建议强化", "fail": "不合格", "zero": "0级"}
+        counts: dict = {}
+        for r in results:
+            counts[r.get("verdict")] = counts.get(r.get("verdict"), 0) + 1
+        parts = [f"{names.get(k, k)} {counts[k]}" for k in
+                 ("pass", "hold", "keep", "pending", "fail", "zero") if counts.get(k)]
+        self.sum_verdicts.setText(f"{len(results)} 只 · " + " · ".join(parts))
+        try:
+            from src.echo_score_sim import completeness
+            comps = [c for c in (completeness(r.get("set"), r.get("score", 0)) for r in results)
+                     if c is not None]
+            if comps:
+                self.sum_avg.setText(
+                    f"平均完成度 {sum(comps) / len(comps):.1f}% （完成度 = 得分 ÷ 该套装 Top-5 全满档分, 同套装内可比）")
+        except Exception:
+            pass
+        self.eval_card.setVisible(True)
 
     def _on_eval_error_ui(self, error_msg):
         self._append_log(f"[ERROR] {error_msg}")

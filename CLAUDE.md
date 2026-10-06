@@ -19,7 +19,8 @@
 mainui.py                 唯一入口(PySide6); 启动先按 QSettings run_mode 调 apply_run_mode 再 OK(config)
                           (阶段二十四删除了 main.py/main_debug.py/run.py — 见下"阶段二十四要点")
 config.py                 全套 ok-script 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
-ui/                       7 tab; settings_tab 含"运行模式"(本地/云游戏)开关, 重启生效
+ui/                       Fluent 左导航 7 页(运行/设备设置/热键设置/套装配置/调试工具/开发者 + 底部关于);
+                          main_window=FluentWindow 外壳(尺寸记忆/主题/快捷键); 设备设置含运行模式开关(重启生效)
 src/echo_stats.py         词条档位表 _TIERS + 官方档位概率 + snap_to_tier/get_mean(概率期望)/tier_percentile(分位)/is_stat_match
 src/echo_set_templates.py 37 套装 JSON 模板(词条/权重/声骸清单) + 声骸名容错匹配(生成物优先: 官方 229 个显示名)
 src/wuwa_data.py          官方配置表读取层: BinData(目录/zip, 两种序列化) + Textmaps + 管理方案 FlatBuffers 解码
@@ -31,10 +32,33 @@ assets/echo_icons/        37 个套装图标(76x76, 文件名=套装名) — **�
 assets/echo_set_templates.json 套装配置存档
 assets/echo_probability.json   官方声骸副词条概率表(词条类型等概率 + 各档位概率, 见阶段十六)
 eval_rules.md             判定规则全景说明 + 分类审查矩阵 + 已评估不改的项(改判定前先读; 已对齐阶段十八口径)
-tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 / 声骸名容错匹配
+tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 / 声骸名容错匹配 / 生成物与判据
 tools/eval_icon_match.py  图标识别离线回归(用 logs/eval_debug 数据集, 无需开游戏)
+tools/ui_shot.py          离屏渲染 7 个页面出 PNG(桩件替代引擎, 改 UI 后的自检工具)
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
 ```
+
+## 界面(Fluent, 阶段二十六)
+
+- **外壳**: `ui/main_window.FluentWindow` + 左侧 `NavigationInterface`(运行/设备设置/热键设置/套装配置/调试工具/开发者 +
+  底部关于); 默认 1120x760、最小 940x620、**记住上次窗口几何与所在页面**(QSettings("OK-Echo","MainWindow"))。
+- **分组卡片**: 每页用 `SettingCardGroup` + `SettingCard`(图标+标题+一句话说明+控件右对齐)。控件放卡右侧的写法是
+  Gallery 惯例: `card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)` + `addSpacing(16)`。
+  **不要用 `ComboBoxSettingCard`/`RangeSettingCard`/`OptionsSettingCard`** —— 它们要求 qfluentwidgets 自己的
+  `ConfigItem`, 而本项目配置在 ok-script/QSettings 里; 用 `SettingCard` + 原生 `ComboBox`/`SpinBox` 更省事。
+- **`HeaderCardWidget` 的坑(已踩)**: `viewLayout` 是**横向**的(库源码 `QHBoxLayout(self.view)`), 正文必须自己套一层
+  纵向容器; 并且要 `card.vBoxLayout.setStretchFactor(card.view, 1)` 才能让正文吃掉卡片多余高度(否则日志框不长高)。
+  见 `ui/run_tab._card_body` / `ui/debug_tab._card_body` / `ui/about_tab._body`。
+- **反馈**: 保存/切换/导入导出用 `InfoBar.success/error`(右上), 危险操作(导入覆盖、重启、清空)用 `MessageBox` 确认;
+  长任务用状态卡的 `IndeterminateProgressBar` + 耗时。
+- **快捷键**: `Ctrl+Enter` 开始/停止、`Ctrl+L` 清日志、`F1` 打开关于(见 `MainWindow._init_shortcuts`)。
+- **日志**: 运行页与调试页**各持一份视图**(一个 `QWidget` 不能同时属于两个布局), 都接 `log_bridge` 同一条流;
+  运行页日志带级别过滤/自动滚动/复制/清空/导出, ERROR/WARNING 着色(`RunTab._append_log` 缓冲 + 重渲染)。
+- **主题**: `MainWindow.apply_theme(name)` 统一 `setTheme`(浅色默认, 深色/AUTO 可切; 深色下关云母)。
+  业务/报告 HTML 里的固定色**不算**违规: 那是导出后浏览器打开的独立报告(`_build_eval_html`)。
+- **自检工具**: `python tools/ui_shot.py [--dark] [--out 目录]` 离屏渲染 7 页 PNG(桩件替代引擎, 不需要游戏/显示器)。
+  改 UI 后先跑它看图 + `python -m unittest discover -s tests`, 再上真机。
+- **已知待办**: 传统模式选项那一块仍是紧凑控件(仅在「传统」策略下出现); 套装配置的表单校验只有 JSON 解析级。
 
 ## 运行模式(local / cloud)
 
@@ -189,9 +213,9 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 **重铸改蒙特卡洛达标概率 ≥0.60**(二十一) → **未满级前瞻**(二十二) → **未满级细分「建议强化/不建议强化」(二十三)**。
 **判定链的权威说明是 `eval_rules.md`**(含分类矩阵、数学依据、已评估不改项 E1~E7、风险清单); 判定单测在 `tests/test_judge_rules.py`。
 
-**工作区 / 推送**: 本地 **领先 origin/main 4 个提交、未推送**(`1998ddb` 完成度排序 / `cd5b75b` 未满级前瞻 /
-`1c6adfd` 未满级细分 / `f537452` 文案统一) —— 接手请与用户确认后 `git push origin main`。
-**阶段二十四(审阅驱动的统一与清理)改动尚未提交** —— 提交前跑 `python -m unittest discover -s tests` 与
+**工作区 / 推送(2026-10 更新)**: 阶段二十四 / 二十五 / 二十六 均已提交并 `push origin main`
+(`37829ac` 阶段二十四 · `54c124f` 阶段二十五 官方静态数据层+官方图标 · 阶段二十六 界面重构)。
+改动后跑: `python -m unittest discover -s tests`(71 项) + `python tools/ui_shot.py`(界面自检) +
 `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)。
 
 **唯一未验证: 真机实跑**。阶段十六~二十三 的判定链路变化极大(概率期望 / 新权重 / 概率门 / 前瞻 / 完成度),
@@ -199,7 +223,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 (蒙特卡洛只对"未过线"的件触发; 离线 109 只约 8 秒)。
 
 **下一棒候选(按价值排序)**:
-- **真机实跑核对**(见上, 唯一阻塞)
+- **真机实跑核对**(见上) + **界面走查**(阶段二十六): 切页/改设置/跑一次评估, 重点看运行页日志卡与 InfoBar
 - **图标识别兜底到强化模式**: 现在强化套装由用户在下拉里选定, 不用图标; 若要"自动套装"强化可复用 `match_icon`
 - **新增套装素材: 已自动化**(阶段二十五) —— 新版本套装的图标从客户端 pak 抽取(命令见「官方静态数据层」), `assets/gamedata/echo_data.json` 的 `icon_asset` 就是客户端贴图名; 只有拿不到客户端安装时才需要手工补 PNG
 - **黑边校准: 暂不做**(用户确认云平台大概率全屏自适应)。触发条件: 若 `s1 < 0.60` 的低置信集中在某一分辨率/窗口模式, 再按黑边导致的整体偏移排查
@@ -218,5 +242,6 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 - `pynput` 是必需依赖(点击层运行时才 import, 缺库表现为"点击无反应")— 勿从 requirements 移除
 - **`cv2.imread` 读不了中文路径**(`assets/echo_icons/雪落无声之愿.png` 会返回 None) → 用 `cv2.imdecode(np.fromfile(path, np.uint8), …)`(`echo_icon_match._template_gray`)
 - WGC 抓云游戏/浏览器窗口常黑屏 → cloud 锁定 `BitBlt_RenderFull`
-- 200% 高 DPI 下固定 860x640 逻辑窗口会物理化超屏 → 初始 700x520 + 工作区 clamp/居中(`ui/main_window.py`)
+- 窗口尺寸: 初始 **1120x760** + 最小 940x620 + **记住上次几何/上次页面**(QSettings "OK-Echo"/"MainWindow");
+  200% 高 DPI 下按工作区 clamp(旧版固定 700x520 会把内容裁掉)
 - 云游戏 16:10 画面已跳过 16:9 校验; 若云平台带黑边渲染, UI 归一化位置会偏移(黑边校准未做)

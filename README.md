@@ -150,10 +150,10 @@ python mainui.py
 ww-echo/
 ├── mainui.py                       # 主入口
 ├── config.py                       # ok-script 配置
-├── ui/                             # 自定义 PySide6 UI
-│   ├── main_window.py / run_tab.py / set_config_tab.py
-│   ├── settings_tab.py / hotkey_tab.py / debug_tab.py
-│   └── about_tab.py / dev_tab.py
+├── ui/                             # 自定义 PySide6 UI(FluentWindow 左导航 7 页)
+│   ├── main_window.py              # 外壳: 导航 / 尺寸与页面记忆 / 主题 / 快捷键
+│   ├── run_tab.py / set_config_tab.py / settings_tab.py
+│   └── hotkey_tab.py / debug_tab.py / dev_tab.py / about_tab.py
 ├── src/
 │   ├── echo_stats.py               # 词条档位 + 评分工具
 │   ├── echo_set_templates.py       # JSON 模板加载 & 校验 + 声骸名容错匹配(生成物优先)
@@ -166,6 +166,7 @@ ww-echo/
 │       └── ...
 ├── tests/                          # 单测(不依赖游戏数据)
 ├── tools/
+│   ├── ui_shot.py                  # 离屏渲染 7 页截图(改 UI 后的自检, 不需要游戏)
 │   ├── gen_echo_data.py            # 官方配置表 → assets/gamedata/echo_data.json(声骸↔套装/主属性方案)
 │   ├── eval_icon_match.py          # 套装图标识别离线回归(用 eval_debug 数据集)
 │   └── offline_eval_report.py      # 离线重放评估 → eval_report.html(不开游戏核对评分/报告)
@@ -188,6 +189,9 @@ ww-echo/
 ---
 
 ## TODO
+
+- [x] **界面重构(阶段二十六)**: FluentWindow 左导航 + 卡片式设置/运行/工具页; 运行页日志带级别过滤/自动滚动/
+  复制/清空/导出; 快捷键 `Ctrl+Enter` / `Ctrl+L` / `F1`; 记住尺寸与上次页面; `tools/ui_shot.py` 离屏自检
 
 - [x] **六档判定体系(阶段十四~二十三)**: 满级 `达标 / 保留 / 建议重铸 / 不合格`，未满级 `建议强化 / 不建议强化`。
       达标线 `A = 10×出现有效词条权重之和`（须 `A ≥ B` 才成立）、基准线 `B = 套装有效键最低 (n−1) 条之和×10`（未定制配置 = 通用线 6.5/11.5/17.5）。
