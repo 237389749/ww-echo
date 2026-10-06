@@ -84,8 +84,8 @@ class StubDeviceManager:
         pass
 
 
-def wait(ms: int = 400):
-    """等切页淡入动画走完, 否则 grab 到半透明的空页。"""
+def wait(ms: int = 900):
+    """等切页淡入动画走完再 grab —— 时间不够会截到半透明的"鬼影"页(不是界面问题)。"""
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
     loop.exec()
@@ -116,12 +116,26 @@ def main() -> int:
     from mainui import LogBridge
     from ui.main_window import MainWindow
 
-    win = MainWindow(ok_engine=None, log_bridge=LogBridge())
+    # --dark 走"启动即深色"路径(与真机把主题存下来后重启一致): 先写 QSettings, 建窗时 _init_theme 会应用它。
+    # 直接用 apply_theme 事后切换在离屏下不可靠(只有部分页面重绘), 而且**绝不能落盘**(踩过: 之后普通运行也变深色)。
+    from PySide6.QtCore import QSettings
+    qs = QSettings("OK-Echo", "MainWindow")
+    saved_theme = qs.value("theme")
     if a.dark:
-        win.apply_theme("DARK")
+        qs.setValue("theme", "DARK")
+        qs.sync()
+    try:
+        win = MainWindow(ok_engine=None, log_bridge=LogBridge())
+    finally:
+        if a.dark:                          # 立刻恢复, 不污染真实设置
+            if saved_theme is None:
+                qs.remove("theme")
+            else:
+                qs.setValue("theme", saved_theme)
+            qs.sync()
+    win.show()
     w, h = (int(x) for x in a.size.lower().split("x"))
     win.resize(w, h)
-    win.show()
     app.processEvents()
 
     out = Path(a.out)
@@ -131,6 +145,8 @@ def main() -> int:
         stack.setCurrentIndex(i)
         wait()
         page = stack.widget(i)
+        page.update()                      # 主题/尺寸变化后强制重绘, 否则可能抓到上一帧
+        app.processEvents()
         name = page.objectName().replace("page_", "") or f"page{i}"
         path = out / f"{'dark_' if a.dark else ''}{i}_{name}.png"
         win.grab().save(str(path))

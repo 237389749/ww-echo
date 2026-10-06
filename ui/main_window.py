@@ -10,7 +10,7 @@
 """
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QTextEdit
+from PySide6.QtWidgets import QApplication, QTextEdit, QWidget
 
 from qfluentwidgets import (FluentWindow, FluentIcon as FIF, NavigationItemPosition, Theme,
                             setTheme, setThemeColor)
@@ -139,6 +139,8 @@ class MainWindow(FluentWindow):
             pass
         if remember:
             self._settings.setValue("theme", theme.name)
+        # 注: 不手动 unpolish/polish 整棵树 —— qfluentwidgets 的 setTheme 会走全局重绘(Gallery 也是实时切换),
+        # 手动 repolish 反而在离屏/构造期不稳(实测崩过)。运行中切换后的观感需真机确认一次。
 
     # ── 关闭: 沿用 ok-script 标准退出通道, 避免进程残留 ──
     def closeEvent(self, event: QCloseEvent):

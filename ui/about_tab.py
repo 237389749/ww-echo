@@ -11,6 +11,8 @@ from qfluentwidgets import (CaptionLabel, FluentIcon as FIF, HeaderCardWidget, H
 
 from ok import og
 
+from ui.widgets import make_scroll_transparent
+
 REPO = "https://github.com/237389749/ww-echo"
 LINKS = (
     ("本项目 ww-echo", REPO),
@@ -54,7 +56,7 @@ class AboutTab(QWidget):
         vbox.addWidget(self._links_card())
         vbox.addStretch(1)
 
-        scroll = SingleDirectionScrollArea(orient=Qt.Vertical)
+        scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
         scroll.setWidgetResizable(True)
         scroll.setWidget(view)
         outer = QVBoxLayout(self)

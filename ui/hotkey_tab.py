@@ -13,6 +13,8 @@ from qfluentwidgets import (CaptionLabel, FluentIcon as FIF, InfoBar, InfoBarPos
 
 from ok import og
 
+from ui.widgets import make_scroll_transparent
+
 # 游戏内按键默认值
 GAME_HOTKEYS = {
     "声骸技能 (Echo)": "q",
@@ -82,7 +84,7 @@ class HotkeyTab(QWidget):
         vbox.addWidget(save_card)
         vbox.addStretch(1)
 
-        scroll = SingleDirectionScrollArea(orient=Qt.Vertical)
+        scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.view)
         outer = QVBoxLayout(self)

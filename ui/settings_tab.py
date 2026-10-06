@@ -25,6 +25,7 @@ from ok import og, Logger
 from ok.gui.Communicate import communicate
 
 from config import MODE_LOCAL, MODE_CLOUD
+from ui.widgets import make_scroll_transparent
 
 logger = Logger.get_logger(__name__)
 
@@ -69,7 +70,7 @@ class SettingsTab(QWidget):
         vbox.addWidget(ver)
         vbox.addStretch(1)
 
-        scroll = SingleDirectionScrollArea(orient=Qt.Vertical)
+        scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.view)
         outer = QVBoxLayout(self)

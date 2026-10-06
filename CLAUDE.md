@@ -56,6 +56,10 @@ tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 
   运行页日志带级别过滤/自动滚动/复制/清空/导出, ERROR/WARNING 着色(`RunTab._append_log` 缓冲 + 重渲染)。
 - **主题**: `MainWindow.apply_theme(name)` 统一 `setTheme`(浅色默认, 深色/AUTO 可切; 深色下关云母)。
   业务/报告 HTML 里的固定色**不算**违规: 那是导出后浏览器打开的独立报告(`_build_eval_html`)。
+- **深色下的坑(已修, 勿回退)**: qfluentwidgets 切主题只换样式表、**不改 `QPalette`**, 而 `QScrollArea` 的 viewport
+  用调色板画底 → 滚动页在深色下会"浅底 + 浅字"(看着发白)。所有滚动容器统一走 `ui/widgets.make_scroll_transparent`
+  (viewport 透明 + `enableTransparentBackground`)。另外**不要在 `apply_theme` 里手动 unpolish/polish 整棵树**:
+  库自身会全局重绘, 手动那套在构造期/离屏下会崩。
 - **自检工具**: `python tools/ui_shot.py [--dark] [--out 目录]` 离屏渲染 7 页 PNG(桩件替代引擎, 不需要游戏/显示器)。
   改 UI 后先跑它看图 + `python -m unittest discover -s tests`, 再上真机。
 - **已知待办**: 传统模式选项那一块仍是紧凑控件(仅在「传统」策略下出现); 套装配置的表单校验只有 JSON 解析级。
