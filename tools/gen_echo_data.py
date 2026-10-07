@@ -90,6 +90,10 @@ class Builder:
                 "icon_asset": icon,                      # 客户端贴图名(将来从 pak 抽图标用)
                 "icon_file": f"{name}.png",              # assets/echo_icons/ 下的模板文件名
                 "fetter_ids": sorted(v for _, v in self.bd.pairs(g.get("FetterMap"))),
+                # 保留 (fetter_id, 件数): 套装效果有 **2/3/5 件** 三档(如 息界同调之律 是 3 件套),
+                # 只留 id 会丢掉件数 → UI 无法标出"几件套"。见 _effects。
+                # pairs() 给的是 (件数, fetter_id) —— 件数在前! (实测判定: 见提交说明)
+                "fetter_map": sorted([int(c), int(f)] for c, f in self.bd.pairs(g.get("FetterMap"))),
                 "echoes": {k: [] for k in COST_KEYS},
                 "plan": {},
             }
@@ -97,13 +101,16 @@ class Builder:
 
     def _effects(self, sets: dict[str, dict]) -> None:
         by_fid = {f["Id"]: f for f in self.bd.table("PhantomFetter")}
-        for v in sets.values():
+        for name, v in sets.items():
+            pieces = {int(fid): int(cnt) for cnt, fid in v.get("fetter_map") or []}
             v["effects"] = {}
             for fid in v["fetter_ids"]:
                 row = by_fid.get(fid)
                 if row is None:
                     continue
                 v["effects"][str(fid)] = {
+                    # pieces = 触发这一档效果需要的**件数**(2/3/5) —— 与文本一起存, UI 直接显示"3 件套: …"
+                    "pieces": pieces.get(int(fid)),
                     "simple": self.zh(row.get("SimplyEffectDesc"), "SimplyEffectDesc"),
                     "text": self.zh(row.get("EffectDescription"), "EffectDescription"),
                     "params": row.get("EffectDescriptionParam") or [],

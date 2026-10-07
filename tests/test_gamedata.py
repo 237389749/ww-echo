@@ -60,7 +60,15 @@ class TestGeneratedData(unittest.TestCase):
                 self.assertEqual(v["icon_file"], f"{name}.png")
                 self.assertTrue((icon_dir / v["icon_file"]).exists(),
                                 f"缺图标模板 {v['icon_file']}(需从客户端官方贴图补齐, 见 CLAUDE.md「官方静态数据层」)")
-                self.assertTrue(v["fetter_ids"], "缺少 2/5 件套 fetter id")
+                self.assertTrue(v["fetter_ids"], "缺少件套 fetter id")
+                # 每档效果都必须带件数(2/3/5): UI 要按"几件套"显示效果原文
+                for fid, eff in v["effects"].items():
+                    with self.subTest(set=name, fid=fid):
+                        # 件数必须存在(丢了它 UI 就标不出"几件套"); 常见档位 2/3/5,
+                        # 实测还有一个 1 件套的特殊套装 —— 所以只要求是正数, 不锁死集合。
+                        self.assertIsInstance(eff.get("pieces"), int,
+                                              f"{name} 的效果 {fid} 缺件数")
+                        self.assertGreaterEqual(eff.get("pieces"), 1)
                 self.assertEqual(set(v["effects"]), {str(i) for i in v["fetter_ids"]},
                                  "每个 fetter id 都要有效果文本")
                 self.assertTrue(any(v["echoes"][k] for k in COSTS), "套装不能没有声骸")
