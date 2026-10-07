@@ -58,3 +58,37 @@
 ## 待确认
 - 同名多只是否设上限（如每个名字只保留评分最高的 K 只）以控制 `C(N,5)`。
 - 排名默认口径：各技能类型分别列，还是给一组默认权重合成单一分数？
+
+## UI 规格（先做 UI —— 独立页面「组合穷举」）
+
+沿用阶段二十六的写法（`SettingCardGroup` + `SettingCard`、控件右对齐、`InfoBar` 反馈、`ui/widgets.make_scroll_transparent`），
+新增一个导航页（图标用已验证存在的 `FIF.TILES`）。
+
+### 页面结构
+1. **`SettingCardGroup("角色与目标")`**
+   - `SettingCard` 角色名 + 等级（`SpinBox`）+ **缩放属性**（`ComboBox`：攻击/防御/生命）← 用户要求的选择开关
+   - `SettingCard` 目标套装 1（`ComboBox`，选项来自 `get_all_set_names()`）、套装 2（可空，用于 3+2 / 2+2）
+   - `SettingCard` 期望 COST 型（`ComboBox`：43311 / 44111 / 自定义 `ΣCOST ≤ 12`）
+2. **`SettingCardGroup("战斗环境(默认取 calculator 口径)")`**
+   - 怪物等级（默认 **100**）、无视防御（默认 **0%**）、抗性（默认 **10%**）
+   - 技能等级/倍率：按技能类型逐行（常态攻击/重击/共鸣技能/共鸣解放/变奏…）
+3. **`HeaderCardWidget("裸面板 + 逐词条补正")`**
+   - 表格：**词条名 | 裸面板值 | 补正(可多条) | 最终值(只读)**；词条键 = `echo_set_templates.STAT_ORDER` + 主属性键
+   - 补正行带「来源」下拉（套装 2/5 件 / 共鸣链 / 队伍增伤 / 天赋 / 其他）——**套装效果一律手填补正**
+   - 底部按钮：`PushSettingCard("从评估数据导入声骸库存", FIF.FOLDER, ...)`（读 `logs/eval_debug/**/image_report.md`
+     或评估 JSON），导入后显示"候选 N 只 / 其中 5★ M 只"
+4. **`HeaderCardWidget("结果排名")`**
+   - 工具条：`PushButton("开始穷举")` + `PushButton("导出 CSV")` + 状态（候选数 / 组合数 / 耗时）
+   - `TableWidget` 列：名次 | 5 只声骸（名·COST·主属性） | 套装只数 | 缩放属性总值 | 暴击/爆伤 | 加成区 |
+     **各技能类型伤害（分列）** | 与当前组合差值
+   - **空状态**：未导入库存 → 提示"先在「运行」页跑一次评估，或点上方导入"；穷举中 → `StateToolTip` + 禁用按钮
+5. **反馈**：成功/失败 `InfoBar`；结果行可点开详情（5 只各自的词条）
+
+### 分层实现顺序（每步都能自检）
+- **UI-1**：页面骨架 + 输入卡片 + 裸面板/补正表格（可先用假数据渲染）→ 验收 `python tools/ui_shot.py` 出图（浅/深色）
+- **UI-2**：导入库存 + 候选列表预览（只列不穷举）→ 验收：109 只数据集能导入并显示候选
+- **UI-3**：接 `src/echo_combos.py` 出排名（后台线程 + 进度 + 取消）→ 验收：与 CLI(`tools/echo_plan.py`) 结果一致
+
+### 与引擎的边界
+UI 只做**输入装配 + 展示**；面板聚合/穷举/排序全在 `src/echo_panel.py`、`src/echo_combos.py`
+（**UI 不碰伤害公式**，避免两处口径分叉——同阶段二十四"判定唯一收口"的纪律）。
