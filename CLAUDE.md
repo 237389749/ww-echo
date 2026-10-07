@@ -144,6 +144,16 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 | `assets/gamedata/echo_data.json` | 生成物: `sets{icon_asset,icon_file,fetter_ids,effects,echoes,plan}` + `echoes{cost,sets,base}` + `props` + `main_prop_names` |
 | `tests/test_gamedata.py` / `test_main_prop_check.py` / `test_echo_stats_consistency.py` | 生成物结构自洽 + 3.7 回归锚点 + COST/方案判定 + 档位↔概率一致性断言 |
 
+- **已拉取的表(2026-10, 稀疏检出模式)**: `BinData/{phantom, phantommanageplan, property, item, drop,``
+  ``monster_Info, monsterDisplay, ui_resource, role, weapon, skillTree}` + `Textmaps/zh-Hans`。
+  其中 `phantom`/`property` 供 L0~L2 与主属性数值; `item` 供道具名(`ItemInfo_<id>_Name`, 如特级密音筒);
+  `role`/`weapon`/`skillTree` 供**面板模型(S1)**; `drop`/`monster_*`/`ui_resource` 待接。
+  扩容命令: `git -c http.proxy= -c https.proxy= sparse-checkout add BinData/<表名>`（本机 git 配的全局代理
+  常常没在监听, 直连 GitHub 反而通; 报告里的 `--bindata` 指 `search/wwdata37/BinData`）。
+- **面板模型 / 主属性穷举(S1/S2)**: 实施规格见仓库根 `panel_plan.md` —— S1 用 `roleinfo.PropertyId` +
+  `baseproperty` + `rolepropertygrowth(Level,BreachLevel)` + 武器 + 天赋算角色面板(**必须与游戏内面板对数字**);
+  S2 穷举 `COST 型(43311/44111) × 每槽主属性 × 套装分配`(约 4 千组合), 副词条走期望/理想/库存三种口径
+  (全穷举不可行: 单只 ≈4×10⁷ 组合)。
 - **数据源与刷新**: `Arikatsu/WutheringWaves_Data` 分支 `3.7`(Global 3.7.0 / Resource 3.7.8; 本机 `search/wwdata37`, sparse checkout 只取 `Textmaps/zh-Hans` + `BinData/phantom*` + `property`; 刷新 = 该目录 `git pull`)。生成命令见 `tools/gen_echo_data.py` 文档串(需 `--bindata`/`--textmaps`)。
 - **不变量**: 任何文本键解析不出 → **退出码 2 且不写文件**(宁失败不静默丢数据); 生成物**只读**, 策略(权重/`_core_first`)仍手写在 `echo_set_templates.json`。
 - **官方管理方案**(`PhantomManagePlanV2`): 每 (套装, COST) 的主属性**保留组/丢弃组**(PropId)。客户端表是 FlatBuffers `BinData`, 解码器已用服务端显式字段表**逐行 100/100 验证**; 它同时覆盖 3.7 的 3 个新套装(服务端表只到 34 套)。
