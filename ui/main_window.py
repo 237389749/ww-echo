@@ -16,6 +16,7 @@ from qfluentwidgets import (FluentWindow, FluentIcon as FIF, NavigationItemPosit
                             setTheme, setThemeColor)
 
 from ui.run_tab import RunTab
+from ui.plan_tab import PlanTab
 from ui.set_config_tab import SetConfigTab
 from ui.settings_tab import SettingsTab
 from ui.hotkey_tab import HotkeyTab
@@ -63,6 +64,7 @@ class MainWindow(FluentWindow):
         self.settings_page = SettingsTab()
         self.hotkey_page = HotkeyTab()
         self.run_page = RunTab(ok_engine, log_bridge, self.run_log)
+        self.plan_page = PlanTab()
         self.set_config_page = SetConfigTab()
         self.set_config_page.saved.connect(self.run_page._load_sets)
         self.debug_page = DebugTab(self.debug_log)
@@ -73,6 +75,7 @@ class MainWindow(FluentWindow):
         # addSubInterface 以 objectName 作路由键 → 必须唯一且非空
         pages = (
             (self.run_page, FIF.HOME, "运行"),
+            (self.plan_page, FIF.TILES, "组合穷举"),
             (self.settings_page, FIF.SETTING, "设备设置"),
             (self.hotkey_page, FIF.GAME, "热键设置"),
             (self.set_config_page, FIF.LIBRARY, "套装配置"),

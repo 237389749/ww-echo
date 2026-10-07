@@ -54,6 +54,23 @@ def value_grid(name: str, levels=None) -> list[float]:
     return sorted({v for v, _, _ in _candidates(name, levels)})
 
 
+def candidates(name: str, levels=None) -> list[tuple[float, float, bool]]:
+    """某主属性名在给定等级上的全部候选 `(值, 容差, 是否百分比)`。
+
+    公开给**导入器**判"`攻击/生命/防御` 这一行到底是固定值还是百分比"
+    (同一个名字有多个变体, 面板 OCR 的文本里能带 `%`, 评估 JSON 里已经丢掉了)。
+    """
+    return _candidates(name, _levels_or_all(levels))
+
+
+def _levels_or_all(levels) -> list[int]:
+    if levels is not None:
+        return list(levels)
+    t = _table()
+    curve = next(iter((t.get("growth") or {}).values()), [])
+    return list(range(len(curve)))
+
+
 def check_main_values(main_props, tier=None) -> list[dict]:
     """`[(属性名, 值)]` → `[{name, value, ok, expect, tol}]`。
 

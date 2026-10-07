@@ -40,6 +40,24 @@
 - 输出 `eval_report.html` + 截图文件夹，双击浏览器查看
 - 不强化、不上锁、不丢弃 — 纯评估
 
+### 组合穷举 | Echo combination planning (阶段二十九)
+
+对**指定套装(1~2 套)**、**仓库里已有的 5★ 声骸**穷举所有合法 5 件组合, 算面板与伤害并**排名**
+(「组合穷举」页; 也可用命令行 `tools/echo_plan.py`)。
+
+- **模式**: `5`(同一套 5 只) 或 `3+2`(套装 A 3 只 + 套装 B 2 只); 两套时**必须指定 4C 归属**
+- **过滤**: 5 只**互异**(按声骸名)、`ΣCOST ≤ 12`、只用 5★、**套装计数按去重只数**(同名多只只算 1 只)
+- **输入**: 裸面板(攻击/生命/防御填**基础值**=角色+武器, 不含声骸) + **逐词条补正**(套装 2/3/5 件套、共鸣链、
+  天赋、队伍增伤…) —— **补正一律视为生效**, 套装效果**不自动解析**(用户口径); 库存从 `logs/eval_debug` 素材
+  或评估 JSON 导入(套装走详情面板图标识别, 与评估同一套消歧口径)
+- **伤害**(只用于排序, 方案内常数省略): `E = 缩放属性总值 × (1 + 暴击率×暴击伤害) × (1 + 加成区)`;
+  加成区 = 属伤 + 专伤合计(各类型直接相加) + 通用增伤, **共效不计**; 面板按 calculator 口径
+  `基础值 × (1 + 百分比/100) + 固定值` 聚合(固定值不吃百分比)
+- **缩放属性开关**: 攻击 / 防御 / 生命(不同角色的主属性最优解完全不同)
+- 结果表: 名次 / 5 只声骸 / 套装只数 / ΣCOST / 缩放属性总值 / 暴击爆伤 / 加成区(属+专+通) / 排序分 E / 伤害;
+  双击一行看该组合 5 只的词条明细, 可导出 CSV
+- 规模: 名字组合 `C(N,5)`(109 只数据集上 3 千余组 < 0.1 秒), 后台线程跑、可取消
+
 ### 云游戏 / 本地双模式 | Local / Cloud
 
 在"设备设置"顶部切换运行模式（重启生效）：
@@ -72,9 +90,10 @@ python mainui.py
 
 | Tab | 功能 |
 |-----|------|
+| 运行 | 模式选择(强化/评估)、策略、套装(仅强化)、启停、状态、**实时日志**(级别过滤/导出) |
+| 组合穷举 | 指定套装 + 缩放属性 + 裸面板/补正 → 穷举合法 5 件组合并排名、导出 CSV |
 | 设备设置 | 运行模式(本地/云游戏)、选择窗口、截图方式、交互方式、月卡、热键 |
 | 热键设置 | 游戏内技能按键配置 |
-| 强化运行 | 模式选择(强化/评估)、策略、套装(仅强化)、启停、状态 |
 | 套装配置 | 表格编辑套装词条&权重、**首核勾选**(_core_first)、导入/导出 JSON |
 | 调试工具 | OCR 测试、截图预览、覆盖层开关、运行日志 |
 | 开发者 | Run Code (Python 执行器)、模板列表 |
@@ -150,13 +169,17 @@ python mainui.py
 ww-echo/
 ├── mainui.py                       # 主入口
 ├── config.py                       # ok-script 配置
-├── ui/                             # 自定义 PySide6 UI(FluentWindow 左导航 7 页)
+├── ui/                             # 自定义 PySide6 UI(FluentWindow 左导航 8 页)
 │   ├── main_window.py              # 外壳: 导航 / 尺寸与页面记忆 / 主题 / 快捷键
-│   ├── run_tab.py / set_config_tab.py / settings_tab.py
+│   ├── run_tab.py / plan_tab.py / set_config_tab.py / settings_tab.py
 │   └── hotkey_tab.py / debug_tab.py / dev_tab.py / about_tab.py
 ├── src/
 │   ├── echo_stats.py               # 词条档位 + 评分工具
 │   ├── echo_set_templates.py       # JSON 模板加载 & 校验 + 声骸名容错匹配(生成物优先)
+│   ├── echo_panel.py               # 面板聚合 + 伤害公式(组合穷举的计算层, calculator 口径)
+│   ├── echo_combos.py              # 组合穷举(互异/ΣCOST≤12/套装只数/4C 归属) + Top-K 排名
+│   ├── echo_inventory.py           # 库存导入: logs/eval_debug 素材 或 评估 JSON → EchoItem
+│   ├── echo_main_prop.py           # 主属性数值校验(官方网格)
 │   ├── wuwa_data.py                # 官方配置表读取层(BinData/Textmaps/管理方案 FlatBuffers)
 │   ├── echo_icon_match.py          # 套装图标识别(灰度 ZNCC 模板匹配)
 │   ├── globals.py                  # ok-script 全局对象占位(my_app 注册)
@@ -169,7 +192,8 @@ ww-echo/
 ├── helios/                         # 第三方(内置): WavyRooms/helios —— 私服客户端补丁源码(Zig)
 │                                   # 原仓 git.xeondev.com/WavyRooms/helios(不可达, 故内置保存)
 ├── tools/
-│   ├── ui_shot.py                  # 离屏渲染 7 页截图(改 UI 后的自检, 不需要游戏)
+│   ├── ui_shot.py                  # 离屏渲染 8 页截图(改 UI 后的自检, 不需要游戏)
+│   ├── echo_plan.py                # 声骸组合穷举 + 伤害排名的命令行入口(离线)
 │   ├── gen_echo_data.py            # 官方配置表 → assets/gamedata/echo_data.json(声骸↔套装/主属性方案)
 │   ├── eval_icon_match.py          # 套装图标识别离线回归(用 eval_debug 数据集)
 │   └── offline_eval_report.py      # 离线重放评估 → eval_report.html(不开游戏核对评分/报告)
@@ -193,6 +217,11 @@ ww-echo/
 
 ## TODO
 
+- [x] **组合穷举 + 伤害排名(阶段二十九)**: 独立页「组合穷举」+ `src/echo_panel.py`(面板聚合/伤害)、
+  `src/echo_combos.py`(互异 + ΣCOST≤12 + 套装只数 + 4C 归属 + Top-K, 可取消)、`src/echo_inventory.py`
+  (素材/JSON → 库存, 套装走图标识别)、`tools/echo_plan.py`(CLI)。41 项新单测; 109 只真实数据 3 千余组 0.08 秒
+- [ ] **与 wuwa-calculator 对账**: 用同一组输入喂两边, 伤害数值应一致(最强的正确性验收; 见 `panel_plan.md` 步骤 4)
+- [ ] **真机实跑核对「组合穷举」页**: 导入库存 → 选套装 → 穷举 → 双击看明细 / 导出 CSV(离线自检已过)
 - [x] **界面重构(阶段二十六)**: FluentWindow 左导航 + 卡片式设置/运行/工具页; 运行页日志带级别过滤/自动滚动/
   复制/清空/导出; 快捷键 `Ctrl+Enter` / `Ctrl+L` / `F1`; 记住尺寸与上次页面; `tools/ui_shot.py` 离屏自检
 

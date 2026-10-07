@@ -19,8 +19,12 @@
 mainui.py                 唯一入口(PySide6); 启动先按 QSettings run_mode 调 apply_run_mode 再 OK(config)
                           (阶段二十四删除了 main.py/main_debug.py/run.py — 见下"阶段二十四要点")
 config.py                 全套 ok-script 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
-ui/                       Fluent 左导航 7 页(运行/设备设置/热键设置/套装配置/调试工具/开发者 + 底部关于);
+ui/                       Fluent 左导航 8 页(运行/组合穷举/设备设置/热键设置/套装配置/调试工具/开发者 + 底部关于);
                           main_window=FluentWindow 外壳(尺寸记忆/主题/快捷键); 设备设置含运行模式开关(重启生效)
+ui/plan_tab.py            「组合穷举」页: 输入装配(缩放属性/模式/套装/4C 归属/裸面板+补正) + 后台线程穷举 + 排名表/CSV
+src/echo_panel.py         组合穷举**计算层**: 面板聚合(calculator 口径 基础值×(1+百分比)+固定值) + 加成区拆分 + 伤害
+src/echo_combos.py        组合穷举: 5 只互异(按名) + ΣCOST≤12 + 套装只数 + 4C 归属 + Top-K(协作取消)
+src/echo_inventory.py     库存导入: logs/eval_debug 素材(image_report.md + `<tag>_full.png` 图标定套装) 或评估 JSON → EchoItem
 src/echo_stats.py         词条档位表 _TIERS + 官方档位概率 + snap_to_tier/get_mean(概率期望)/tier_percentile(分位)/is_stat_match
 src/echo_set_templates.py 37 套装 JSON 模板(词条/权重/声骸清单) + 声骸名容错匹配(生成物优先: 官方 229 个显示名)
 src/wuwa_data.py          官方配置表读取层: BinData(目录/zip, 两种序列化) + Textmaps + 管理方案 FlatBuffers 解码
@@ -34,11 +38,12 @@ assets/echo_probability.json   官方声骸副词条概率表(词条类型等概
 eval_rules.md             判定规则全景说明 + 分类审查矩阵 + 已评估不改的项(改判定前先读; 已对齐阶段十八口径)
 tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 / 声骸名容错匹配 / 生成物与判据
 tools/eval_icon_match.py  图标识别离线回归(用 logs/eval_debug 数据集, 无需开游戏)
-tools/ui_shot.py          离屏渲染 7 个页面出 PNG(桩件替代引擎, 改 UI 后的自检工具)
+tools/echo_plan.py        声骸组合穷举 + 伤害排名的命令行入口(离线; `--list` 看库存)
+tools/ui_shot.py          离屏渲染 8 个页面出 PNG(桩件替代引擎, 改 UI 后的自检工具)
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
 ```
 
-> **交接文档**：阶段二十四~二十八 的完成情况、数据面认知、下一个功能（声骸组合穷举+伤害排名）的契约与开工顺序，见仓库根 `handoff.md`。
+> **交接文档**：阶段二十四~二十九 的完成情况、数据面认知、下一棒(真机走查 / 与 calculator 对账)见仓库根 `handoff.md`。
 
 ## 界面(Fluent, 阶段二十六)
 
@@ -62,9 +67,34 @@ tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 
   用调色板画底 → 滚动页在深色下会"浅底 + 浅字"(看着发白)。所有滚动容器统一走 `ui/widgets.make_scroll_transparent`
   (viewport 透明 + `enableTransparentBackground`)。另外**不要在 `apply_theme` 里手动 unpolish/polish 整棵树**:
   库自身会全局重绘, 手动那套在构造期/离屏下会崩。
-- **自检工具**: `python tools/ui_shot.py [--dark] [--out 目录]` 离屏渲染 7 页 PNG(桩件替代引擎, 不需要游戏/显示器)。
+- **自检工具**: `python tools/ui_shot.py [--dark] [--out 目录]` 离屏渲染 8 页 PNG(桩件替代引擎, 不需要游戏/显示器)。
   改 UI 后先跑它看图 + `python -m unittest discover -s tests`, 再上真机。
+  **`--dark` 的一个环境坑(已兜)**: 它原本靠"启动前把主题写进 QSettings, 让 `_init_theme` 读回"进深色; 受限沙箱/无注册表
+  写权限时 `QSettings` 写不进去(读回 None) → **静默出浅色图**。现在 `show()` 后再显式 `apply_theme("DARK", remember=False)`
+  兜一次(不落盘), 因此抓图前必须逐页 `update()`。
+- **`ComboBox` 没有 `setEditable`**: 需要可输入的组合框用 `EditableComboBox`(「组合穷举」页的补正来源用它)。
 - **已知待办**: 传统模式选项那一块仍是紧凑控件(仅在「传统」策略下出现); 套装配置的表单校验只有 JSON 解析级。
+
+## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
+
+**分层**(与阶段二十四"判定唯一收口"同一条纪律): `src/echo_panel.py`(计算) → `src/echo_combos.py`(穷举) →
+`src/echo_inventory.py`(库存导入) → `tools/echo_plan.py`(CLI) / `ui/plan_tab.py`(界面)。**界面不碰伤害公式**。
+
+- **契约**(用户已定, 见 `handoff.md`): 模式 `5` / `3+2`(两套时**必须指定 4C 归属**); 5 只**互异**(按名字)、
+  `ΣCOST ≤ 12`、只用 5★、**套装计数按去重只数**; 补正**一律视为生效**(不做件数判定); 套装效果**不自动解析**。
+- **面板口径 = wuwa-calculator**: `总值 = 基础值 × (1 + 百分比/100) + 固定值`(其源码 formula 原文;
+  **固定值在括号外**, 写进括号里会让固定词条多吃百分比)。裸面板的三系填**基础值(角色+武器, 不含声骸)**。
+- **伤害只用于排序**: `E = 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区)`; 加成区 = 属伤 + 专伤合计(直接相加)
+  + 通用增伤, **共效不计**; 倍率/加深/防御/抗性默认 1(方案内常数, 不影响排序), 只有对账 calculator 时传。
+- **加成区归类**: `*伤害加成` 与 `通用增伤` 进加成区, 六元素 + `属性伤害加成` 记作"属伤", 其余为"专伤";
+  基础/百分比/双暴/共效/治疗不进; 不认识的键记进 `Panel.unknown`(**不静默吞** —— CLI 会提示)。
+- **声骸主属性有 2 行, 两行都算面板贡献**(实测 219 张面板 + 逐张看图核对): 第 1 行 = 声骸主属性;
+  第 2 行 = **COST 固有属性**(COST1 生命 2280 / COST3 攻击 100 / COST4 攻击 150, 满级; 与生成物固定值变体逐档吻合)。
+- **`攻击/生命/防御` 有固定与百分比两个变体**: 报告路径按数值里的 `%` 判, JSON 路径按**官方取值网格**判
+  (`echo_main_prop.candidates()`, 区间不重叠 → 判定唯一)。**别只看名字就当成固定值**。
+- **5★ 无法从评估产物判定**(没有稀有度字段): 导入即视为 5★, 由用户口径保证; 要真判定得用主属性数值网格反推。
+- **性能**: 109 只数据集 3+2 约 3 千余组 / 0.08 秒(名字分组 → 名字组合 → 实例笛卡尔积); 组合规模大时靠 `top_k` 堆,
+  取消走 `plan(..., should_stop=...)`(每 512 组查一次)。
 
 ## 运行模式(local / cloud)
 
@@ -237,17 +267,23 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 **重铸改蒙特卡洛达标概率 ≥0.60**(二十一) → **未满级前瞻**(二十二) → **未满级细分「建议强化/不建议强化」(二十三)**。
 **判定链的权威说明是 `eval_rules.md`**(含分类矩阵、数学依据、已评估不改项 E1~E7、风险清单); 判定单测在 `tests/test_judge_rules.py`。
 
-**工作区 / 推送(2026-10 更新)**: 阶段二十四 / 二十五 / 二十六 均已提交并 `push origin main`
-(`37829ac` 阶段二十四 · `54c124f` 阶段二十五 官方静态数据层+官方图标 · 阶段二十六 界面重构)。
-改动后跑: `python -m unittest discover -s tests`(71 项) + `python tools/ui_shot.py`(界面自检) +
-`python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)。
+**工作区 / 推送(2026-10-08 更新)**: 阶段二十四~二十九 均已提交并 `push origin main`
+(`37829ac` 阶段二十四 · `54c124f` 阶段二十五 官方静态数据层+官方图标 · `5d32374`/`abf5468` 阶段二十六 界面重构 ·
+`d51f6e3` 阶段二十七 主属性数值校验 · `7246757` 阶段二十八 套装效果 `pieces` · 阶段二十九 组合穷举+伤害排名)。
+改动后跑: `python -m unittest discover -s tests`(120 项) + `python tools/ui_shot.py`(界面自检, 8 页) +
+`python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材) + `python tools/echo_plan.py --list`(库存)。
 
 **唯一未验证: 真机实跑**。阶段十六~二十三 的判定链路变化极大(概率期望 / 新权重 / 概率门 / 前瞻 / 完成度),
 跑一次评估核对三点: ① `[评估#N]` 的判定文案是否为新六档 ② 报告「完成度」与排序是否正常 ③ 整轮耗时
-(蒙特卡洛只对"未过线"的件触发; 离线 109 只约 8 秒)。
+(蒙特卡洛只对"未过线"的件触发; 离线 109 只约 8 秒)。阶段二十九 的「组合穷举」页另需一次界面走查
+(导入库存 → 选套装 → 穷举 → 双击明细 → 导出 CSV)。
 
 **下一棒候选(按价值排序)**:
-- **真机实跑核对**(见上) + **界面走查**(阶段二十六): 切页/改设置/跑一次评估, 重点看运行页日志卡与 InfoBar
+- **与 wuwa-calculator 对账**(`panel_plan.md` 步骤 4): 同一组输入喂两边, 伤害应一致 —— 这是组合穷举最强的正确性验收
+  (尤其要盯"固定值在括号外"与"声骸 COST 固有属性算不算面板贡献"这两处口径)
+- **真机实跑核对 + 界面走查**(见上)
+- **用户真实裸面板**: 样例里的 `攻击 1200 / 暴击 5% / 暴击伤害 150%` 是**占位值**, 拿到真实面板后再跑一次排名
+- **5★ 判定**: 评估产物无稀有度字段; 若要真判定, 可用主属性数值网格(`echo_main_prop`)反推(不符网格 = 疑似 4★ 或 OCR 误读)
 - **图标识别兜底到强化模式**: 现在强化套装由用户在下拉里选定, 不用图标; 若要"自动套装"强化可复用 `match_icon`
 - **新增套装素材: 已自动化**(阶段二十五) —— 新版本套装的图标从客户端 pak 抽取(命令见「官方静态数据层」), `assets/gamedata/echo_data.json` 的 `icon_asset` 就是客户端贴图名; 只有拿不到客户端安装时才需要手工补 PNG
 - **黑边校准: 暂不做**(用户确认云平台大概率全屏自适应)。触发条件: 若 `s1 < 0.60` 的低置信集中在某一分辨率/窗口模式, 再按黑边导致的整体偏移排查
@@ -264,6 +300,9 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 ## 已知坑
 
 - `pynput` 是必需依赖(点击层运行时才 import, 缺库表现为"点击无反应")— 勿从 requirements 移除
+- **受限沙箱里 `QSettings` 写不进注册表**(写后读回 None): 主题/窗口几何/上次页面这些"记忆"在那种环境下不生效
+  —— 这会让 `tools/ui_shot.py --dark` 静默出浅色图(已在工具里兜底: `show()` 后再 `apply_theme(..., remember=False)`);
+  真机(正常权限)不受影响
 - **`cv2.imread` 读不了中文路径**(`assets/echo_icons/雪落无声之愿.png` 会返回 None) → 用 `cv2.imdecode(np.fromfile(path, np.uint8), …)`(`echo_icon_match._template_gray`)
 - WGC 抓云游戏/浏览器窗口常黑屏 → cloud 锁定 `BitBlt_RenderFull`
 - 窗口尺寸: 初始 **1120x760** + 最小 940x620 + **记住上次几何/上次页面**(QSettings "OK-Echo"/"MainWindow");

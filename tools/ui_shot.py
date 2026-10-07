@@ -134,6 +134,12 @@ def main() -> int:
                 qs.setValue("theme", saved_theme)
             qs.sync()
     win.show()
+    if a.dark:
+        # 兜底: 有些环境(受控沙箱/无注册表写权限)QSettings 写不进去 → 上面那次启动即深色会失效,
+        # 这里再显式应用一次(不落盘)。每页抓图前都会 update()+processEvents(), 足够整页重绘。
+        win.apply_theme("DARK", remember=False)
+        win.stackedWidget.currentWidget().update()
+        app.processEvents()
     w, h = (int(x) for x in a.size.lower().split("x"))
     win.resize(w, h)
     app.processEvents()

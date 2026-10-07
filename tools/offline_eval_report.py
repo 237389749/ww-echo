@@ -22,7 +22,6 @@
 import argparse
 import glob
 import os
-import re
 import sys
 import time
 
@@ -32,8 +31,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from src.echo_stats import is_stat_match                                            # noqa: E402
-from src.echo_set_templates import get_set_by_echo, get_sets_by_echo                    # noqa: E402
-from src.echo_icon_match import match_icon                                           # noqa: E402
+from src.echo_inventory import parse_report, resolve_set, split_rows                # noqa: E402
 from src.task.EnhanceEchoTask import EnhanceEchoTask, parse_number                   # noqa: E402
 from ui.run_tab import _build_eval_html                                              # noqa: E402
 
@@ -48,49 +46,10 @@ def latest_debug_dir() -> str:
     return dirs[-1] if dirs else ''
 
 
-def parse_report(path: str) -> dict:
-    """image_report.md → {tag: [详情文字行...]}"""
-    text = open(path, encoding='utf-8').read()
-    out = {}
-    for m in re.finditer(r'^### (\S+)\n(.*?)(?=^### |\Z)', text, re.S | re.M):
-        body = re.search(r'\*\*【详情文字】\*\*\n((?:- .*\n)+)', m.group(2))
-        if body:
-            out[m.group(1)] = [ln[2:].strip() for ln in body.group(1).strip().split('\n')]
-    return out
-
-
-def split_rows(lines: list) -> tuple:
-    """复刻 read_detail: 名字=首个中文行; `+25`/`Z | C` 等面板非属性行丢掉;
-    `COST n` 行取角标(供 L2 的官方主属性方案判定); 属性行取 `名 | 值`。"""
-    name, props, cost = '', [], None
-    for ln in lines:
-        if not ln or ln.startswith('+') or ln.startswith('Z'):
-            continue
-        if ln.startswith('COST'):
-            m = re.search(r'COST\s*([134])', ln)
-            if m and cost is None:
-                cost = int(m.group(1))
-            continue
-        if ln.startswith('声骸技能'):
-            break
-        if '|' in ln:
-            # 按**最后一个** | 切分: 转录里属性图标被误读成前缀且与真名用 | 相连
-            # (如 `器 | 暴击伤害 | 15.0%` / `众 | 共鸣效率 | 8.4%`), 整个前缀保留给
-            # _normalize_stat 的逐字白名单清洗(线上 OCR 同样是前缀污染, 用同一套清洗)
-            head, _, tail = ln.rpartition('|')
-            props.append((head.strip(), tail.strip()))
-        elif not name and re.search(r'[\u4e00-\u9fff]', ln):
-            name = ln
-    return name, props, cost
-
-
 def pick_set(echo_name: str, frame) -> tuple:
-    """复刻 resolve_set_name(评估时 config 套装=通用): 图标优先 → 名字候选 → 通用。"""
-    icon_set, score, margin = match_icon(frame)
-    cands = get_sets_by_echo(echo_name)
-    if icon_set:
-        return icon_set, 'icon', score
-    return (get_set_by_echo(echo_name, prefer='通用') or '通用'), ('name' if cands else 'default'), score
+    """图标优先 → 名字候选 → 通用(与库存导入 `src.echo_inventory.resolve_set` 同一份实现)。"""
+    set_name, src, score = resolve_set(echo_name, frame)
+    return set_name, src, (score or 0.0)
 
 
 def main() -> int:
