@@ -38,6 +38,8 @@ tools/ui_shot.py          离屏渲染 7 个页面出 PNG(桩件替代引擎, �
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
 ```
 
+> **交接文档**：阶段二十四~二十八 的完成情况、数据面认知、下一个功能（声骸组合穷举+伤害排名）的契约与开工顺序，见仓库根 `handoff.md`。
+
 ## 界面(Fluent, 阶段二十六)
 
 - **外壳**: `ui/main_window.FluentWindow` + 左侧 `NavigationInterface`(运行/设备设置/热键设置/套装配置/调试工具/开发者 +
