@@ -165,6 +165,9 @@ ww-echo/
 │       ├── BaseEchoTask.py         # 任务基类
 │       └── ...
 ├── tests/                          # 单测(不依赖游戏数据)
+├── build_optimizer.md              # 3.7 官方表施工图 + 后续优化方案(P0~P6)
+├── helios/                         # 第三方(内置): WavyRooms/helios —— 私服客户端补丁源码(Zig)
+│                                   # 原仓 git.xeondev.com/WavyRooms/helios(不可达, 故内置保存)
 ├── tools/
 │   ├── ui_shot.py                  # 离屏渲染 7 页截图(改 UI 后的自检, 不需要游戏)
 │   ├── gen_echo_data.py            # 官方配置表 → assets/gamedata/echo_data.json(声骸↔套装/主属性方案)
