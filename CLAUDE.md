@@ -155,6 +155,14 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
   ② `.scratch/iconexport/`(CUE4Parse 控制台程序)`IconExport <松散树> <aesKey> <输出目录> IconElementAttri` 解出 PNG(76×76; `...128_*` 是 128×128);
   ③ `.scratch/swap_icons.py` 按 `gamedata` 的 `icon_file` 覆盖 `assets/echo_icons/`(先备份到 `.scratch/echo_icons_before/`)。
   要点: `TextureDecoder.UseAssetRipperTextureDecoder = true`(纯 C# BC7 解码, 免 CUE4Parse-Natives/Detex 原生库)、`-p:CUE4PARSE_SKIP_NATIVE=true` 跳过 CMake、中文路径传参易失败(用 `mklink /J` 建 ASCII 联接)。
+- **主属性数值表(阶段二十七)**: 生成物多出 `main_props` 段 —— 5★ 主属性的 `StandardProperty` 基准值 +
+  `PhantomGrowth` 成长曲线(26 档, 10000→50000) + 各属性名**多个变体**(`攻击` 同时有固定值 `30→150` 与
+  百分比 `660→33.0%`)。运行时 `src/echo_main_prop.py::check_main_values` 用它判"面板读到的主属性**数值**是否
+  落在官方网格上"(挡 OCR 误读); 两个实测教训已写进模块 docstring: ①等级只能取**下界**(词条数 n 只说明 ≥ +5n,
+  真实数据集里就有 +22 却 5 词条的声骸) ②容差要按"能匹配上的变体"取, 不能拿第一个变体的百分比容差去比固定值。
+  报告的「COST/主属性」格在数值可疑时显示 `⚠ 数值可疑`(行上带 `data-mpval="bad"`)。
+- **真实数据验收**: `python tools/offline_eval_report.py` 会打印"主属性数值可疑: N 条"(109 只基线 = **0 条**);
+  判定分布基线 `hold 38 / fail 24 / pass 39 / keep 1 / pending 7` **不变**(数值校验只加标记, 不动判定)。
 - **灰度孪生(改图标/调阈值前必读)**: 图标是"彩色圆环+白底+深色图案", 灰度 ZNCC 下有几对天生相近 ——
   `星构寻辉之环↔逆光跃彩之约 0.878`、`幽夜隐匿之帷↔轻云出月 0.815`(**换官方图前就存在, 真实面板判定正常**)、
   `凝夜白霜↔茜染怀想之花 0.799`(3.7 新图标带来的新对)。合成帧测试下孪生会抢跑使 margin < 0.05 → `match_icon` 返回 None(正确行为, 测试已显式列白名单);

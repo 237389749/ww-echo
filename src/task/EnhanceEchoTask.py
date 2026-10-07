@@ -10,6 +10,7 @@ from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
 from src.echo_stats import snap_to_tier, get_mean, is_stat_match, tier_percentile, DEFAULT_WEIGHTS  # noqa
+from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights,
                                     get_set_core_first, get_set_by_echo, get_sets_by_echo,
                                     normalize_echo_name, load_gamedata)
@@ -1107,6 +1108,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             pc = self.check_main_prop(set_name, cost, main_props)
             if pc:
                 rec["plan_check"] = pc
+            # 数值校验(官方 5★ 主属性网格 + 用词条数推出的等级窗口): 只记**不合法**的, 报告里标 ⚠
+            bad = [m for m in check_main_values(main_props, tier) if m.get("ok") is False]
+            if bad:
+                rec["main_values_check"] = bad
         return rec
 
     def judge_echo(self, set_name, tier, score, stats):

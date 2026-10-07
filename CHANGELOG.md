@@ -809,3 +809,17 @@ Gallery**(其 `setting_interface.py` 是设置页标准写法)与 **WinUI Galler
 **验证**: `python tools/ui_shot.py` 与 `--dark` 各渲染 7 页正常; `python -m unittest discover -s tests` **71 passed / 1 skipped**;
 业务逻辑(判定链/评分/报告)未改动 —— 本轮只动 `ui/`(唯一例外: 修正运行页日志可见性与上面两个开关的写回)。
 **仍未验证**: 真机实跑(打开/切页/改设置/跑一次评估)。
+
+## 阶段二十七: 主属性数值校验(官方表) + 数据面扩容
+
+- **数据面**: 稀疏检出扩容 `BinData/{item,drop,monster_Info,monsterDisplay,ui_resource}`(约 9 MB);
+  道具名对上了(36000001~4 = 初级/中级/高级/特级**密音筒**), 掉落/怪物/UI 资产路径表就位待用。
+- **生成物新增 `main_props`**: 5★ 主属性的 `StandardProperty` + 成长曲线 + 多变体(固定值/百分比同名并存), 来源
+  `PhantomMainProperty`/`PhantomMainPropItem`/`PhantomGrowth`。链路与游戏内已知值一致: 暴击 +25 = **22.0%**、
+  爆伤 **44.0%**、攻击 **150**、生命 **2280**。
+- **运行时**(`src/echo_main_prop.py`): `check_main_values()` 判面板主属性数值是否在官方网格上, 挡 OCR 误读;
+  `evaluate_one` 只在**不合法**时加 `main_values_check`, 报告「COST/主属性」格显示 `⚠ 数值可疑`。
+- **顺带定案 `防御百分比`**: 官方 `std=950` × 倍率(85…155, 步长 10) → 第 5 档 = 11.875, 游戏显示 **11.8**(截断) ——
+  项目沿用显示值(公示值)是对的, zigrika 的 11.9 是四舍五入口径。**不改 `_TIERS`**。
+- **验收**: `python -m unittest discover -s tests` **79 项通过**; `tools/offline_eval_report.py` 重放 109 只,
+  **主属性数值可疑 0 条**、判定分布与基线逐项一致(纯增标记, 不动判定)。

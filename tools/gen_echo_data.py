@@ -73,6 +73,7 @@ class Builder:
             "echoes": echoes,
             "props": props,
             "main_prop_names": self._main_prop_names(props),
+            "main_props": self._main_props(props),
         }
 
     # ---- 套装 ----
@@ -177,6 +178,56 @@ class Builder:
             if name:
                 out[str(p["Id"])] = {"name": name, "pct": bool(p.get("IsPercent"))}
         return dict(sorted(out.items(), key=lambda kv: int(kv[0])))
+
+    # ---- 主属性数值(5★) ----
+    def _main_props(self, props: dict) -> dict:
+        """5★ 主属性的**数值**表: 属性名 → 基准值 `StandardProperty` + 成长曲线 id。
+
+        链路(全部来自官方表): `PhantomMainProperty`(随机组 → 属性项 id) → `PhantomMainPropItem`
+        (`PropId` / `StandardProperty` / `GrowthId`) → `PhantomGrowth`(等级 → 倍率, 10000 = 100%)。
+        面板上显示值 = `StandardProperty` (百分比属性再 /100) × 倍率/10000, 例: 5★ COST4 暴击
+        `std=440` → +0 4.4% → +25 (倍率 50000) **22.0%**; 5★ 攻击 `std=30` → +25 **150**。
+
+        只收 **5★ 池**(`RandGroupId // 100 == 5`, 与 `PhantomMainPropItem` 的 5xx 族一致);
+        4★ 及以下默认弃置, 不进这份数据(见 CLAUDE.md 的"4★ 默认弃置")。
+        """
+        items = {r["Id"]: r for r in self.bd.table("PhantomMainPropItem")}
+        growth: dict[str, list[int]] = {}
+        for r in self.bd.table("PhantomGrowth"):
+            curve = growth.setdefault(str(r["GrowthId"]), [])
+            lv = int(r["Level"])
+            while len(curve) <= lv:                 # 按等级索引的列表(JSON 键只能是字符串, 列表更省事)
+                curve.append(0)
+            curve[lv] = int(r["Value"])
+        # 属性项 id 的**首位数字** = 稀有度族(2xx=2★ … 5xx=5★); 只看 5★(4★ 及以下默认弃置)
+        ids: dict[int, int] = {}                    # 属性项 id → RandGroupId
+        for row in self.bd.table("PhantomMainProperty"):
+            rg = int(row.get("RandGroupId") or 0)
+            if rg // 100 != 5:
+                continue
+            for pid in row.get("PropGroup") or []:
+                ids.setdefault(pid, rg)
+        out: dict[str, list[dict]] = {}
+        for pid in sorted(ids):
+            it = items.get(pid)
+            if not it:
+                continue
+            p = props.get(str(it["PropId"])) or {}
+            name = p.get("name")
+            if not name:
+                continue
+            # 10002/10007/10010(生命/攻击/防御) 同时有固定值(AddType=1)与百分比(AddType=2)两种主属性变体,
+            # 名字一样 → 必须都留着, 由"数值落在哪个网格上"来区分; 其余属性一律按 PropertyIndex.IsPercent。
+            pct = bool(p.get("pct")) or (int(it["PropId"]) in (10002, 10007, 10010)
+                                         and int(it.get("AddType") or 1) == 2)
+            out.setdefault(name, []).append({
+                "id": pid, "prop_id": it["PropId"], "add_type": int(it.get("AddType") or 1),
+                "std": int(it["StandardProperty"]), "pct": pct, "growth": str(it.get("GrowthId")),
+            })
+        cap = max((len(c) - 1 for c in growth.values() if c), default=25)
+        return {"level_cap": cap,
+                "growth": {g: c for g, c in sorted(growth.items())},
+                "props": dict(sorted(out.items()))}
 
     def _main_prop_names(self, props: dict) -> dict[str, int]:
         """主属性可出现的「属性名 → PropId」(面板主属性行 → 官方管理方案用的 PropId)。

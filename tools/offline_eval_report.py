@@ -114,7 +114,7 @@ def main() -> int:
     for old in glob.glob(os.path.join(ss_dir, '*.png')):
         os.remove(old)
 
-    seen, results, log = set(), [], []
+    seen, results, log, bad_val = set(), [], [], []
     n_zero = n_dup = 0
     src_stat, set_stat, verdict_stat = {}, {}, {}
 
@@ -157,6 +157,10 @@ def main() -> int:
         src_stat[set_src] = src_stat.get(set_src, 0) + 1
         set_stat[set_name] = set_stat.get(set_name, 0) + 1
         verdict_stat[rec["verdict"]] = verdict_stat.get(rec["verdict"], 0) + 1
+        if rec.get("main_values_check"):
+            bad_val.append(f'{tag} {name} {rec.get("cost")}C: '
+                           + "; ".join(f'{m["name"]} {m["value"]:g}→{m["expect"]:g}'
+                                       for m in rec["main_values_check"]))
         log.append(f'{tag} {name} | {set_name}({set_src}, s1={s1:.3f}) | '
                    f'{rec["tier"]}词条 {rec["score"]:.1f} {rec["verdict_cn"]}')
 
@@ -172,6 +176,9 @@ def main() -> int:
 
     print(f'\n入报告 {len(results)} 只 | 跳过 0级 {n_zero} / 重复(滚动重叠) {n_dup}')
     print('判定分布:', verdict_stat)
+    print(f'主属性数值可疑: {len(bad_val)} 条' + ('（命中都是 OCR 误读或网格缺变体, 逐条如下）' if bad_val else ' ✓'))
+    for ln in bad_val[:10]:
+        print('   ', ln)
     print('套装来源:', src_stat)
     print('套装分布:', dict(sorted(set_stat.items(), key=lambda kv: -kv[1])))
     print(f'\n报告: {html_path}\n截图: {ss_dir}')

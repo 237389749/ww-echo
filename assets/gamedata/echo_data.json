@@ -5627,5 +5627,242 @@
   "衍射伤害加成": 26,
   "湮灭伤害加成": 27,
   "共鸣效率": 11
+ },
+ "main_props": {
+  "level_cap": 25,
+  "growth": {
+   "1": [
+    10000,
+    11600,
+    13200,
+    14800,
+    16400,
+    18000,
+    19600,
+    21200,
+    22800,
+    24400,
+    26000,
+    27600,
+    29200,
+    30800,
+    32400,
+    34000,
+    35600,
+    37200,
+    38800,
+    40400,
+    42000,
+    43600,
+    45200,
+    46800,
+    48400,
+    50000
+   ]
+  },
+  "props": {
+   "共鸣效率": [
+    {
+     "id": 5016,
+     "prop_id": 11,
+     "add_type": 1,
+     "std": 640,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "冷凝伤害加成": [
+    {
+     "id": 5007,
+     "prop_id": 22,
+     "add_type": 1,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "导电伤害加成": [
+    {
+     "id": 5009,
+     "prop_id": 24,
+     "add_type": 1,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "攻击": [
+    {
+     "id": 5003,
+     "prop_id": 10007,
+     "add_type": 2,
+     "std": 660,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 5013,
+     "prop_id": 10007,
+     "add_type": 2,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 5017,
+     "prop_id": 10007,
+     "add_type": 2,
+     "std": 360,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 50001,
+     "prop_id": 10007,
+     "add_type": 1,
+     "std": 30,
+     "pct": false,
+     "growth": "1"
+    },
+    {
+     "id": 50003,
+     "prop_id": 10007,
+     "add_type": 1,
+     "std": 20,
+     "pct": false,
+     "growth": "1"
+    }
+   ],
+   "暴击": [
+    {
+     "id": 5001,
+     "prop_id": 8,
+     "add_type": 1,
+     "std": 440,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "暴击伤害": [
+    {
+     "id": 5002,
+     "prop_id": 9,
+     "add_type": 1,
+     "std": 880,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "气动伤害加成": [
+    {
+     "id": 5010,
+     "prop_id": 25,
+     "add_type": 1,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "治疗效果加成": [
+    {
+     "id": 5006,
+     "prop_id": 35,
+     "add_type": 1,
+     "std": 528,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "湮灭伤害加成": [
+    {
+     "id": 5012,
+     "prop_id": 27,
+     "add_type": 1,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "热熔伤害加成": [
+    {
+     "id": 5008,
+     "prop_id": 23,
+     "add_type": 1,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "生命": [
+    {
+     "id": 5004,
+     "prop_id": 10002,
+     "add_type": 2,
+     "std": 660,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 5014,
+     "prop_id": 10002,
+     "add_type": 2,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 5018,
+     "prop_id": 10002,
+     "add_type": 2,
+     "std": 456,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 50002,
+     "prop_id": 10002,
+     "add_type": 1,
+     "std": 456,
+     "pct": false,
+     "growth": "1"
+    }
+   ],
+   "衍射伤害加成": [
+    {
+     "id": 5011,
+     "prop_id": 26,
+     "add_type": 1,
+     "std": 600,
+     "pct": true,
+     "growth": "1"
+    }
+   ],
+   "防御": [
+    {
+     "id": 5005,
+     "prop_id": 10010,
+     "add_type": 2,
+     "std": 836,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 5015,
+     "prop_id": 10010,
+     "add_type": 2,
+     "std": 760,
+     "pct": true,
+     "growth": "1"
+    },
+    {
+     "id": 5019,
+     "prop_id": 10010,
+     "add_type": 2,
+     "std": 360,
+     "pct": true,
+     "growth": "1"
+    }
+   ]
+  }
  }
 }

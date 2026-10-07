@@ -904,16 +904,24 @@ def _build_eval_html(data):
             plan_html = (f'<div title="官方管理方案: 保留 {plan.get("lock", [])} / '
                          f'丢弃 {plan.get("discard", [])}" style="color:{plan_mark[1]};font-size:11px">'
                          f'{plan_mark[0]} 官方方案</div>')
+        # 主属性**数值**校验(阶段二十七): 不在官方 5★ 网格上 → 疑似 OCR 误读, 标 ⚠
+        mvc = r.get("main_values_check") or []
+        val_html = ""
+        if mvc:
+            detail = "; ".join(f'{m.get("name")} {m.get("value"):g} → 应接近 {m.get("expect"):g}' for m in mvc)
+            val_html = (f'<div title="数值不在官方可能的网格上(疑似 OCR 误读): {detail}" '
+                        f'style="color:#c62828;font-size:11px">⚠ 数值可疑</div>')
         cost_txt = f'{r["cost"]}C' if r.get("cost") else "—"
         rows.append(
             f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}" data-set="{set_name}"'
             f' data-cost="{r.get("cost") or ""}" data-plan="{pc.get("state") or ""}"'
+            f' data-mpval="{"bad" if mvc else ""}"'
             f' data-comp="{comp if comp is not None else -1}">'
             f'<td>{r["index"]}</td>'
             f'<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>'
             f'<td{name_title}>{name}</td>'
             f'<td title="{set_src}">{set_name}</td>'
-            f'<td><b>{cost_txt}</b>{plan_html}{mp_html}</td>'
+            f'<td><b>{cost_txt}</b>{plan_html}{val_html}{mp_html}</td>'
             f'<td>{r["score"]}{comp_html}</td>'
             f'<td style="color:{color};font-weight:bold">{vcn}{pr_html}{rf_html}</td>'
             f'<td>{stats_html}</td></tr>')
