@@ -36,27 +36,39 @@ Z | C
 class TestNormalize(unittest.TestCase):
 
     def test_report_style_values(self):
-        cases = [("暴击", "22.0%", 25, 4, "暴击"),
-                 ("暴击伤害", "44.0%", 25, 4, "暴击伤害"),
-                 ("气动伤害加成", "30.0%", 25, 3, "气动伤害加成"),
-                 ("共鸣效率", "32.0%", 25, 3, "共鸣效率"),
-                 ("治疗效果加成", "26.4%", 25, 4, "治疗效果加成"),
-                 ("攻击", "18.0%", 25, 1, "攻击百分比"),      # 1C 主属性是攻击%
-                 ("攻击", "30.0%", 25, 3, "攻击百分比"),
-                 ("攻击", "150", 25, 4, "攻击"),              # 4C 固有属性
-                 ("攻击", "100", 25, 3, "攻击"),              # 3C 固有属性
-                 ("生命", "2280", 25, 1, "生命"),             # 1C 固有属性
-                 ("X攻击", "150", 25, 4, "攻击"),             # OCR 前缀污染不影响
-                 ("不存在属性", "1", 25, 1, "不存在属性")]     # 认不出 → 原文(交给 unknown 记录)
-        for raw, val, lv, cost, want in cases:
-            with self.subTest(raw=raw, val=val, cost=cost):
-                self.assertEqual(normalize_main_prop(raw, val, lv, cost), want)
+        # (原始名, 原始值, 等级, 词条数, 期望键) —— 报告里的值带 %, 名字认官方 main_prop_names
+        cases = [("暴击", "22.0%", 25, 5, "暴击"),
+                 ("暴击伤害", "44.0%", 25, 5, "暴击伤害"),
+                 ("气动伤害加成", "30.0%", 25, 5, "气动伤害加成"),
+                 ("共鸣效率", "32.0%", 25, 5, "共鸣效率"),
+                 ("治疗效果加成", "26.4%", 25, 5, "治疗效果加成"),
+                 ("攻击", "18.0%", 25, 5, "攻击百分比"),      # 1C 主属性是攻击%
+                 ("攻击", "30.0%", 25, 5, "攻击百分比"),
+                 ("攻击", "150", 25, 5, "攻击"),              # 4C 固有属性
+                 ("攻击", "100", 25, 5, "攻击"),              # 3C 固有属性
+                 ("生命", "2280", 25, 5, "生命"),             # 1C 固有属性
+                 ("X攻击", "150", 25, 5, "攻击"),             # OCR 前缀污染不影响
+                 ("不存在属性", "1", 25, 5, "不存在属性")]     # 认不出 → 原文(交给 unknown 记录)
+        for raw, val, lv, tier, want in cases:
+            with self.subTest(raw=raw, val=val, tier=tier):
+                self.assertEqual(normalize_main_prop(raw, val, lv, tier), want)
 
     def test_json_style_floats_use_official_grid(self):
         # JSON 里数值已丢 %, 只能靠官方网格: 18.0 只可能是百分比变体(+25), 150.0 只可能是固定变体
         self.assertEqual(normalize_main_prop("攻击", 18.0, 25), "攻击百分比")
         self.assertEqual(normalize_main_prop("攻击", 150.0, 25), "攻击")
         self.assertEqual(normalize_main_prop("生命", 2280.0, 25), "生命")
+
+    def test_unknown_level_needs_substat_count(self):
+        """没有等级时**必须**用词条数收窄窗口: 放开全等级时 `攻击 30.0` 会同时命中百分比(+25)与固定值(+0)。
+
+        实测踩过: JSON 途径(只有词条数)把满级 3C 的 `攻击% 30.0` 误判成固定 30 —— 与素材目录途径的
+        (名字/套装/COST/词条)逐只比对才发现。
+        """
+        self.assertEqual(normalize_main_prop("攻击", 30.0, None, 5), "攻击百分比")   # tier=5 → 窗口 [25]
+        self.assertEqual(normalize_main_prop("攻击", 100.0, None, 5), "攻击")       # 3C 固有属性(满级 100)
+        self.assertEqual(normalize_main_prop("攻击", 150.0, None, 5), "攻击")       # 4C 固有属性(满级 150)
+        self.assertEqual(normalize_main_prop("攻击", 30.0, None, 0), "攻击")       # 全等级窗口 → 有歧义 → 保守取固定
 
     def test_substat_key_splits_flat_and_percent(self):
         for name, val, want in (("攻击", 30.0, "攻击"), ("攻击", 9.4, "攻击百分比"),
@@ -161,6 +173,28 @@ class TestRealDataset(unittest.TestCase):
             self.assertEqual(i.main[1], want[i.cost], str(i))
             checked += 1
         self.assertGreater(checked, 60)
+
+    def test_json_roundtrip_matches_dir_path(self):
+        """两条导入途径必须**逐只等价**: 把素材目录的结果写成评估 JSON(`<报告>.json` 的形状)再导入。
+
+        这条正是「运行页评估 → 报告同目录 .json → 组合穷举」的实际链路; 少了它, JSON 途径的
+        `攻击% ↔ 攻击` 判定偏差(见 `test_unknown_level_needs_substat_count`)会一路带到排名里。
+        """
+        records = [{"index": i, "name": it.name, "set": it.set_name, "cost": it.cost,
+                    "main_props": [{"name": k, "value": v} for k, v in it.main],
+                    "stats": [{"name": k, "value": v} for k, v in it.stats[len(it.main):]]}
+                   for i, it in enumerate(self.items, 1)]
+
+        def key(it):
+            return (it.name, it.set_name, it.cost, tuple(sorted(it.stats)))
+
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "eval_report.json")
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump({"set": "通用", "total": len(records), "results": records},
+                          f, ensure_ascii=False)
+            from_json = load_inventory(p)
+        self.assertEqual(sorted(map(key, from_json)), sorted(map(key, self.items)))
 
 
 if __name__ == '__main__':

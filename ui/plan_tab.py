@@ -140,8 +140,8 @@ class PlanTab(QWidget):
         self.mode_card.hBoxLayout.addSpacing(16)
 
         self.inv_card = SettingCard(FIF.FOLDER, "声骸库存",
-                                    "从 logs/eval_debug 素材目录或评估 JSON 导入(含图标识别套装); "
-                                    "导入即视为 5★(评估数据无稀有度字段)", self.view)
+                                    "「运行」页评估后保存的报告同目录会生成同名 .json(推荐: 含套装/COST/主属性/词条); "
+                                    "也可选 logs/eval_debug 素材目录。导入即视为 5★(评估数据无稀有度字段)", self.view)
         self.import_btn = PushButton(FIF.DOWNLOAD, "导入最新素材")
         self.import_btn.clicked.connect(lambda: self._import(""))
         self.pick_btn = PushButton(FIF.FOLDER, "选择…")
@@ -338,8 +338,8 @@ class PlanTab(QWidget):
 
     def _pick_inventory(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "选择评估 JSON(image_report.md 所在目录也可)", "",
-            "评估 JSON (*.json);;详情转录 (*.md);;所有文件 (*)")
+            self, "选择评估数据(eval_result.json; image_report.md 所在目录也可)", "",
+            "评估数据 (*.json);;详情转录 (*.md);;所有文件 (*)")
         if path:
             self._import(path)
 

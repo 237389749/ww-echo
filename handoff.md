@@ -16,7 +16,7 @@
 | **二十九** | 本次 | **声骸组合穷举 + 伤害排名**：`src/echo_panel.py` / `src/echo_combos.py` / `src/echo_inventory.py` / `tools/echo_plan.py` / `ui/plan_tab.py` + 41 项单测 |
 
 **基线（改东西后必须复跑）**
-- `python -m unittest discover -s tests` → **120 passed / 1 skipped**
+- `python -m unittest discover -s tests` → **122 passed / 1 skipped**
 - `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `hold 38 / fail 24 / pass 39 / keep 1 / pending 7`、
   **主属性数值可疑 0 条**、套装来源 `{icon:108, name:1}`
 - `python tools/eval_icon_match.py` → 217/219（99.1%）
@@ -59,9 +59,14 @@ python tools/echo_plan.py --mode 3+2 --set-a 息界同调之律 --set-b 听唤�
 - 扩容：`cd search/wwdata37; git -c http.proxy= -c https.proxy= sparse-checkout add BinData/<表名>`
   （本机 git 全局配了 `http.proxy=127.0.0.1:7890`，代理没开时**必须**用这个 -c 覆盖走直连）。
 - **外接盘 E: 只对 UI 贴图有用**（`tools/icon_export/`）；表数据不需要它。
-- **库存导入的数据源**：`logs/eval_debug/<时间戳>/`（`image_report.md` 提供 名字/等级/COST/主属性 2 行/词条 5 条，
-  `<tag>_full.png` 供图标识别定套装）或评估 JSON（`results`）。**图标识别是套装归属的关键**：
-  `use_icons=False` 时多义名字会退到"通用"（0.05 s vs 5.2 s，但套装分布会错）。
+- **库存导入的数据源**：① **「运行」页评估后保存报告时同目录写出的 `<报告名>.json`（首选）** ——
+  含 名字/套装/COST/主属性/词条，`tools/echo_plan.py --inventory <它>` 或页面「选择…」直接导入；
+  ② `logs/eval_debug/<时间戳>/`（`image_report.md` + `<tag>_full.png` 图标识别定套装；需要
+  `SAVE_DEBUG_DATASET=True` 且那份 `image_report.md` 是另外转录的）。
+  **两条途径已用 109 只真实数据验证逐只等价**（`test_json_roundtrip_matches_dir_path`）。
+  **注意**：JSON 途径没有 `%` 也没有等级，`攻击/生命/防御` 的固定 vs 百分比只能靠"词条数收窄官方网格窗口"判
+  —— 这里踩过坑（满级 `攻击% 30.0` 曾被当成固定 30），改动这张表前先看
+  `normalize_main_prop` 的 docstring 与那两个回归用例。
 
 ## 四、下一棒（按价值排序）
 

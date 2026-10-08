@@ -93,6 +93,10 @@ tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 
 - **`攻击/生命/防御` 有固定与百分比两个变体**: 报告路径按数值里的 `%` 判, JSON 路径按**官方取值网格**判
   (`echo_main_prop.candidates()`, 区间不重叠 → 判定唯一)。**别只看名字就当成固定值**。
 - **5★ 无法从评估产物判定**(没有稀有度字段): 导入即视为 5★, 由用户口径保证; 要真判定得用主属性数值网格反推。
+- **库存从哪来**: 「运行」页评估结束保存报告时, `ui/run_tab._on_eval_done_ui` **顺手把评估数据写一份
+  `<报告名>.json` 到报告同目录**(临时目录随后会被删)。「组合穷举」页「选择…」或
+  `tools/echo_plan.py --inventory <该 json>` 直接导入它; `logs/eval_debug/<ts>/` 那条路只在需要
+  **图标识别补套装**时才用(需 `SAVE_DEBUG_DATASET=True` + 一份 `image_report.md` 转录)。
 - **性能**: 109 只数据集 3+2 约 3 千余组 / 0.08 秒(名字分组 → 名字组合 → 实例笛卡尔积); 组合规模大时靠 `top_k` 堆,
   取消走 `plan(..., should_stop=...)`(每 512 组查一次)。
 
@@ -270,7 +274,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 **工作区 / 推送(2026-10-08 更新)**: 阶段二十四~二十九 均已提交并 `push origin main`
 (`37829ac` 阶段二十四 · `54c124f` 阶段二十五 官方静态数据层+官方图标 · `5d32374`/`abf5468` 阶段二十六 界面重构 ·
 `d51f6e3` 阶段二十七 主属性数值校验 · `7246757` 阶段二十八 套装效果 `pieces` · 阶段二十九 组合穷举+伤害排名)。
-改动后跑: `python -m unittest discover -s tests`(120 项) + `python tools/ui_shot.py`(界面自检, 8 页) +
+改动后跑: `python -m unittest discover -s tests`(122 项) + `python tools/ui_shot.py`(界面自检, 8 页) +
 `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材) + `python tools/echo_plan.py --list`(库存)。
 
 **唯一未验证: 真机实跑**。阶段十六~二十三 的判定链路变化极大(概率期望 / 新权重 / 概率门 / 前瞻 / 完成度),

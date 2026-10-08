@@ -595,9 +595,16 @@ class RunTab(QWidget):
             html = _build_eval_html(data)
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(html)
+            # 顺手把评估数据(JSON)存到报告同目录 —— 临时目录随后会被删, 而「组合穷举」页/tools/echo_plan.py
+            # 需要这份 JSON 当**库存**(含 名字/套装/COST/主属性/词条)才能穷举; HTML 只供人看。
+            json_dest = os.path.join(dest_dir, os.path.splitext(os.path.basename(save_path))[0] + ".json")
+            with open(json_dest, "w", encoding="utf-8") as f:
+                _json.dump(data, f, ensure_ascii=False, indent=2)
+            self._append_log(f"评估数据已存: {json_dest}(「组合穷举」页可直接导入它当库存)")
 
             if QMessageBox.question(None, "完成",
-                                    f"报告已保存:\n{save_path}\n\n打开查看?") == QMessageBox.Yes:
+                                    f"报告已保存:\n{save_path}\n数据已保存:\n{json_dest}\n\n打开查看?"
+                                    ) == QMessageBox.Yes:
                 os.startfile(save_path)
         except Exception as e:
             self._append_log(f"[ERROR] 保存失败: {e}")

@@ -118,10 +118,14 @@ def _grid_says_pct(name: str, value: float, levels) -> bool | None:
     return pct
 
 
-def normalize_main_prop(raw_name: str, value, level: int | None = None, cost: int | None = None) -> str:
+def normalize_main_prop(raw_name: str, value, level: int | None = None, tier: int | None = None) -> str:
     """主属性行(名 + 值) → 面板键: 认名(官方 `main_prop_names` 最长子串) + 判"固定/百分比"。
 
     认不出名字返回原文(会被 `echo_panel` 记进 `unknown`, 不静默吞掉)。
+
+    `level`(报告里的 `+25`)最准; 只有词条数时传 `tier`, 用 `[5·tier, 25]` 窗口收窄网格 ——
+    **这一步是必需的**: 放开全等级比较时 `攻击 30.0` 会同时命中"百分比(满级 30.0)"与"固定值(+0 30)",
+    判定不了就会把满级 4C/3C 的 `攻击% 30.0` 误当固定值(实测踩过)。
     """
     gd = load_gamedata() or {}
     names = gd.get("main_prop_names") or {}
@@ -138,7 +142,7 @@ def normalize_main_prop(raw_name: str, value, level: int | None = None, cost: in
         except ValueError:
             num = None
         if num is not None:
-            verdict = _grid_says_pct(key, num, _levels(level))
+            verdict = _grid_says_pct(key, num, _levels(level, tier))
             if verdict is not None:
                 pct = verdict
     return key + "百分比" if pct else key
@@ -188,7 +192,7 @@ def item_from_report(tag: str, lines: list, frame=None) -> EchoItem | None:
     if not subs:
         return None                       # 0 级: 无词条, 不入库存(与评估报告一致)
     level = parse_level(lines)
-    main = tuple((normalize_main_prop(n, v, level, cost), parse_number(v)) for n, v in props[:2])
+    main = tuple((normalize_main_prop(n, v, level, len(subs)), parse_number(v)) for n, v in props[:2])
     set_name, src, score = resolve_set(name, frame)
     return EchoItem(name=name, cost=int(cost or 0), set_name=set_name,
                     stats=tuple(main) + subs, main=main, level=level,
@@ -204,7 +208,7 @@ def item_from_record(rec: dict) -> EchoItem | None:
     if not name or not subs:
         return None
     tier = len(subs)
-    main = tuple((normalize_main_prop(m.get("name"), m.get("value"), None, rec.get("cost")),
+    main = tuple((normalize_main_prop(m.get("name"), m.get("value"), None, tier),
                   float(m.get("value") or 0)) for m in (rec.get("main_props") or []))
     return EchoItem(name=name, cost=int(rec["cost"]) if rec.get("cost") in (1, 3, 4) else 0,
                     set_name=str(rec.get("set") or "通用"), stats=main + subs, main=main,
