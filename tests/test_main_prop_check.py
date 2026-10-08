@@ -49,6 +49,46 @@ class TestParseCost(unittest.TestCase):
         self.assertIsNone(parse_cost([Box('攻击', 1326, 454, 104), Box('150', 1400, 454, 40)]))
 
 
+class TestReadCostBadge(unittest.TestCase):
+    """COST 角标**单区放大重读**(全屏 1× 漏检数字时的兜底; 实测 20261008 那批 27/135 会漏)。
+
+    这里用假任务只验证"截对了区域 + 放大了 + 解析结果对" —— OCR 本身不进单测(慢且不确定),
+    真实数据上的效果见 `tools/...` 与 eval_rules/CHANGELOG 记录的 27/27 复现实验。
+    """
+
+    class _Fake:
+        def __init__(self, boxes, shape=(1200, 1920, 3)):
+            import numpy as np
+            self.frame = np.zeros(shape, dtype=np.uint8)
+            self.boxes = boxes
+            self.calls = []
+
+        def ocr(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return list(self.boxes)
+
+    def test_roi_and_upscale(self):
+        f = self._Fake([Box('COST 3', 10, 10, 100)])
+        self.assertEqual(EnhanceEchoTask.read_cost_badge(f), 3)
+        (_args, kwargs), = f.calls
+        roi = kwargs.get('frame')
+        self.assertIsNotNone(roi)                       # 传的是自己截好的图, 不再是整帧
+        # 帧 1920x1200 上 x 1315..1520 / y 228..300 → 205x72, 放大 3×
+        self.assertEqual(roi.shape[:2], (216, 615))
+
+    def test_merged_and_split_forms(self):
+        for boxes, want in ([[Box('COST1', 0, 0, 100)], 1],
+                            [[Box('COST 4', 0, 0, 100)], 4],
+                            [[Box('COST', 0, 0, 90), Box('3', 120, 2, 20)], 3]):
+            with self.subTest(boxes=[b.name for b in boxes]):
+                self.assertEqual(EnhanceEchoTask.read_cost_badge(self._Fake(boxes)), want)
+
+    def test_no_frame_or_garbage(self):
+        self.assertIsNone(EnhanceEchoTask.read_cost_badge(self._Fake([], shape=(0, 0, 3))))
+        self.assertIsNone(EnhanceEchoTask.read_cost_badge(self._Fake([Box('暴击', 0, 0, 50)])))
+
+
+
 class TestCheckMainProp(unittest.TestCase):
 
     @classmethod

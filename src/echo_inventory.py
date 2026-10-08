@@ -111,11 +111,50 @@ def _grid_says_pct(name: str, value: float, levels) -> bool | None:
     cands = main_prop_candidates(name, levels)
     if not cands:
         return None
-    pct = any(p and abs(v - value) <= tol for v, tol, p in cands)
-    flat = any(not p and abs(v - value) <= tol for v, tol, p in cands)
+    pct = any(p and abs(v - value) <= tol for v, tol, p, _std in cands)
+    flat = any(not p and abs(v - value) <= tol for v, tol, p, _std in cands)
     if pct == flat:
         return None
     return pct
+
+
+# COST **固有属性**(面板第 2 行)的官方固定值变体: COST1 生命(std 456) / COST3 攻击(std 20) /
+# COST4 攻击(std 30)。显示值 = std × PhantomGrowth倍率/10000, 所以这里只存 std, 值由官方网格按等级算。
+# 依据: 两批真实面板(219 张 20260911 + 135 张 20261008)满级分别是 生命 2280 / 攻击 100 / 攻击 150。
+_FIXED_MAIN_STD: dict[int, tuple[str, float]] = {1: ("生命", 456.0), 3: ("攻击", 20.0), 4: ("攻击", 30.0)}
+
+
+def infer_cost(main_props, level: int | None = None, tier: int | None = None) -> int | None:
+    """COST 角标没读到(OCR 抖动)时, 用**第 2 行 COST 固有属性**反推 COST; 不唯一 → None(不猜)。
+
+    `main_props` = 已归一化的 `[(键, 值), …]`(见 `normalize_main_prop`)。
+    为什么能反推: 每个 COST 档的固有属性不同(1C 生命 / 3C·4C 攻击), 值按官方曲线随等级走 ——
+    名字 + 值 + 官方变体 std 三者一比即可定位唯一 COST(3C/4C 都是攻击, 靠 std 20/30 区分)。
+    """
+    props = list(main_props)
+    if len(props) < 2:
+        return None
+    key, value = props[1]
+    levels = _levels(level, tier)
+    hits: set[int] = set()
+    for cost, (vname, std) in _FIXED_MAIN_STD.items():
+        if vname != key:
+            continue
+        for cand, tol, pct, cstd in main_prop_candidates(vname, levels):
+            if pct or abs(cstd - std) > 1e-6:
+                continue
+            if abs(cand - float(value)) <= tol:
+                hits.add(cost)
+                break
+    return hits.pop() if len(hits) == 1 else None
+
+
+def resolve_cost(cost, main_props, level=None, tier=None) -> tuple[int, bool]:
+    """→ `(COST, 是否靠第 2 行反推)`。角标读到就用角标(权威); 没读到才反推(本批数据实测缺 27/135)。"""
+    if cost in (1, 3, 4):
+        return int(cost), False
+    guess = infer_cost(main_props, level, tier)
+    return (guess, True) if guess else (0, False)
 
 
 def normalize_main_prop(raw_name: str, value, level: int | None = None, tier: int | None = None) -> str:
@@ -194,9 +233,11 @@ def item_from_report(tag: str, lines: list, frame=None) -> EchoItem | None:
     level = parse_level(lines)
     main = tuple((normalize_main_prop(n, v, level, len(subs)), parse_number(v)) for n, v in props[:2])
     set_name, src, score = resolve_set(name, frame)
-    return EchoItem(name=name, cost=int(cost or 0), set_name=set_name,
-                    stats=tuple(main) + subs, main=main, level=level,
-                    source=f"{tag}|{src}|s1={score:.3f}" if score is not None else f"{tag}|{src}")
+    cost, inferred = resolve_cost(cost, main, level, len(subs))
+    tail = f"{tag}|{src}" + (f"|s1={score:.3f}" if score is not None else "") + \
+        ("|cost=反推" if inferred else "")
+    return EchoItem(name=name, cost=cost, set_name=set_name,
+                    stats=tuple(main) + subs, main=main, level=level, source=tail)
 
 
 def item_from_record(rec: dict) -> EchoItem | None:
@@ -210,9 +251,10 @@ def item_from_record(rec: dict) -> EchoItem | None:
     tier = len(subs)
     main = tuple((normalize_main_prop(m.get("name"), m.get("value"), None, tier),
                   float(m.get("value") or 0)) for m in (rec.get("main_props") or []))
-    return EchoItem(name=name, cost=int(rec["cost"]) if rec.get("cost") in (1, 3, 4) else 0,
+    cost, inferred = resolve_cost(rec.get("cost"), main, None, tier)
+    return EchoItem(name=name, cost=cost,
                     set_name=str(rec.get("set") or "通用"), stats=main + subs, main=main,
-                    level=None, source=f"json#{rec.get('index', '')}")
+                    level=None, source=f"json#{rec.get('index', '')}" + ("|cost=反推" if inferred else ""))
 
 
 def load_inventory(path: str = "", use_icons: bool = True) -> list[EchoItem]:

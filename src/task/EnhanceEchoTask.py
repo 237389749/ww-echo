@@ -34,6 +34,13 @@ _STAT_CHARS = set(''.join(_TIERS_ORDER) + '治疗效果加成')
 # 其余 102 张只读到标签 `COST` —— 后者取**同一行右侧**的数字框(102/102 都能找到)。
 _COST_RE = re.compile(r'COST\s*([134])')
 
+# COST 角标区(归一化) + 重读放大倍数: 数字是小字, 全屏 1× OCR 有时**整个数字框都检不出来**
+# (20261008 那批 135 只里 27 只 parse_cost 返 None; 用保存的面板截图复跑 OCR 复现: `eval_062`
+#  只出 'COST', 没有数字框)。只截这一小块放大 3× 再读 → 27/27 全部读回, 且与"第 2 行固有属性反推"
+# 的 COST 完全一致(见 echo_inventory.infer_cost / tests)。
+_COST_ROI = (0.685, 0.19, 0.792, 0.25)
+_COST_UPSCALE = 3
+
 
 def parse_cost(boxes) -> int | None:
     """详情面板 OCR 框 → COST(1/3/4); 认不出返回 None。"""
@@ -216,6 +223,33 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 unmatched.remove(closest)
             paired.append((prop.name, v_text))
         return paired
+
+    def read_cost_badge(self) -> int | None:
+        """COST 角标**单区放大重读**(全屏 1× 漏检时的兜底): 只截 `_COST_ROI` 放大 `_COST_UPSCALE` 倍再 OCR。
+
+        为什么需要: 数字是小字, 全屏 OCR 有时**整个数字框都检不出来**(实测 20261008 那批 27/135 只剩
+        `COST` 标签; 用保存的面板截图复跑可复现)。只读这一小块放大后 27/27 都能读回。
+        代价只在 1× 没读到时才发生(通常 <0.3s)。
+        """
+        frame = self.frame
+        if frame is None:
+            return None
+        h, w = frame.shape[:2]
+        x0, y0, x1, y1 = _COST_ROI
+        roi = frame[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
+        if roi.size == 0:
+            return None
+        roi = cv2.resize(roi, None, fx=_COST_UPSCALE, fy=_COST_UPSCALE, interpolation=cv2.INTER_CUBIC)
+        try:
+            boxes = self.ocr(0, 0, 1, 1, frame=roi)
+        except Exception as e:                     # noqa: BLE001 - OCR 失败不该让整轮评估崩掉
+            logger.warning(f'COST 角标重读失败(忽略): {e}')
+            return None
+        for b in boxes or []:                      # 放大后常是 `COST 1` / `COST1`
+            m = _COST_RE.search(str(getattr(b, 'name', '')))
+            if m:
+                return int(m.group(1))
+        return parse_cost(boxes or [])             # 标签与数字仍是两个框 → 走同行规则
 
 
     def __init__(self, *args, **kwargs):
@@ -451,6 +485,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             texts = self.ocr(*detail_box)
             dbg_ocr('detail', texts)
             cost = parse_cost(texts)
+            if cost is None:
+                # 全屏 OCR 把数字框整个漏掉时(实测 27/135) → 只截角标区放大重读一次
+                cost = self.read_cost_badge()
             fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
             properties = [p for p in self.find_boxes(texts, match=property_pattern)
                           if p.name.strip() not in ('声骸技能', 'COST', 'Z', 'C')]

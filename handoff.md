@@ -13,10 +13,11 @@
 | 二十七 | `d51f6e3` | **主属性数值校验**（生成物 `main_props` + `src/echo_main_prop.py` + 报告 `⚠ 数值可疑`）；定案「防御百分比」 |
 | 二十八 | `7246757` | 生成物补 `pieces`（套装效果的"几件套"：2 件套 31 / 5 件套 31 / 3 件套 5 / 1 件套 1） |
 | — | `7d20e1d` | 交接文档 `handoff.md` + CLAUDE.md 指针 |
-| **二十九** | 本次 | **声骸组合穷举 + 伤害排名**：`src/echo_panel.py` / `src/echo_combos.py` / `src/echo_inventory.py` / `tools/echo_plan.py` / `ui/plan_tab.py` + 41 项单测 |
+| **二十九** | `219357d` / `ea53b5d` | **声骸组合穷举 + 伤害排名**：`src/echo_panel.py` / `src/echo_combos.py` / `src/echo_inventory.py` / `tools/echo_plan.py` / `ui/plan_tab.py` + 单测；评估结束顺手写 `<报告>.json`；修 JSON 途径「攻击%↔固定攻击」误判 |
+| — | 本次 | **首份真机评估报告(135 只)体检 + COST 漏读修复**：实时 `read_cost_badge()`(角标区 3× 放大重读) + 离线 `infer_cost()`(第 2 行反推)，130 项单测 |
 
 **基线（改东西后必须复跑）**
-- `python -m unittest discover -s tests` → **122 passed / 1 skipped**
+- `python -m unittest discover -s tests` → **130 passed / 1 skipped**
 - `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `hold 38 / fail 24 / pass 39 / keep 1 / pending 7`、
   **主属性数值可疑 0 条**、套装来源 `{icon:108, name:1}`
 - `python tools/eval_icon_match.py` → 217/219（99.1%）
@@ -53,6 +54,25 @@ python tools/echo_plan.py --mode 3+2 --set-a 息界同调之律 --set-b 听唤�
 ```
 
 ## 三、数据面（关键认知，别再走弯路）
+
+### 首份真机评估报告（2026-10-08 22:50，135 只 / 48 个名字，`eval_report_202610082251.json`）
+
+- 判定分布 `保留 54 / 达标 45 / 不合格 18 / 建议强化 15 / 不建议强化 3`（无"建议重铸"）；
+  `层级 = 1 词条 17 / 3 词条 1 / 5 词条 117`；套装来源 `icon 118 / name 16 / default 1`；主属性数值可疑 **0**。
+- **COST 角标漏读 27/135(20%)**（报告里这 27 只没有 COST，也没有官方主属性方案判定）→ 已修两处：
+  ① 实时 `read_cost_badge()`：1× 读不到时只截角标区(0.685,0.19–0.792,0.25)放大 3× 再 OCR（用那 27 张截图
+  离线验证 **27/27 读回**）；② 离线 `infer_cost()`：用第 2 行 COST 固有属性反推（1C 生命 std456 /
+  3C 攻击 std20 / 4C 攻击 std30）。**交叉验证：角标与反推一致 108/108、缺失 27/27 反推出、0 不一致。**
+  修完库存 135 只全部有 COST `{1:64, 3:54, 4:17}`。
+- 未满级件 18 只，几乎都是 1 词条（`格洛犸图×6`/`风鳞蜃甲×3`/`共鸣回响·冠顶苍隼×3`…）——
+  组合穷举目前按**现状词条**入池；要"只用满级件"需要加开关（未做）。
+- 名字层残留：`风鳞屋甲`（应 `风鳞蜃甲`，图标也没救回来）落"通用"被排除；`侏侏'`/`阿磁磁` 是既有容错链已知失效类。
+- **可跑性速查**（同套 5 件 / 3+2 当 3 件 / 当 2 件）：
+  长路启航之星 8 名 ✓✓✓ · 隐世回光 11 ✓✓✓ · 轻云出月 10 ✓✓✓ · 雪落无声之愿 8 ✓✓✓ ·
+  流金溯真之式 6 ✓✓✓ · 听唤语义之愿 6 ✓✓✓ · **息界同调之律 4 名、无 4C → 只能当 3+2 的一份**
+  （要 4C 的话归属必须选有 4C 的那套：听唤语义之愿/雪落无声之愿/隐世回光/轻云出月/长路启航之星/流金溯真之式）。
+- 试跑：3+2（息界同调之律+听唤语义之愿，4C 属 A）候选 25 只 / 2660 组 / 0.06s；
+  同套 5（息界同调之律）**0 组** —— 因为该套只有 4 个名字（契约要求 5 只互异），不是 bug。
 
 - **所有游戏表数据都在 `search/wwdata37`**（`Arikatsu/WutheringWaves_Data` @3.7 的稀疏检出，表被转成 **JSON**）：
   `BinData/{phantom, phantommanageplan, property, item, drop, monster_Info, monsterDisplay, ui_resource, role, weapon, skillTree}` + `Textmaps/zh-Hans`。

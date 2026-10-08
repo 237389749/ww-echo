@@ -29,11 +29,15 @@ def levels_for_tier(tier) -> list[int]:
     return list(range(min(25, 5 * n), 26))
 
 
-def _candidates(name: str, levels) -> list[tuple[float, float, bool]]:
-    """→ [(期望值, 容差, 是否百分比)]: 某属性名在给定等级上所有变体 × 等级的候选。"""
+def _candidates(name: str, levels) -> list[tuple[float, float, bool, float]]:
+    """→ [(期望值, 容差, 是否百分比, std基准值)]: 某属性名在给定等级上所有变体 × 等级的候选。
+
+    第 4 项 `std`(官方 `StandardProperty` 基准值)用来**区分同名不同变体**
+    (如 `攻击` 的固定值 std=30/20 与百分比 std=660/600/360; `生命` 固定 std=456)。
+    """
     t = _table()
     growth = t.get("growth") or {}
-    out: list[tuple[float, float, bool]] = []
+    out: list[tuple[float, float, bool, float]] = []
     for v in ((t.get("props") or {}).get(name) or []):
         curve = growth.get(str(v.get("growth"))) or []
         pct = bool(v.get("pct"))
@@ -41,7 +45,7 @@ def _candidates(name: str, levels) -> list[tuple[float, float, bool]]:
             if 0 <= lv < len(curve) and curve[lv]:
                 raw = v["std"] / (100 if pct else 1) * curve[lv] / 10000
                 out.append((round(raw, 1) if pct else float(round(raw)),
-                            TOL_PCT if pct else TOL_FLAT, pct))
+                            TOL_PCT if pct else TOL_FLAT, pct, float(v["std"])))
     return out
 
 
@@ -51,14 +55,14 @@ def value_grid(name: str, levels=None) -> list[float]:
     if levels is None:
         curve = next(iter((t.get("growth") or {}).values()), [])
         levels = range(len(curve))
-    return sorted({v for v, _, _ in _candidates(name, levels)})
+    return sorted({v for v, _, _, _ in _candidates(name, levels)})
 
 
-def candidates(name: str, levels=None) -> list[tuple[float, float, bool]]:
-    """某主属性名在给定等级上的全部候选 `(值, 容差, 是否百分比)`。
+def candidates(name: str, levels=None) -> list[tuple[float, float, bool, float]]:
+    """某主属性名在给定等级上的全部候选 `(值, 容差, 是否百分比, std基准值)`。
 
-    公开给**导入器**判"`攻击/生命/防御` 这一行到底是固定值还是百分比"
-    (同一个名字有多个变体, 面板 OCR 的文本里能带 `%`, 评估 JSON 里已经丢掉了)。
+    公开给**导入器**: ①判"`攻击/生命/防御` 这一行是固定值还是百分比"(面板文本带 `%`, JSON 里丢了);
+    ②按 `std` 认"这一行是哪个 COST 的固有属性"(见 `echo_inventory.infer_cost`)。
     """
     return _candidates(name, _levels_or_all(levels))
 
@@ -90,7 +94,7 @@ def check_main_values(main_props, tier=None) -> list[dict]:
             out.append({"name": str(name), "value": val, "ok": None, "expect": None, "tol": None})
             continue
         # 按"是否落在某个变体的容差内"判定; 报告里给出最接近的那个候选
-        hit = next(((exp, tol, pct) for exp, tol, pct in
+        hit = next(((exp, tol) for exp, tol, _pct, _std in
                     sorted(cands, key=lambda c: abs(c[0] - val)) if abs(exp - val) <= tol), None)
         best = min(cands, key=lambda c: abs(c[0] - val))
         out.append({"name": str(name), "value": val, "ok": hit is not None,

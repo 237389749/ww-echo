@@ -27,3 +27,5 @@ tools/icon_export/obj/
 oodle-data-shared.dll
 zlib-ng2.dll
 oodle-data-shared.dll.gz
+eval_report_*.html
+eval_report_*.json

@@ -9,6 +9,7 @@
 - `攻击/生命/防御` 同名两变体(固定值 / 百分比), 报告路径按 `%` 判, JSON 路径按官方取值网格判。
 """
 
+import glob
 import json
 import os
 import sys
@@ -18,7 +19,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.echo_inventory import (load_inventory, latest_debug_dir, normalize_main_prop,   # noqa: E402
-                                parse_level, resolve_set, split_rows, substat_key, summarize)
+                                infer_cost, parse_level, resolve_cost, resolve_set,
+                                split_rows, substat_key, summarize)
 
 LINES = """共鸣回响·鸣式·虚造神型
 +25
@@ -77,6 +79,36 @@ class TestNormalize(unittest.TestCase):
                                 ("暴击", 6.9, "暴击"), ("共鸣效率", 9.2, "共鸣效率")):
             with self.subTest(name=name, val=val):
                 self.assertEqual(substat_key(name, val), want)
+
+
+class TestInferCost(unittest.TestCase):
+    """COST 角标没读到 → 用第 2 行(COST 固有属性)反推。依据: 满级 1C 生命 2280 / 3C 攻击 100 / 4C 攻击 150。
+
+    真实数据交叉验证(20261008 那批 135 只): 角标读到且与反推一致的 **108/108**, 角标缺失的 27 只
+    **全部**被反推出来 —— 所以反推可当"第 2 行 → COST"的判据用。
+    """
+
+    def test_full_level_rows(self):
+        for main, want in (([("攻击", 18.0), ("生命", 2280.0)], 1),
+                           ([("共鸣效率", 32.0), ("攻击", 100.0)], 3),
+                           ([("暴击", 22.0), ("攻击", 150.0)], 4)):
+            with self.subTest(main=main):
+                self.assertEqual(infer_cost(main, None, 5), want)
+
+    def test_needs_second_row(self):
+        self.assertIsNone(infer_cost([("暴击", 22.0)], None, 5))
+        self.assertIsNone(infer_cost([], None, 5))
+
+    def test_ambiguous_window_returns_none(self):
+        # 不知道等级时(只有词条数)窗口较宽, 20·m 与 30·m 会撞值(实测 68/78/97 同时落在两个家族)
+        # → 不猜(返回 None); 满级件(tier=5 → 只有 +25)没有这个问题: 攻击 100 = 3C / 150 = 4C。
+        self.assertIsNone(infer_cost([("攻击", 30.0), ("攻击", 68.0)], None, 1))
+        self.assertEqual(infer_cost([("攻击", 30.0), ("攻击", 100.0)], None, 5), 3)
+
+    def test_resolve_cost_prefers_badge(self):
+        self.assertEqual(resolve_cost(4, [("暴击", 22.0), ("攻击", 150.0)], None, 5), (4, False))
+        self.assertEqual(resolve_cost(None, [("暴击", 22.0), ("攻击", 150.0)], None, 5), (4, True))
+        self.assertEqual(resolve_cost(None, [("暴击", 22.0)], None, 5), (0, False))
 
 
 class TestParsing(unittest.TestCase):
@@ -195,6 +227,31 @@ class TestRealDataset(unittest.TestCase):
                           f, ensure_ascii=False)
             from_json = load_inventory(p)
         self.assertEqual(sorted(map(key, from_json)), sorted(map(key, self.items)))
+
+    def test_recent_eval_json_cost_is_complete_and_consistent(self):
+        """「运行」页导出的 `eval_report_*.json`(若在仓库根): 库存里不许剩 `cost=0` ——
+        角标漏读的必须被第 2 行反推补上, 且角标与反推**零不一致**(20261008 那批: 108 一致 / 27 反推)。
+        """
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        files = sorted(glob.glob(os.path.join(root, "eval_report_*.json")))
+        if not files:
+            self.skipTest("仓库根没有 eval_report_*.json(未跑过评估或已清理)")
+        path = files[-1]
+        items = load_inventory(path)
+        self.assertTrue(items)
+        self.assertEqual([str(i) for i in items if i.cost not in (1, 3, 4)], [])
+
+        mismatch = []
+        with open(path, encoding="utf-8") as f:
+            for rec in json.load(f).get("results", []):
+                tier = len(rec.get("stats") or [])
+                main = tuple((normalize_main_prop(m.get("name"), m.get("value"), None, tier),
+                              float(m.get("value") or 0)) for m in (rec.get("main_props") or []))
+                badge = rec.get("cost") if rec.get("cost") in (1, 3, 4) else None
+                guess = infer_cost(main, None, tier)
+                if badge is not None and guess is not None and badge != guess:
+                    mismatch.append(f'{rec.get("index")} {rec.get("name")}: 角标 {badge} vs 反推 {guess}')
+        self.assertEqual(mismatch, [])
 
 
 if __name__ == '__main__':
