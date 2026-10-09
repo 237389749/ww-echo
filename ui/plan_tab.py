@@ -1,4 +1,4 @@
-"""
+﻿"""
 「组合穷举」页 —— 声骸组合穷举 + 伤害排名的**输入装配与展示**(规格 panel_plan.md 的 UI 规格)。
 
 边界(与阶段二十四"判定唯一收口"同一条纪律): **UI 不碰伤害公式** ——
@@ -24,8 +24,8 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, Edi
 from src.echo_combos import (PlanRequest, candidate_pool, energy_is_damage, instance_tag,
                              is_max_level, plan, set_bonus_keys)
 from src.echo_inventory import load_inventory, summarize
-from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, EXTRA_BONUS_KEYS, GENERIC_BONUS_KEY, Correction,
-                               DerivedBonus, aggregate, defense_zone, resist_zone)
+from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, EXTRA_BONUS_KEYS, GENERIC_BONUS_KEY, SPECIALTY_KEYS,
+                               Correction, DerivedBonus, aggregate, defense_zone, resist_zone)
 from src.echo_set_templates import STAT_ORDER, get_all_set_names
 from ui.widgets import make_scroll_transparent
 
@@ -370,6 +370,21 @@ class PlanTab(QWidget):
         der_row.addStretch(1)
         vb.addLayout(der_row)
 
+        # 指定专伤: 通用套(轻云出月)给 4 种专伤都配了 0.1 占位权重, 但角色通常只吃一种 ——
+        # 不指定的话别的专伤副词条会被当成有效收益(实测仇远 3+2 差 8.7%)。
+        sp_row = QHBoxLayout()
+        self.specialty_checks: list[tuple[str, CheckBox]] = []
+        sp_row.addWidget(CaptionLabel("计进加成区的专伤"))
+        for key in SPECIALTY_KEYS:
+            cb = CheckBox(key.replace("伤害加成", ""))
+            cb.setToolTip("勾选后**只算勾选的专伤**; 全不勾 = 按套装模板的有效专伤并集"
+                          "(通用套会把 普攻/重击/共技/共解 都带上)")
+            self.specialty_checks.append((key, cb))
+            sp_row.addWidget(cb)
+        sp_row.addWidget(CaptionLabel("(全不勾 = 按套装模板并集)"))
+        sp_row.addStretch(1)
+        vb.addLayout(sp_row)
+
         self.corr_table = TableWidget()
         self.corr_table.setColumnCount(3)
         self.corr_table.setHorizontalHeaderLabels(["补正键", "值", "来源"])
@@ -493,7 +508,7 @@ class PlanTab(QWidget):
                            cost4_owner=self.cost4_combo.currentText(),
                            crit_mode=dict((t, k) for t, k in CRIT_MODES)[self.crit_combo.currentText()],
                            max_level_only=self.max_level_check.isChecked(),
-                           allowed_bonus=None if self.all_bonus_check.isChecked() else set_bonus_keys(sets),
+                           allowed_bonus=self._allowed_bonus(sets),
                            derived=tuple(self._derived),
                            energy_min=self.energy_min_spin.value(),
                            energy_slope=self.energy_slope_spin.value(),
@@ -502,6 +517,13 @@ class PlanTab(QWidget):
                            crit_slope=self.crit_slope_spin.value(),
                            crit_floor=self.crit_floor_spin.value(),
                            top_k=50)
+
+    def _allowed_bonus(self, sets) -> tuple[str, ...] | None:
+        """计进加成区的专伤键: 勾了就用勾的; 全不勾 → 套装模板并集(picked 之外全忽略)。"""
+        if self.all_bonus_check.isChecked():
+            return None                                  # 专伤不过滤 = 全算(对照用)
+        picked = tuple(k for k, cb in self.specialty_checks if cb.isChecked())
+        return picked or set_bonus_keys(sets)
 
     # ══════════════════ 裸面板/补正 ══════════════════
     def _add_correction(self):
@@ -639,6 +661,8 @@ class PlanTab(QWidget):
         self.result_table.setRowCount(len(res.combos))
         zb, rb = self._zone_factors()
         top = res.combos[0].score if res.combos else 0.0
+        # 共效驱动型天赋(如西格莉卡)时"有效分"失效 → 显示 —(从当前输入装配取, 见 `_build_request`)
+        energy_damage = energy_is_damage(self._build_request())
         for row, c in enumerate(res.combos):
             zone = c.panel.bonus_split()
             sets = " + ".join(f"{k}×{v}" for k, v in sorted(c.set_counts.items()))
@@ -647,7 +671,7 @@ class PlanTab(QWidget):
             s_sum, s_missing = c.score_sum()
             s_dmg, _sd = c.score_sum_dmg()
             cells = (str(row + 1), combo_text, str(c.total_cost),
-                     f"{s_sum:.2f}/" + ("—" if energy_is_damage(req) else f"{s_dmg:.2f}")
+                     f"{s_sum:.2f}/" + ("—" if energy_damage else f"{s_dmg:.2f}")
                      + ("*" if s_missing else ""),
                      f"{c.panel.crit_rate:.1f}%{'→100%' if c.panel.crit_wasted() else ''} / "
                      f"{c.panel.crit_dmg:.1f}%",

@@ -27,7 +27,8 @@ sys.path.insert(0, ROOT)
 
 from src.echo_combos import (PlanRequest, energy_is_damage, instance_tag, plan,   # noqa: E402
                              set_bonus_keys)
-from src.echo_panel import DerivedBonus, GENERIC_BONUS_KEY               # noqa: E402
+from src.echo_panel import (SPECIALTY_ALIASES, SPECIALTY_KEYS, DerivedBonus,       # noqa: E402
+                            GENERIC_BONUS_KEY, normalize_bonus_key)
 from src.echo_inventory import load_inventory, summarize                  # noqa: E402
 from src.echo_panel import Correction, defense_zone, resist_zone               # noqa: E402
 
@@ -57,12 +58,29 @@ def parse_derive(text: str) -> DerivedBonus:
                         label=label or f"天赋: {src}>{th:g} 每点+{per:g}(上限{cap:g})")
 
 
+def allowed_bonus_of(a) -> tuple[str, ...] | None:
+    """本次要计进加成区的专伤键: `--all-bonus` → None(全算); `--specialty` → 指定的那些;
+    都没给 → 由套装模板推断(并集)。
+
+    **为什么要能指定**: 通用套(如轻云出月)为了普适会给"普攻/重击/共技/共解"都配 0.1 占位权重,
+    而一个角色实际只吃其中一种 —— 不指定的话别的专伤副词条会被当成有效收益(实测仇远差 8.7%)。
+    """
+    if getattr(a, "all_bonus", False):
+        return None
+    keys = [normalize_bonus_key(s) for s in getattr(a, "specialty", [])]
+    bad = [k for k in keys if k not in SPECIALTY_KEYS]
+    if bad:
+        raise SystemExit(f"--specialty 只接受 {list(SPECIALTY_ALIASES)} 或全名; 不认识: {bad}")
+    if keys:
+        return tuple(dict.fromkeys(keys))
+    return set_bonus_keys([a.set_a] + ([a.set_b] if a.mode == "3+2" else []))
+
+
 def build_request(a) -> PlanRequest:
     return PlanRequest(scaling=a.scaling, mode=a.mode, set_a=a.set_a, set_b=a.set_b,
                        cost4_owner=a.cost4.upper(), top_k=a.top, crit_mode=a.crit,
                        max_level_only=not getattr(a, "all_levels", False),
-                       allowed_bonus=None if getattr(a, "all_bonus", False) else
-                       set_bonus_keys([a.set_a] + ([a.set_b] if a.mode == "3+2" else [])),
+                       allowed_bonus=allowed_bonus_of(a),
                        derived=tuple(parse_derive(t) for t in getattr(a, "derive", [])),
                        energy_min=getattr(a, "energy_min", 120.0),
                        energy_slope=getattr(a, "energy_slope", 0.30),
@@ -106,8 +124,10 @@ def print_result(res, req, bare, corrections, args):
         allowed = set_bonus_keys([req.set_a] + ([req.set_b] if req.mode == "3+2" else []))
     print("声骸副词条计入的加成键: "
           + ("**全部**(--all-bonus)" if allowed is None
-             else (", ".join(allowed) or "无(该套装有效词条里没有专伤)"))
-          + "   ← 来自套装模板的**非 0 权重**词条")
+             else ", ".join(allowed) or "无(该套装有效词条里没有专伤)")
+          + "   ← " + ("--all-bonus: 强制全算" if getattr(args, "all_bonus", False)
+                       else ("**指定专伤(--specialty)**" if getattr(args, "specialty", None)
+                             else "套装模板的**非 0 权重**专伤(并集)")))
     if req.derived:
         print("推导补正(天赋, 逐组合按最终属性算): "
               + "; ".join(f"{d.source} > {d.threshold:g} 每点 +{d.per_point:g} → {d.key}, 上限 {d.cap:g}"
@@ -173,6 +193,9 @@ def main() -> int:
     ap.add_argument("--list-all", action="store_true", help="库存概览打印全部套装")
     ap.add_argument("--all-levels", action="store_true",
                     help="把**未满级**件也放进候选池(默认只用满级件 = 5 词条)")
+    ap.add_argument("--specialty", action="append", default=[], metavar="专伤",
+                    help="**指定计进加成区的专伤**(可重复; 简写 重击/普攻/共技/共解/声骸技能 或全名)。"+
+                         "不给则由套装模板推断(并集) —— 通用套的 0.1 占位键会被并集带上, 所以要按角色指定")
     ap.add_argument("--all-bonus", action="store_true",
                     help="声骸副词条的专伤**不过滤**(默认只计该套装有效词条里的专伤)")
     ap.add_argument("--energy-min", type=float, default=120.0,

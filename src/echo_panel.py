@@ -37,6 +37,26 @@ ELEMENT_KEYS: tuple[str, ...] = ("冷凝伤害加成", "热熔伤害加成", "�
 ELEMENTAL_GENERIC_KEY = "属性伤害加成"
 GENERIC_BONUS_KEY = "通用增伤"
 EXTRA_BONUS_KEYS: tuple[str, ...] = (ELEMENTAL_GENERIC_KEY, "声骸技能伤害加成", GENERIC_BONUS_KEY)
+# 五种"专伤"(分技能类型; 角色通常只吃其中一种 —— 通用套为了普适会把几种都配权重)
+SPECIALTY_KEYS: tuple[str, ...] = ("普攻伤害加成", "重击伤害加成", "共鸣技能伤害加成",
+                                   "共鸣解放伤害加成", "声骸技能伤害加成")
+# 简写 → 全名(CLI/UI 输入用; "共鸣技能" 也接受 "共技", "共鸣解放" 也接受 "共解")
+SPECIALTY_ALIASES: dict[str, str] = {
+    "普攻": SPECIALTY_KEYS[0], "重击": SPECIALTY_KEYS[1],
+    "共鸣技能": SPECIALTY_KEYS[2], "共技": SPECIALTY_KEYS[2],
+    "共鸣解放": SPECIALTY_KEYS[3], "共解": SPECIALTY_KEYS[3],
+    "声骸技能": SPECIALTY_KEYS[4],
+}
+
+
+def normalize_bonus_key(text: str) -> str:
+    """把"专伤"的简写/全名归一成标准键(如 `重击` → `重击伤害加成`); 不认识就原样返回。
+
+    为什么需要: 用户口径是"某某角色只吃重击专伤", 手填全名太长; 而**指定专伤**要贯穿
+    CLI(`--specialty 重击`)、UI(勾选框与预设)与未来按角色保存的配置。
+    """
+    key = (text or "").strip()
+    return SPECIALTY_ALIASES.get(key, key)
 
 # 不进加成区的键(基础/百分比/双暴/共效/治疗): 其余 `*伤害加成` 与 `通用增伤` 都进加成区
 NON_BONUS_KEYS: frozenset[str] = frozenset(

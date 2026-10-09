@@ -1,4 +1,4 @@
-"""`src/echo_panel.py` 单测: 面板聚合(calculator 口径) + 加成区拆分 + 伤害公式。
+﻿"""`src/echo_panel.py` 单测: 面板聚合(calculator 口径) + 加成区拆分 + 伤害公式。
 
 跑法(项目根目录):
     python -m unittest discover -s tests -v
@@ -16,8 +16,9 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, Correction, DerivedBonus, aggregate,   # noqa: E402
-                            damage, defense_zone, is_bonus_key, resist_zone)
+from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, SPECIALTY_KEYS, Correction,          # noqa: E402
+                            DerivedBonus, SPECIALTY_ALIASES, aggregate, damage, defense_zone,
+                            is_bonus_key, normalize_bonus_key, resist_zone)
 from src.echo_set_templates import load_gamedata                                    # noqa: E402
 
 
@@ -129,6 +130,18 @@ class TestPanelAggregate(unittest.TestCase):
                                             cap=5, key="热熔伤害加成", label="按攻击力")])
         self.assertAlmostEqual(e.scaling_total("攻击"), 1500.0)
         self.assertAlmostEqual(e.bonus.get("热熔伤害加成", 0), 5.0)
+
+    def test_normalize_bonus_key(self):
+        """专伤简写 → 标准键(`--specialty 重击` / UI 勾选框 / 未来的角色预设都用它)。"""
+        self.assertEqual(normalize_bonus_key("重击"), "重击伤害加成")
+        self.assertEqual(normalize_bonus_key("共解"), "共鸣解放伤害加成")
+        self.assertEqual(normalize_bonus_key("共技"), "共鸣技能伤害加成")
+        self.assertEqual(normalize_bonus_key(" 声骸技能 "), "声骸技能伤害加成")
+        self.assertEqual(normalize_bonus_key("普攻伤害加成"), "普攻伤害加成")   # 全名原样
+        self.assertEqual(normalize_bonus_key("热熔伤害加成"), "热熔伤害加成")   # 属伤不受影响
+        for short, full in SPECIALTY_ALIASES.items():                         # 全部简写都能归一
+            self.assertEqual(normalize_bonus_key(short), full, short)
+            self.assertIn(full, SPECIALTY_KEYS)
 
     def test_is_bonus_key(self):
         for key in ("普攻伤害加成", "共鸣解放伤害加成", "气动伤害加成", "声骸技能伤害加成", "通用增伤"):
