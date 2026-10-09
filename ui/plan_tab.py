@@ -141,9 +141,9 @@ class PlanTab(QWidget):
         self.mode_card.hBoxLayout.addSpacing(16)
 
         self.level_card = SettingCard(FIF.EDUCATION, "候选等级 / 专伤口径",
-                                      "满级件: 未满级件的词条还会涨, 用现状词条排名会低估它; "
-                                      "专伤: 默认**只计该套装有效词条**里的专伤(如雪落无声之愿只认共鸣解放, "
-                                      "普攻/重击副词条等于白给), 取消勾选则所有专伤都算", self.view)
+                                      "满级件: 未满级件词条还会涨, 用现状词条排名会低估它; "
+                                      "专伤: 默认只计该套装有效词条里的专伤(如雪落无声之愿只认共鸣解放)",
+                                      self.view)
         self.max_level_check = CheckBox("只用满级件")
         self.max_level_check.setChecked(True)
         self.all_bonus_check = CheckBox("专伤不过滤")
