@@ -14,8 +14,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.echo_combos import (EchoItem, PlanRequest, candidate_pool, is_max_level, plan,   # noqa: E402
-                             set_bonus_keys)
+from src.echo_combos import (EchoItem, PlanRequest, candidate_pool, instance_tag,   # noqa: E402
+                             is_max_level, plan, set_bonus_keys)
 
 A, B = "套装A", "套装B"
 
@@ -39,6 +39,62 @@ def req(**kw):
     """组合用例的请求: 合成件只有 1~2 条词条, 显式关掉"只用满级件"才进得了候选池。"""
     kw.setdefault("max_level_only", False)
     return PlanRequest(**kw)
+
+
+class TestInstanceTag(unittest.TestCase):
+    """同名多只的实例编号(表格里区分"是哪一只"): json#N 直接用; 素材 0022 → #22(去前导零省宽度)。"""
+
+    def test_tags(self):
+        for source, want in (("json#38", "#38"), ("json#7|cost=反推", "#7"),
+                             ("0022_click_0.43_0.78|icon", "#22"), ("0004_click_0.43_0.25|icon", "#4"),
+                             ("未知来源", "")):
+            with self.subTest(source=source):
+                self.assertEqual(instance_tag(EchoItem(name="x", cost=1, set_name="A", source=source)),
+                                 want)
+
+
+class TestEnergyThreshold(unittest.TestCase):
+    """循环门槛: 共效 < 下限 → 最终排序分 × 系数(用户口径: 共效不够会影响实战循环)。"""
+
+    def _pool(self, energy=110.0):
+        return [full(f"n{i}", 1, A, 共鸣效率=energy / 5) for i in range(5)]
+
+    def test_penalty_applied_below_min(self):
+        c = plan(self._pool(110.0), req(mode="5", set_a=A, top_k=1)).combos[0]
+        self.assertAlmostEqual(c.panel.energy, 110.0)
+        self.assertTrue(c.penalized)
+        self.assertAlmostEqual(c.score, c.score_raw * 0.95)
+
+    def test_no_penalty_at_or_above_min(self):
+        for energy in (120.0, 130.0):
+            with self.subTest(energy=energy):
+                c = plan(self._pool(energy), req(mode="5", set_a=A, top_k=1)).combos[0]
+                self.assertFalse(c.penalized)
+                self.assertAlmostEqual(c.score, c.score_raw)
+
+    def test_disabled(self):
+        # 下限 0 / 系数 1.0 都视为关闭
+        for kw in ({"energy_min": 0.0}, {"energy_penalty": 1.0}):
+            with self.subTest(**kw):
+                c = plan(self._pool(50.0), req(mode="5", set_a=A, top_k=1, **kw)).combos[0]
+                self.assertFalse(c.penalized)
+                self.assertAlmostEqual(c.score, c.score_raw)
+
+    def test_penalty_can_change_ranking(self):
+        """甲组 5 只共效 22%(合计 110, 不达标) + 攻击% 10; 乙组共效 26%(130) + 攻击% 9。
+
+        关掉系数时"全甲组"第一(攻击最高); 门槛生效后第一名换成共效达标的混搭(3 乙 + 2 甲, 共效 122)。
+        """
+        pool = [full(f"a{i}", 1, A, 共鸣效率=22.0, 攻击百分比=10.0) for i in range(5)]
+        pool += [full(f"b{i}", 1, A, 共鸣效率=26.0, 攻击百分比=9.0) for i in range(5)]
+        bare = {"攻击": 1000}
+        plain = plan(pool, req(mode="5", set_a=A, top_k=2, energy_penalty=1.0), bare=bare)
+        penal = plan(pool, req(mode="5", set_a=A, top_k=2), bare=bare)
+        self.assertEqual({i.name[0] for i in plain.combos[0].items}, {"a"})
+        self.assertFalse(plain.combos[0].penalized)
+        self.assertFalse(penal.combos[0].penalized)                      # 新的第一名共效达标
+        self.assertNotEqual({i.name[0] for i in penal.combos[0].items}, {"a"})
+        self.assertGreater(plain.combos[0].score, penal.combos[0].score)  # 代价: 排第一的 E 变低了
 
 
 class TestBonusFilter(unittest.TestCase):

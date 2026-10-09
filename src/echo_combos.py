@@ -42,6 +42,9 @@ class EchoItem:
     level: int | None = None
     source: str = ""                              # 数据来源(便于追溯)
     score: float | None = None                    # 评估得分(该套装权重下的条分和, 与报告同口径)
+    # **伤害相关得分**: 同一套权重, 但把**共效**权重置 0(共效不进伤害公式)。
+    # 用户口径: 暴击不溢出时"评分和最高的通常就是最好的", 偏差主要来自共效占模 → 这个指标就是去掉它。
+    score_dmg: float | None = None
 
     def __str__(self) -> str:
         return f"{self.name}({self.cost}C·{self.set_name})"
@@ -61,6 +64,10 @@ class PlanRequest:
     max_level_only: bool = True      # 只用满级件(5 词条) —— 默认; 关掉才把未满级件也放进候选池
     # 声骸副词条里允许计入的加成键; None = 由套装模板自动推断(见 `set_bonus_keys`)
     allowed_bonus: tuple[str, ...] | None = None
+    # 循环门槛: 共效 < `energy_min` 视为"循环不成立" → 排序分 × `energy_penalty`(用户口径; 系数待定, 默认 0.95)。
+    # `energy_min <= 0` 或 `energy_penalty == 1.0` 即关闭该规则。
+    energy_min: float = 120.0
+    energy_penalty: float = 0.95
 
 
 @dataclass
@@ -68,7 +75,9 @@ class Combo:
     """一个合法组合 + 它的面板与排序分。"""
     items: tuple[EchoItem, ...]
     panel: Panel
-    score: float
+    score: float                     # **最终排序分**(已含共效不达标的系数)
+    score_raw: float = 0.0           # 未乘系数前的 E(展示/对比用)
+    penalized: bool = False          # 共效 < 门槛 → 乘了系数
 
     @property
     def total_cost(self) -> int:
@@ -91,6 +100,16 @@ class Combo:
         它是"这 5 只各自练得怎么样"的汇总, 与伤害排序分 E 是两个维度(高分件不一定面板最优)。
         """
         vals = [i.score for i in self.items if i.score is not None]
+        return round(sum(vals), 2), len(self.items) - len(vals)
+
+    def score_sum_dmg(self) -> tuple[float, int]:
+        """五只的**伤害相关得分之和**(同一套权重但共效权重置 0)+ 缺分数的只数。
+
+        比 `score_sum` 更贴近伤害排序: 共效在评分里有 0.6 权重, 却不进伤害公式 ——
+        实测"评分和最高但伤害只排 34 名"的组合, 多出来的分几乎全来自共效。
+        """
+        vals = [i.score_dmg if i.score_dmg is not None else i.score
+                for i in self.items if (i.score_dmg is not None or i.score is not None)]
         return round(sum(vals), 2), len(self.items) - len(vals)
 
 
@@ -190,9 +209,13 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
             evaluated += 1
             panel = aggregate(bare, corrections, (s for it in combo for s in it.stats),
                               allowed_bonus=allowed_bonus)
-            score = damage(panel, req.scaling, crit_mode=req.crit_mode)
+            raw = damage(panel, req.scaling, crit_mode=req.crit_mode)
+            # 循环门槛: 共效不达标 → 最终排序分乘系数(用户口径: 共效不够会影响实战循环)
+            penalized = (req.energy_min > 0 and req.energy_penalty != 1.0
+                         and panel.energy < req.energy_min)
+            score = raw * req.energy_penalty if penalized else raw
             seq += 1
-            item = (score, seq, combo, panel)
+            item = (score, seq, combo, panel, raw, penalized)
             if len(heap) < max(1, req.top_k):
                 heapq.heappush(heap, item)
             elif score > heap[0][0]:
@@ -201,7 +224,8 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
                 cancelled = True
                 break
 
-    combos = [Combo(items=c, panel=p, score=s) for s, _, c, p in sorted(heap, key=lambda x: (-x[0], x[1]))]
+    combos = [Combo(items=c, panel=p, score=s, score_raw=raw, penalized=pen)
+              for s, _, c, p, raw, pen in sorted(heap, key=lambda x: (-x[0], x[1]))]
     return PlanResult(combos=combos, candidates=len(pool), names=len(groups),
                       evaluated=evaluated, elapsed=time.perf_counter() - t0, cancelled=cancelled)
 
@@ -229,16 +253,18 @@ def set_bonus_keys(set_names) -> tuple[str, ...] | None:
 
 
 def instance_tag(item: EchoItem) -> str:
-    """同名多只时用来区分"是哪一只"的短标签(取自 `source`): `json#38` → `#38`; 素材路径 → `0001`。
+    """同名多只时用来区分"是哪一只"的短标签(取自 `source`): `json#38` → `#38`; 素材 `0022_click…` → `#22`。
 
     排名表里同名不同实例的组合看起来一模一样(名字+COST 相同), 只有词条/面板不同 —— 标出实例编号
-    才能照着装。
+    才能照着装。去前导零是为了省表格宽度。
     """
     src = item.source or ""
     if src.startswith("json#"):
-        return "#" + src[5:].split("|")[0]
-    head = src.split("|")[0]
-    return head[:4] if head[:4].isdigit() else ""
+        num = src[5:].split("|")[0]
+    else:
+        head = src.split("|")[0]
+        num = head[:4] if head[:4].isdigit() else ""
+    return "#" + (num.lstrip("0") or "0") if num else ""
 
 
 def combo_summary(combo: Combo, req: PlanRequest) -> str:

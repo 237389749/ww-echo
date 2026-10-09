@@ -12,6 +12,7 @@
 import csv
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QHeaderView, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -154,6 +155,29 @@ class PlanTab(QWidget):
         self.level_card.hBoxLayout.addWidget(self.all_bonus_check)
         self.level_card.hBoxLayout.addSpacing(16)
 
+        self.energy_card = SettingCard(FIF.SPEED_HIGH, "循环门槛(共效)",
+                                       "共效低于下限 = 循环不成立 → 排序分 × 系数(系数待定, 默认 0.95)", self.view)
+        self.energy_min_spin = DoubleSpinBox()          # 下限%
+        self.energy_min_spin.setRange(0, 300)
+        self.energy_min_spin.setDecimals(0)
+        self.energy_min_spin.setValue(120)
+        self.energy_min_spin.setSuffix(" %")
+        self.energy_min_spin.setFixedWidth(140)         # 窄于 ~156 会把数字/后缀挤掉(实测)
+        self.energy_pen_spin = DoubleSpinBox()          # 系数
+        self.energy_pen_spin.setRange(0.10, 1.00)
+        self.energy_pen_spin.setDecimals(2)
+        self.energy_pen_spin.setSingleStep(0.01)
+        self.energy_pen_spin.setValue(0.95)
+        self.energy_pen_spin.setFixedWidth(120)
+        self.energy_card.hBoxLayout.addWidget(CaptionLabel("共效下限"), 0, Qt.AlignRight)
+        self.energy_card.hBoxLayout.addSpacing(4)
+        self.energy_card.hBoxLayout.addWidget(self.energy_min_spin)
+        self.energy_card.hBoxLayout.addSpacing(10)
+        self.energy_card.hBoxLayout.addWidget(CaptionLabel("不达标系数"))
+        self.energy_card.hBoxLayout.addSpacing(4)
+        self.energy_card.hBoxLayout.addWidget(self.energy_pen_spin)
+        self.energy_card.hBoxLayout.addSpacing(16)
+
         self.inv_card = SettingCard(FIF.FOLDER, "声骸库存",
                                     "「运行」页评估后保存的报告同目录会生成同名 .json(推荐: 含套装/COST/主属性/词条); "
                                     "也可选 logs/eval_debug 素材目录。导入即视为 5★(评估数据无稀有度字段)", self.view)
@@ -169,7 +193,8 @@ class PlanTab(QWidget):
         self.inv_card.hBoxLayout.addWidget(self.pick_btn)
         self.inv_card.hBoxLayout.addSpacing(16)
 
-        g.addSettingCards([self.goal_card, self.mode_card, self.level_card, self.inv_card])
+        g.addSettingCards([self.goal_card, self.mode_card, self.level_card, self.energy_card,
+                           self.inv_card])
         return g
 
     # ── 战斗环境 ──
@@ -308,16 +333,16 @@ class PlanTab(QWidget):
         vb.addLayout(bar)
 
         self.result_table = TableWidget()
-        self.result_table.setColumnCount(10)
+        self.result_table.setColumnCount(9)
         self.result_table.setHorizontalHeaderLabels(
-            ["名次", "5 只声骸(名#实例·COST)", "套装只数", "ΣCOST", "评分和", "缩放属性总值", "暴击/爆伤",
-             "加成区(属+专+通)", "排序分 E", "伤害(防御/抗性)"])
+            ["名次", "5 只声骸(名#实例·COST)", "COST", "评分和/有效分", "暴击/爆伤",
+             "加成区", "共效", "排序分E", "伤害"])
         hh = self.result_table.horizontalHeader()
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
-        for col in (0, 2, 3, 4, 5, 6, 7, 8, 9):
+        for col in (0, 2, 3, 4, 5, 6, 7, 8):
             hh.setSectionResizeMode(col, QHeaderView.Fixed)
-        for col, width in ((0, 52), (2, 130), (3, 64), (4, 82), (5, 100), (6, 110), (7, 118),
-                           (8, 92), (9, 124)):
+        # 列宽按 1120 默认窗口(视口≈1001)实测的"文本需要宽度"定: 评分和/有效分 156 / 共效 72 / 排序分 84
+        for col, width in ((0, 38), (2, 56), (3, 158), (4, 92), (5, 92), (6, 84), (7, 88), (8, 92)):
             self.result_table.setColumnWidth(col, width)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.setBorderVisible(True)
@@ -334,6 +359,7 @@ class PlanTab(QWidget):
                      "**声骸副词条只计「该套装有效词条」里的专伤**(雪落无声之愿只认共鸣解放, "
                      "普攻/重击副词条不计 —— 标 `(忽略N)`; 要全算就勾「专伤不过滤」); "
                      "暴击率按 100% 封顶(溢出部分 0 收益, 表里标 →100%); "
+                     "**共效低于「循环门槛」的组合, 排序分 × 系数**(表里在 E 后标 ×系数, 悬停看未乘值); "
                      "技能倍率/加深/防御/抗性在方案内是常数(排序不受影响), 「伤害」列只把防御区×抗性区折进去。")
         vb.addWidget(note)
         return card
@@ -394,6 +420,8 @@ class PlanTab(QWidget):
                            crit_mode=dict((t, k) for t, k in CRIT_MODES)[self.crit_combo.currentText()],
                            max_level_only=self.max_level_check.isChecked(),
                            allowed_bonus=None if self.all_bonus_check.isChecked() else set_bonus_keys(sets),
+                           energy_min=self.energy_min_spin.value(),
+                           energy_penalty=self.energy_pen_spin.value(),
                            top_k=50)
 
     # ══════════════════ 裸面板/补正 ══════════════════
@@ -513,28 +541,47 @@ class PlanTab(QWidget):
             combo_text = " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
             ign = sum(c.panel.ignored_bonus.values())
             s_sum, s_missing = c.score_sum()
-            cells = (str(row + 1), combo_text, sets, str(c.total_cost),
-                     f"{s_sum:.2f}" + ("*" if s_missing else ""),
-                     f"{c.panel.scaling_total(self._scaling()):.1f}",
+            s_dmg, _sd = c.score_sum_dmg()
+            cells = (str(row + 1), combo_text, str(c.total_cost),
+                     f"{s_sum:.2f}/{s_dmg:.2f}" + ("*" if s_missing else ""),
                      f"{c.panel.crit_rate:.1f}%{'→100%' if c.panel.crit_wasted() else ''} / "
                      f"{c.panel.crit_dmg:.1f}%",
                      f"{zone['属伤']:.0f}+{zone['专伤']:.0f}+{zone['通用']:.0f}"
                      + (f"(忽略{ign:.0f})" if ign else ""),
-                     f"{c.score:.1f}", f"{c.score * zb * rb:.1f}")
+                     f"{c.panel.energy:.1f}%" + ("⚠" if c.penalized else ""),
+                     f"{c.score:.1f}",
+                     f"{c.score * zb * rb:.1f}")
             for col, text in enumerate(cells):
                 cell = QTableWidgetItem(text)
                 cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
-                if col == 1 and row > 0:
-                    cell.setToolTip(f"与第 1 名相差 −{(1 - c.score / top) * 100:.1f}%(排序分)")
-                if col == 4:
-                    cell.setToolTip("5 只各自的评估得分之和(与报告同口径, 同套装内可比)"
+                if col == 1:
+                    tip = (f"{self._scaling()}总值 {c.panel.scaling_total(self._scaling()):.1f}"
+                           f" | 套装 {' + '.join(f'{k}×{v}' for k, v in sorted(c.set_counts.items()))}"
+                           f" | 双爆区 {c.panel.crit_zone():.3f}")
+                    if row > 0:
+                        tip += f"\n与第 1 名相差 −{(1 - c.score / top) * 100:.1f}%(排序分)"
+                    cell.setToolTip(tip)
+                if col == 3:
+                    cell.setToolTip("「评分和/有效分」= 5 只评估得分之和 / 扣掉共效后的分"
+                                    "(与报告同口径, 同套装内可比)"
                                     + (f"; 有 {s_missing} 只没有分数" if s_missing else "")
                                     + ": " + " + ".join(
                                         f"{i.name} {i.score:.2f}" if i.score is not None else f"{i.name} —"
                                         for i in c.items))
-                if col == 7 and ign:
+                if col == 5 and ign:
                     cell.setToolTip("已忽略的副词条专伤(不属于该套装有效词条): " +
                                     ", ".join(f"{k} {v:g}%" for k, v in sorted(c.panel.ignored_bonus.items())))
+                if col == 6:
+                    if c.penalized:
+                        cell.setForeground(QColor("#d13438"))
+                        cell.setToolTip(f"共效 {c.panel.energy:.1f}% < 下限 "
+                                        f"{self.energy_min_spin.value():g}% → 循环不成立, 排序分 ×"
+                                        f"{self.energy_pen_spin.value():g}(未乘系数前 E {c.score_raw:.1f})")
+                    else:
+                        cell.setToolTip(f"共效 {c.panel.energy:.1f}%(≥ 下限 → 不乘系数)")
+                if col == 7 and c.penalized:
+                    cell.setToolTip(f"已乘共效不达标系数 ×{self.energy_pen_spin.value():g}"
+                                    f"(未乘系数前 E {c.score_raw:.1f})")
                 self.result_table.setItem(row, col, cell)
 
     def _scaling(self) -> str:
@@ -556,11 +603,13 @@ class PlanTab(QWidget):
             subs = "、".join(f"{k} {v:g}" for k, v in item.stats[len(item.main):]) or "—"
             tag = instance_tag(item) or item.source or "—"
             score_txt = f"{item.score:.2f}" if item.score is not None else "—"
-            lines.append(f"{i}. {item.name}  {item.cost}C  [{item.set_name}]  实例 {tag}  评分 {score_txt}")
+            dmg_txt = f" / 伤害相关 {item.score_dmg:.2f}" if item.score_dmg is not None else ""
+            lines.append(f"{i}. {item.name}  {item.cost}C  [{item.set_name}]  实例 {tag}  "
+                         f"评分 {score_txt}{dmg_txt}")
             lines.append(f"    主属性: {main}")
             lines.append(f"    词条: {subs}")
         lines += ["", "（同名多只时, 靠「实例」编号区分是哪一只: json#N = 评估记录序号; 四位数字 = 素材文件名序号）",
-                  "（评分 = 该只在该套装权重下的评估得分, 与报告同口径）"]
+                  "（评分 = 该只在该套装权重下的评估得分; 伤害相关 = 扣掉共效后的分 —— 共效不进伤害公式）"]
         MessageBox("组合详情", "\n".join(lines), self).exec()
 
     def _export_csv(self):
@@ -573,8 +622,9 @@ class PlanTab(QWidget):
         try:
             with open(path, "w", encoding="utf-8-sig", newline="") as f:
                 w = csv.writer(f)
-                w.writerow(["名次", "组合", "套装只数", "ΣCOST", "评分和", "均分", "缩放属性总值", "暴击率%",
-                            "暴击伤害%", "属伤%", "专伤%", "通用%", "忽略专伤%", "排序分E", "伤害"])
+                w.writerow(["名次", "组合", "套装只数", "ΣCOST", "评分和", "均分", "有效分", "缩放属性总值",
+                            "暴击率%", "暴击伤害%", "属伤%", "专伤%", "通用%", "忽略专伤%", "共效%",
+                            "共效不达标", "排序分E", "未乘系数E", "伤害"])
                 zb, rb = self._zone_factors()
                 for rank, c in enumerate(self._combos, 1):
                     zone = c.panel.bonus_split()
@@ -582,11 +632,13 @@ class PlanTab(QWidget):
                     w.writerow([rank, " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items),
                                 " + ".join(f"{k}×{v}" for k, v in sorted(c.set_counts.items())),
                                 c.total_cost, f"{s_sum:.2f}", f"{s_sum / 5:.2f}",
+                                f"{c.score_sum_dmg()[0]:.2f}",
                                 f"{c.panel.scaling_total(self._scaling()):.1f}",
                                 f"{c.panel.crit_rate:.1f}", f"{c.panel.crit_dmg:.1f}",
                                 f"{zone['属伤']:.1f}", f"{zone['专伤']:.1f}", f"{zone['通用']:.1f}",
-                                f"{sum(c.panel.ignored_bonus.values()):.1f}",
-                                f"{c.score:.1f}", f"{c.score * zb * rb:.1f}"])
+                                f"{sum(c.panel.ignored_bonus.values()):.1f}", f"{c.panel.energy:.1f}",
+                                "是" if c.penalized else "否",
+                                f"{c.score:.1f}", f"{c.score_raw:.1f}", f"{c.score * zb * rb:.1f}"])
             self._info(True, "已导出", path)
         except OSError as e:
             self._info(False, "导出失败", str(e))

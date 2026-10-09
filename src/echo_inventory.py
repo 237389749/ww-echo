@@ -41,8 +41,9 @@ _SCORE_TASK = None
 from src.echo_combos import EchoItem
 from src.echo_icon_match import match_icon
 from src.echo_main_prop import candidates as main_prop_candidates
-from src.echo_set_templates import get_set_by_echo, get_sets_by_echo, load_gamedata
-from src.echo_stats import is_stat_match
+from src.echo_set_templates import (get_set_by_echo, get_set_weights, get_sets_by_echo,
+                                    load_gamedata)
+from src.echo_stats import DEFAULT_WEIGHTS, get_mean, is_stat_match, snap_to_tier
 from src.task.EnhanceEchoTask import EnhanceEchoTask, parse_number
 
 _ROOM = "logs/eval_debug"
@@ -231,11 +232,14 @@ def _subs_from_props(props: list, main_n: int = 2) -> tuple:
     return tuple(out[:5])
 
 
-def echo_score(stats, set_name: str, set_src: str = "") -> float | None:
-    """一只声骸的**评估得分**(与报告同一份实现: `EnhanceEchoTask.compute_weighted_score`)。
+def echo_score(stats, set_name: str) -> tuple[float | None, float | None]:
+    """一只声骸 → `(评估得分, 伤害相关得分)`(与报告同一份实现 `compute_weighted_score`)。
 
     评估 JSON 里已带 `score`, 但 `image_report.md` 转录没有 → 报告路径用它补上,
     这样"组合的评分和"两条导入途径一致。
+    **伤害相关得分** = 评估得分 − **共效**那一项的条分(共效权重 0.6 但不进伤害公式):
+    评分是线性的, 扣掉共效条分即得"只看伤害相关词条"的分 —— 这样"评分和最高"才和伤害排序一致
+    (用户口径: 暴击不溢出时两者应当一致, 偏差主要来自共效占模)。
     """
     global _SCORE_TASK
     if _SCORE_TASK is None:
@@ -244,10 +248,25 @@ def echo_score(stats, set_name: str, set_src: str = "") -> float | None:
     try:
         score, _details = _SCORE_TASK.compute_weighted_score(
             [(n, str(v)) for n, v in stats], set_name=set_name)
-        return round(float(score), 2)
+        score = round(float(score), 2)
     except Exception as e:                                          # noqa: BLE001 - 分数算不出不影响导入
         logger.warning(f"评分失败(忽略): {e}")
-        return None
+        return None, None
+    return score, round(score - _energy_points(stats, set_name), 2)
+
+
+def _energy_points(stats, set_name: str) -> float:
+    """该只评分里**共效**贡献的条分(档位值 ÷ 期望值 × 10 × 该套装给共效的权重)。"""
+    weights = get_set_weights(set_name) or DEFAULT_WEIGHTS
+    weight = weights.get("共鸣效率", 0.0)
+    if weight <= 0:
+        return 0.0
+    for name, value in stats:
+        if name == "共鸣效率":
+            tier = snap_to_tier(name, value) or 0.0
+            mean = get_mean(name) or 1.0
+            return tier / mean * 10 * weight
+    return 0.0
 
 
 def item_from_report(tag: str, lines: list, frame=None) -> EchoItem | None:
@@ -264,9 +283,10 @@ def item_from_report(tag: str, lines: list, frame=None) -> EchoItem | None:
     cost, inferred = resolve_cost(cost, main, level, len(subs))
     tail = f"{tag}|{src}" + (f"|s1={icon_score:.3f}" if icon_score is not None else "") + \
         ("|cost=反推" if inferred else "")
+    score, score_dmg = echo_score(tuple(main) + subs, set_name)
     return EchoItem(name=name, cost=cost, set_name=set_name,
                     stats=tuple(main) + subs, main=main, level=level, source=tail,
-                    score=echo_score(tuple(main) + subs, set_name, src))
+                    score=score, score_dmg=score_dmg)
 
 
 def item_from_record(rec: dict) -> EchoItem | None:
@@ -281,13 +301,16 @@ def item_from_record(rec: dict) -> EchoItem | None:
     main = tuple((normalize_main_prop(m.get("name"), m.get("value"), None, tier),
                   float(m.get("value") or 0)) for m in (rec.get("main_props") or []))
     cost, inferred = resolve_cost(rec.get("cost"), main, None, tier)
+    set_name = str(rec.get("set") or "通用")
+    stats_all = main + subs
     try:
         score = float(rec["score"]) if rec.get("score") is not None else None
     except (TypeError, ValueError):
         score = None
-    return EchoItem(name=name, cost=cost,
-                    set_name=str(rec.get("set") or "通用"), stats=main + subs, main=main,
-                    level=None, score=score,
+    # 记录里只有含共效的 score → "伤害相关得分"自己扣掉共效条分(同一套权重, 见 `_energy_points`)
+    score_dmg = round(score - _energy_points(stats_all, set_name), 2) if score is not None else None
+    return EchoItem(name=name, cost=cost, set_name=set_name, stats=stats_all, main=main,
+                    level=None, score=score, score_dmg=score_dmg,
                     source=f"json#{rec.get('index', '')}" + ("|cost=反推" if inferred else ""))
 
 

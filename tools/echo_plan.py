@@ -48,7 +48,9 @@ def build_request(a) -> PlanRequest:
                        cost4_owner=a.cost4.upper(), top_k=a.top, crit_mode=a.crit,
                        max_level_only=not getattr(a, "all_levels", False),
                        allowed_bonus=None if getattr(a, "all_bonus", False) else
-                       set_bonus_keys([a.set_a] + ([a.set_b] if a.mode == "3+2" else [])))
+                       set_bonus_keys([a.set_a] + ([a.set_b] if a.mode == "3+2" else [])),
+                       energy_min=getattr(a, "energy_min", 120.0),
+                       energy_penalty=getattr(a, "energy_penalty", 0.95))
 
 
 def print_inventory(items, limit=12):
@@ -83,6 +85,8 @@ def print_result(res, req, bare, corrections, args):
           + ("**全部**(--all-bonus)" if req.allowed_bonus is None
              else (", ".join(req.allowed_bonus) or "无(该套装不认任何专伤)"))
           + "   ← 来自套装模板的有效词条")
+    print(f"循环门槛: 共效 ≥ {req.energy_min:g}%"
+          + (f"(否则排序分 ×{req.energy_penalty:g})" if req.energy_penalty != 1.0 else "(已关闭系数)"))
     if not res.combos:
         print("没有合法组合: 检查套装是否有 4C/3C/1C 声骸、ΣCOST≤12 与 4C 归属")
         return
@@ -90,8 +94,8 @@ def print_result(res, req, bare, corrections, args):
     if ign:
         print("该组合被忽略的副词条专伤: " + ", ".join(f"{k} {v:g}%" for k, v in sorted(ign.items()))
               + f" = 合计 {sum(ign.values()):.1f}%(不属于该套装有效词条)")
-    head = (f"{'名次':<4}{'伤害':>12}{'排序分E':>11}{'评分和':>8}{'均分':>7}{'ΣCOST':>7}{'套装':>10}"
-            f"{'缩放总值':>11}{'暴击/爆伤':>14}{'加成区':>9}  组合")
+    head = (f"{'名次':<4}{'伤害':>12}{'排序分E':>11}{'评分和':>8}{'有效分':>8}{'ΣCOST':>7}{'套装':>10}"
+            f"{'缩放总值':>11}{'暴击/爆伤':>14}{'加成区':>9}{'共效':>6}  组合")
     print("\n" + head)
     top = res.combos[0].score
     for rank, c in enumerate(res.combos, 1):
@@ -99,18 +103,24 @@ def print_result(res, req, bare, corrections, args):
         sets = "+".join(f"{k}{v}" for k, v in sorted(c.set_counts.items()))
         dmg = c.score * zb * rb
         ign = sum(c.panel.ignored_bonus.values())
-        s_sum, s_missing = c.score_sum()
-        print(f"{rank:<4}{dmg:>12.1f}{c.score:>11.1f}{s_sum:>8.2f}{s_sum / 5:>7.2f}{c.total_cost:>7}{sets:>10}"
+        s_sum, _sm = c.score_sum()
+        s_dmg, _sd = c.score_sum_dmg()
+        mark = f"(共效{c.panel.energy:.1f}%<{req.energy_min:g}%→×{req.energy_penalty:g})" if c.penalized else ""
+        print(f"{rank:<4}{dmg:>12.1f}{c.score:>11.1f}{s_sum:>8.2f}{s_dmg:>8.2f}{c.total_cost:>7}{sets:>10}"
               f"{c.panel.scaling_total(req.scaling):>11.1f}"
               f"{c.panel.crit_rate:>6.1f}{'→100' if c.panel.crit_wasted() else '':>4}/{c.panel.crit_dmg:<6.1f}"
               f"{zone['属伤']:>4.0f}+{zone['专伤']:>3.0f}+{zone['通用']:>2.0f}"
+              f"{c.panel.energy:>6.1f}"
               + (f"(忽略{ign:.0f})" if ign else "")
+              + ("  " + mark if mark else "")
               + f"  " + " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
               + ("" if c.score == top else f"  (第1名 −{(1 - c.score / top) * 100:.1f}%)"))
     print("\n注: 「排序分 E」= 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区), 方案内常数(倍率/加深)"
           "已省略;\n    「伤害」= E × 防御区 × 抗性区(便于与 wuwa-calculator 对数字);\n"
-          "    「评分和」= 5 只各自的**评估得分**之和(与报告同口径, 同套装内可比): 反映件本身练得怎么样,\n"
-          "      与伤害排序分 E 是两个维度;\n"
+          "    「评分和」= 5 只各自的**评估得分**之和(与报告同口径, 同套装内可比);\n"
+          "    「有效分」= 评分和**扣掉共效**(共效权重 0.6 但不进伤害公式) —— 暴击不溢出时它与伤害排序\n"
+          "      基本一致; 两者差得多, 说明这组是靠共效撑评分;\n"
+          f"    「循环门槛」= 共效 ≥ {req.energy_min:g}%, 不达标(表里标 `共效X%<…→×系数`)则排序分 ×{req.energy_penalty:g};\n"
           "    暴击率按 100% 封顶(标 →100 表示溢出, 溢出部分算 0 收益);\n"
           "    名字后的 #N 是实例编号(json#N = 评估记录序号): 同名多只靠它区分是哪一只;\n"
           "    加成区的 `(忽略N)` = 该组合里**该套装不认的专伤**副词条(不计入), 见上面「计入的加成键」。")
@@ -127,6 +137,10 @@ def main() -> int:
                     help="把**未满级**件也放进候选池(默认只用满级件 = 5 词条)")
     ap.add_argument("--all-bonus", action="store_true",
                     help="声骸副词条的专伤**不过滤**(默认只计该套装有效词条里的专伤)")
+    ap.add_argument("--energy-min", type=float, default=120.0,
+                    help="共效下限%%(默认 120; 低于它视为循环不成立 → 排序分 × 系数; 设 0 关闭)")
+    ap.add_argument("--energy-penalty", type=float, default=0.95,
+                    help="共效不达标时的系数(默认 0.95; 设 1.0 关闭)")
     ap.add_argument("--mode", default="5", choices=("5", "3+2"), help="5 = 同套 5 件; 3+2 = A 3 件 + B 2 件")
     ap.add_argument("--set-a", default="", help="套装 A(3+2 时是 3 件那套, 也是 4C 默认归属)")
     ap.add_argument("--set-b", default="", help="套装 B(3+2 必填, 2 件)")
