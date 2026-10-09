@@ -138,6 +138,19 @@ class TestBonusFilter(unittest.TestCase):
         self.assertIsNone(set_bonus_keys(["不存在的套装"]))
         self.assertIsNone(set_bonus_keys([]))
 
+    def test_zero_weight_key_is_not_effective(self):
+        """**权重 0 = 该套装不认**(与评分口径一致): 置 0 的专伤不能算有效 → 该套装没有可计专伤。
+
+        实测来源: 用户把「听唤语义之愿」的重击权重置 0(西格莉卡不靠重击) → 重击副词条必须不再计入伤害。
+        """
+        self.assertEqual(set_bonus_keys(["听唤语义之愿"]), ())       # 重击已置 0 → 一个都不算
+        from src.echo_set_templates import get_set_weights
+        self.assertEqual(get_set_weights("听唤语义之愿")["重击伤害加成"], 0.0)
+        pool = [full(f"n{i}", 1, "听唤语义之愿", 重击伤害加成=9.4, 暴击伤害=12.6) for i in range(5)]
+        c = plan(pool, PlanRequest(mode="5", set_a="听唤语义之愿", top_k=1)).combos[0]
+        self.assertAlmostEqual(c.panel.ignored_bonus.get("重击伤害加成", 0), 9.4 * 5)
+        self.assertEqual(c.panel.bonus.get("重击伤害加成"), None)
+
     def test_all_bonus_switch_changes_score(self):
         """模板不认的专伤: 过滤后不算分, `allowed_bonus=None` 才全算。"""
         pool = [full(f"n{i}", 1, A, 共鸣解放伤害加成=8.0, 普攻伤害加成=9.0) for i in range(5)]

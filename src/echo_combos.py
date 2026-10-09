@@ -287,7 +287,10 @@ def set_bonus_keys(set_names) -> tuple[str, ...] | None:
         if weights is None:
             continue
         found = True
-        keys |= {k for k in weights if is_bonus_key(k) and bonus_group(k) == "专伤"}
+        # **权重 0 = 该套装不认这个词条**(与评估评分同一口径: weight 0 → 0 分) → 不能算"有效专伤"。
+        # 否则把某套装的"重击"权重置 0 后, 重击副词条仍会被计进伤害(实测踩过: 用户要求置 0)。
+        keys |= {k for k, w in weights.items()
+                 if w > 0 and is_bonus_key(k) and bonus_group(k) == "专伤"}
     return tuple(sorted(keys)) if found else None
 
 

@@ -98,10 +98,14 @@ tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 
   只打共鸣解放的角色刷到"普攻伤害加成"副词条等于白给 → `aggregate(allowed_bonus=...)` 只计
   **套装模板权重键里的专伤**(`set_bonus_keys`, 3+2 取并集); **属伤/通用永远计入**, **补正一律计入**;
   被挡的量在 `Panel.ignored_bonus`(表里显示 `(忽略N)`); 开关 = UI「专伤不过滤」/ CLI `--all-bonus`。
+  **权重 0 = 该套装不认**(与评分同一口径): `set_bonus_keys` 只收**权重 > 0** 的键 —— 曾经只按键名收集,
+  于是把某套装的"重击"置 0 后重击副词条仍被计入(用户 2026-10-09 要求置 0 时发现); 那 20 多个"未定制"套装
+  (占位键全 0)也因此不再计入任何专伤。
   **坑**: `bonus_group()` 对非加成键也返回"专伤", 过滤必须带 `is_bonus_key`(否则攻击/暴击/共效被一起挡掉)。
-- **每个组合带"评分和"**: `EchoItem.score`(评估得分, 与报告同一份 `compute_weighted_score`)→
-  `Combo.score_sum()`; CLI/UI/CSV 都有 评分和/均分 两列(UI 悬停给 5 只明细)。JSON 路径取记录的 `score`,
-  素材路径用 `echo_inventory.echo_score()` 现算 —— 两条途径一致。
+- **每个组合带"评分和"**(`EchoItem.score` → `Combo.score_sum()`, 与报告同一份 `compute_weighted_score`):
+  **只按副词条算** —— 主属性不进评分, 别把 `main` 也传进去(3C 固有"攻击 100"会被当成攻击词条, 实测踩过);
+  **两条导入途径都现算**(不直接用 JSON 记录里的 `score`: 那份是评估当时的, 改套装权重后就过期了)。
+  CLI/UI/CSV 都有 评分和/均分 两列(UI 悬停给 5 只明细)。
 - **「有效分」= 评分和 − 共效条分**(`EchoItem.score_dmg` / `Combo.score_sum_dmg()`): 共效在评分里有 0.6 权重、
   却不进伤害公式 → 减掉它以后与伤害排序的秩相关从 0.66/0.32 升到 0.81/0.59(见下条实测), 但**仍不能当排序**。
   排名表把它与评分和并成一列(`评分和/有效分`, UI 悬停给 5 只明细), CLI/CSV 各占一列。

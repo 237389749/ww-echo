@@ -283,7 +283,9 @@ def item_from_report(tag: str, lines: list, frame=None) -> EchoItem | None:
     cost, inferred = resolve_cost(cost, main, level, len(subs))
     tail = f"{tag}|{src}" + (f"|s1={icon_score:.3f}" if icon_score is not None else "") + \
         ("|cost=反推" if inferred else "")
-    score, score_dmg = echo_score(tuple(main) + subs, set_name)
+    # 评分只按**副词条**算(与 `evaluate_one` 同一口径: 主属性不进评分) —— 传 tuple(main)+subs 会把
+    # 3C 固有"攻击 100"当成攻击词条算分, 实测过这个坑。
+    score, score_dmg = echo_score(subs, set_name)
     return EchoItem(name=name, cost=cost, set_name=set_name,
                     stats=tuple(main) + subs, main=main, level=level, source=tail,
                     score=score, score_dmg=score_dmg)
@@ -303,12 +305,16 @@ def item_from_record(rec: dict) -> EchoItem | None:
     cost, inferred = resolve_cost(rec.get("cost"), main, None, tier)
     set_name = str(rec.get("set") or "通用")
     stats_all = main + subs
-    try:
-        score = float(rec["score"]) if rec.get("score") is not None else None
-    except (TypeError, ValueError):
-        score = None
-    # 记录里只有含共效的 score → "伤害相关得分"自己扣掉共效条分(同一套权重, 见 `_energy_points`)
-    score_dmg = round(score - _energy_points(stats_all, set_name), 2) if score is not None else None
+    # **现算评分**(只按副词条)而不是直接用记录里的 `score`: 那份是**评估当时**的口径,
+    # 若之后改过套装权重(例如把重击置 0)就会过期 —— 组合穷举的"评分和"应当反映**当前**配置。
+    # 现算失败(键名异常等)才回落到记录里的分。
+    score, score_dmg = echo_score(subs, set_name)
+    if score is None:
+        try:
+            score = float(rec["score"]) if rec.get("score") is not None else None
+        except (TypeError, ValueError):
+            score = None
+        score_dmg = round(score - _energy_points(subs, set_name), 2) if score is not None else None
     return EchoItem(name=name, cost=cost, set_name=set_name, stats=stats_all, main=main,
                     level=None, score=score, score_dmg=score_dmg,
                     source=f"json#{rec.get('index', '')}" + ("|cost=反推" if inferred else ""))

@@ -99,10 +99,14 @@ def print_result(res, req, bare, corrections, args):
     print(f"候选 {res.candidates} 只 / {res.names} 个名字 | 评估 {res.evaluated} 组 | "
           f"取前 {len(res.combos)} / 耗时 {res.elapsed:.3f}s"
           + ("" if req.max_level_only else " | **含未满级件**"))
+    # 注意打印**解析后**的集合: `req.allowed_bonus=None` 时由套装模板推断(权重 0 的键不算)
+    allowed = req.allowed_bonus
+    if allowed is None:
+        allowed = set_bonus_keys([req.set_a] + ([req.set_b] if req.mode == "3+2" else []))
     print("声骸副词条计入的加成键: "
-          + ("**全部**(--all-bonus)" if req.allowed_bonus is None
-             else (", ".join(req.allowed_bonus) or "无(该套装不认任何专伤)"))
-          + "   ← 来自套装模板的有效词条")
+          + ("**全部**(--all-bonus)" if allowed is None
+             else (", ".join(allowed) or "无(该套装有效词条里没有专伤)"))
+          + "   ← 来自套装模板的**非 0 权重**词条")
     if req.derived:
         print("推导补正(天赋, 逐组合按最终属性算): "
               + "; ".join(f"{d.source} > {d.threshold:g} 每点 +{d.per_point:g} → {d.key}, 上限 {d.cap:g}"
