@@ -1,4 +1,4 @@
-"""声骸组合穷举 + 伤害排名的**命令行**入口(UI 与它共用 `src/echo_panel.py` / `src/echo_combos.py`)。
+﻿"""声骸组合穷举 + 伤害排名的**命令行**入口(UI 与它共用 `src/echo_panel.py` / `src/echo_combos.py`)。
 
 用法::
 
@@ -27,6 +27,8 @@ sys.path.insert(0, ROOT)
 
 from src.echo_combos import (PlanRequest, energy_is_damage, instance_tag, plan,   # noqa: E402
                              set_bonus_keys)
+from src.char_profiles import (build_profile, corrections_of, derived_of, load_all,   # noqa: E402
+                               upsert)
 from src.echo_panel import (SPECIALTY_ALIASES, SPECIALTY_KEYS, DerivedBonus,       # noqa: E402
                             GENERIC_BONUS_KEY, normalize_bonus_key)
 from src.echo_inventory import load_inventory, summarize                  # noqa: E402
@@ -76,12 +78,19 @@ def allowed_bonus_of(a) -> tuple[str, ...] | None:
     return set_bonus_keys([a.set_a] + ([a.set_b] if a.mode == "3+2" else []))
 
 
-def build_request(a) -> PlanRequest:
+def _given(a, flag: str) -> bool:
+    """命令行里**显式**写了 `--flag` 吗(预设只作默认值, 显式参数优先)。"""
+    needle = "--" + flag.replace("_", "-")
+    return any(x == needle or x.startswith(needle + "=") for x in sys.argv[1:])
+
+
+def build_request(a, derived_extra=()) -> PlanRequest:
     return PlanRequest(scaling=a.scaling, mode=a.mode, set_a=a.set_a, set_b=a.set_b,
                        cost4_owner=a.cost4.upper(), top_k=a.top, crit_mode=a.crit,
                        max_level_only=not getattr(a, "all_levels", False),
                        allowed_bonus=allowed_bonus_of(a),
-                       derived=tuple(parse_derive(t) for t in getattr(a, "derive", [])),
+                       derived=tuple(derived_extra) + tuple(parse_derive(t) for t in
+                                                            getattr(a, "derive", [])),
                        energy_min=getattr(a, "energy_min", 120.0),
                        energy_slope=getattr(a, "energy_slope", 0.30),
                        energy_floor=getattr(a, "energy_floor", 0.85),
@@ -193,6 +202,10 @@ def main() -> int:
     ap.add_argument("--list-all", action="store_true", help="库存概览打印全部套装")
     ap.add_argument("--all-levels", action="store_true",
                     help="把**未满级**件也放进候选池(默认只用满级件 = 5 词条)")
+    ap.add_argument("--profile", default="", metavar="角色名",
+                    help="载入**角色预设**(裸面板/补正/专伤/门槛/配装); 命令行显式给的参数照样覆盖")
+    ap.add_argument("--save-profile", default="", metavar="角色名",
+                    help="把本次输入装配存成角色预设(存在 assets/char_profiles.json)")
     ap.add_argument("--specialty", action="append", default=[], metavar="专伤",
                     help="**指定计进加成区的专伤**(可重复; 简写 重击/普攻/共技/共解/声骸技能 或全名)。"+
                          "不给则由套装模板推断(并集) —— 通用套的 0.1 占位键会被并集带上, 所以要按角色指定")
@@ -239,7 +252,41 @@ def main() -> int:
 
     bare = {k: v for k, v, _ in parse_pairs(a.bare, "--bare")}
     corrections = [Correction(k, v, s) for k, v, s in parse_pairs(a.corr, "--corr")]
-    req = build_request(a)
+    # 角色预设: 作为**默认值**, 命令行里显式给了的照样覆盖(见 `_given`)
+    profile = load_all().get(getattr(a, "profile", "") or "") if getattr(a, "profile", "") else None
+    if a.profile and profile is None:
+        print(f"\n没有叫「{a.profile}」的角色预设; 现有: {sorted(load_all()) or '(空)'}")
+        return 2
+    if profile:
+        for k, v in (profile.get("bare") or {}).items():
+            bare.setdefault(str(k), float(v))
+        corrections = [Correction(c.key, c.value, c.source) for c in corrections_of(profile)] + corrections
+        if not _given(a, "specialty"):
+            a.specialty = [kk.replace("伤害加成", "") for kk in (profile.get("specialty") or [])]
+        prof_plan = profile.get("plan") or {}
+        for flag, key, attr in (("set-a", "set_a", "set_a"), ("set-b", "set_b", "set_b"),
+                                ("mode", "mode", "mode"), ("cost4", "cost4_owner", "cost4"),
+                                ("scaling", "scaling", "scaling")):
+            if prof_plan.get(key) and not _given(a, flag):
+                setattr(a, attr, prof_plan[key])
+        if not _given(a, "scaling") and profile.get("scaling"):
+            a.scaling = profile["scaling"]
+        print(f"角色预设: {a.profile}(裸面板 {len(profile.get('bare') or {})} 项 / "
+              f"补正 {len(profile.get('corrections') or [])} 条 / "
+              f"专伤 {profile.get('specialty') or '按模板并集'})")
+    req = build_request(a, derived_extra=derived_of(profile) if profile else ())
+    if getattr(a, "save_profile", ""):
+        prof = build_profile(req.scaling, bare, corrections, list(req.derived),
+                             specialty=req.allowed_bonus or (),
+                             energy={"min": req.energy_min, "slope": req.energy_slope,
+                                     "floor": req.energy_floor},
+                             crit={"target": req.crit_target, "slope": req.crit_slope,
+                                   "floor": req.crit_floor},
+                             plan={"mode": req.mode, "set_a": req.set_a, "set_b": req.set_b,
+                                   "cost4_owner": req.cost4_owner},
+                             max_level_only=req.max_level_only)
+        path = upsert(a.save_profile, prof)
+        print(f"\n已保存角色预设「{a.save_profile}」→ {path}")
     if not req.set_a:
         print("\n需要 --set-a(套装名); 候选套装见上面的库存概览")
         return 2

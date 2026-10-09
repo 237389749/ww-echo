@@ -1,4 +1,4 @@
-﻿"""
+"""
 「组合穷举」页 —— 声骸组合穷举 + 伤害排名的**输入装配与展示**(规格 panel_plan.md 的 UI 规格)。
 
 边界(与阶段二十四"判定唯一收口"同一条纪律): **UI 不碰伤害公式** ——
@@ -23,6 +23,9 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, Edi
 
 from src.echo_combos import (PlanRequest, candidate_pool, energy_is_damage, instance_tag,
                              is_max_level, plan, set_bonus_keys)
+from src.char_profiles import (CRIT_DEFAULTS, ENERGY_DEFAULTS, build_profile, corrections_of,
+                                delete as delete_profile, derived_of, load_all as load_profiles,
+                                upsert as upsert_profile)
 from src.echo_inventory import load_inventory, summarize
 from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, EXTRA_BONUS_KEYS, GENERIC_BONUS_KEY, SPECIALTY_KEYS,
                                Correction, DerivedBonus, aggregate, defense_zone, resist_zone)
@@ -85,6 +88,7 @@ class PlanTab(QWidget):
         self._setup_ui()
         self._load_sets()
         self._refresh_panel()
+        self._refresh_profiles()
 
     # ══════════════════ UI ══════════════════
     def _setup_ui(self):
@@ -116,6 +120,25 @@ class PlanTab(QWidget):
     # ── 角色与目标 ──
     def _group_goal(self) -> SettingCardGroup:
         g = SettingCardGroup("角色与目标", self.view)
+
+        # 角色预设: 把"这个角色每次都要填的那一堆"(裸面板/补正/专伤/天赋/门槛)存下来一键复用
+        self.profile_card = SettingCard(FIF.PEOPLE, "角色预设",
+                                        "把裸面板 / 补正 / 指定专伤 / 条件补正 / 门槛参数按角色存起来, "
+                                        "下次一键载入(存在 assets/char_profiles.json)", self.view)
+        self.profile_combo = ComboBox()
+        self.profile_combo.setMinimumWidth(140)
+        load_btn = PushButton(FIF.DOWNLOAD, "载入")
+        load_btn.clicked.connect(self._load_profile)
+        self.profile_name_edit = EditableComboBox()
+        self.profile_name_edit.setMinimumWidth(140)
+        save_btn = PushButton(FIF.SAVE, "保存当前为…")
+        save_btn.clicked.connect(self._save_profile)
+        del_btn = PushButton(FIF.DELETE, "删除")
+        del_btn.clicked.connect(self._delete_profile)
+        for w in (self.profile_combo, load_btn, self.profile_name_edit, save_btn, del_btn):
+            self.profile_card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)
+            self.profile_card.hBoxLayout.addSpacing(8)
+        self.profile_card.hBoxLayout.addSpacing(8)
 
         self.goal_card = SettingCard(FIF.TILES, "缩放属性与暴击口径",
                                      "缩放属性决定主属性最优解(攻击/防御/生命角色完全不同); "
@@ -233,7 +256,7 @@ class PlanTab(QWidget):
         self.inv_card.hBoxLayout.addWidget(self.pick_btn)
         self.inv_card.hBoxLayout.addSpacing(16)
 
-        g.addSettingCards([self.goal_card, self.mode_card, self.level_card, self.energy_card,
+        g.addSettingCards([self.profile_card, self.goal_card, self.mode_card, self.level_card, self.energy_card,
                            self.crit_card, self.inv_card])
         return g
 
@@ -517,6 +540,92 @@ class PlanTab(QWidget):
                            crit_slope=self.crit_slope_spin.value(),
                            crit_floor=self.crit_floor_spin.value(),
                            top_k=50)
+
+    # ══════════════════ 角色预设 ══════════════════
+    def _refresh_profiles(self):
+        """刷新预设下拉(角色名按字典序)。"""
+        names = sorted(load_profiles())
+        cur = self.profile_combo.currentText()
+        self.profile_combo.clear()
+        self.profile_combo.addItems(names)
+        if cur in names:
+            self.profile_combo.setCurrentText(cur)
+        if not (self.profile_name_edit.currentText() or "").strip() and names:
+            self.profile_name_edit.setCurrentText(names[0])
+        self.profile_card.setToolTip("已存角色预设: " + (", ".join(names) if names else "(还没有)"))
+
+    def _load_profile(self):
+        """把预设写回界面(裸面板/补正/专伤/门槛/配装)。"""
+        name = self.profile_combo.currentText().strip()
+        prof = load_profiles().get(name)
+        if not prof:
+            self._info(False, "没有这个预设", f"「{name}」不存在, 先「保存当前为…」")
+            return
+        bare = prof.get("bare") or {}
+        for key, spin in self._bare_spins.items():
+            spin.setValue(float(bare.get(key, 0.0)))
+        if prof.get("scaling"):
+            self.scaling_combo.setCurrentText(str(prof["scaling"]))
+        self._corrections = corrections_of(prof)
+        self._derived = derived_of(prof)
+        spec = set(prof.get("specialty") or [])
+        for key, cb in self.specialty_checks:
+            cb.setChecked(key in spec)
+        energy = prof.get("energy") or {}
+        self.energy_min_spin.setValue(float(energy.get("min", ENERGY_DEFAULTS["min"])))
+        self.energy_slope_spin.setValue(float(energy.get("slope", ENERGY_DEFAULTS["slope"])))
+        self.energy_floor_spin.setValue(float(energy.get("floor", ENERGY_DEFAULTS["floor"])))
+        crit = prof.get("crit") or {}
+        self.crit_target_spin.setValue(float(crit.get("target", CRIT_DEFAULTS["target"])))
+        self.crit_slope_spin.setValue(float(crit.get("slope", CRIT_DEFAULTS["slope"])))
+        self.crit_floor_spin.setValue(float(crit.get("floor", CRIT_DEFAULTS["floor"])))
+        plan = prof.get("plan") or {}
+        if plan.get("mode"):
+            self.mode_combo.setCurrentText(str(plan["mode"]))       # 会联动刷新套装可选值
+        if plan.get("set_a"):
+            self.set_a_combo.setCurrentText(str(plan["set_a"]))
+        if plan.get("set_b"):
+            self.set_b_combo.setCurrentText(str(plan["set_b"]))
+        if plan.get("cost4_owner"):
+            self.cost4_combo.setCurrentText(str(plan["cost4_owner"]))
+        if prof.get("max_level_only") is not None:
+            self.max_level_check.setChecked(bool(prof["max_level_only"]))
+        self._refresh_corrections()
+        self.profile_name_edit.setCurrentText(name)
+        self._info(True, "已载入预设", f"{name}: 缩放={prof.get('scaling', '攻击')}, "
+                                      f"补正 {len(self._corrections)} 条, 条件补正 {len(self._derived)} 条"
+                                      + (f", 专伤={[k.replace('伤害加成', '') for k in spec]}" if spec else ""))
+
+    def _save_profile(self):
+        """把当前输入装配存成预设(同名覆盖)。"""
+        name = (self.profile_name_edit.currentText() or "").strip()
+        if not name:
+            self._info(False, "缺角色名", "在输入框里填角色名(如「仇远」)再保存")
+            return
+        bare, corrections = self._collect_inputs()
+        prof = build_profile(
+            self.scaling_combo.currentText(), bare, corrections, self._derived,
+            specialty=tuple(k for k, cb in self.specialty_checks if cb.isChecked()),
+            energy={"min": self.energy_min_spin.value(), "slope": self.energy_slope_spin.value(),
+                    "floor": self.energy_floor_spin.value()},
+            crit={"target": self.crit_target_spin.value(), "slope": self.crit_slope_spin.value(),
+                  "floor": self.crit_floor_spin.value()},
+            plan={"mode": self.mode_combo.currentText(), "set_a": self.set_a_combo.currentText(),
+                  "set_b": self.set_b_combo.currentText(), "cost4_owner": self.cost4_combo.currentText()},
+            max_level_only=self.max_level_check.isChecked())
+        upsert_profile(name, prof)
+        self._refresh_profiles()
+        self.profile_combo.setCurrentText(name)
+        self._info(True, "已保存预设", name)
+
+    def _delete_profile(self):
+        name = self.profile_combo.currentText().strip()
+        if not name:
+            return
+        if MessageBox("删除角色预设", f"确定删除「{name}」的预设吗?", self).exec():
+            delete_profile(name)
+            self._refresh_profiles()
+            self._info(True, "已删除预设", name)
 
     def _allowed_bonus(self, sets) -> tuple[str, ...] | None:
         """计进加成区的专伤键: 勾了就用勾的; 全不勾 → 套装模板并集(picked 之外全忽略)。"""
