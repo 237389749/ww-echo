@@ -269,6 +269,16 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
                       evaluated=evaluated, elapsed=time.perf_counter() - t0, cancelled=cancelled)
 
 
+def energy_is_damage(req: "PlanRequest") -> bool:
+    """本方案里**共效是否会转成伤害**(有以共效为触发源的天赋/推导补正)。
+
+    此时「有效分 = 评分和 − 共效条分」是**反向**的(共效正是伤害来源, 不该被当无用项扣掉) →
+    调用方应把有效分显示为"—"并说明原因, 而不是给一个误导的数(实测: 西格莉卡共效 1% = 2% 增伤)。
+    """
+    from src.echo_panel import ENERGY_KEY
+    return any(d.source == ENERGY_KEY for d in req.derived)
+
+
 def set_bonus_keys(set_names) -> tuple[str, ...] | None:
     """这些套装**有效词条**里的"专伤键", 用作 `allowed_bonus` 的默认值。
 

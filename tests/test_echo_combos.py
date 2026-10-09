@@ -1,4 +1,4 @@
-"""`src/echo_combos.py` 单测: 组合过滤(互异 / ΣCOST≤12 / 套装只数 / 4C 归属) + 排名。
+﻿"""`src/echo_combos.py` 单测: 组合过滤(互异 / ΣCOST≤12 / 套装只数 / 4C 归属) + 排名。
 
 跑法(项目根目录):
     python -m unittest discover -s tests -v
@@ -15,8 +15,9 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.echo_combos import (EchoItem, PlanRequest, candidate_pool, crit_factor,      # noqa: E402
-                             energy_factor, gap_factor, instance_tag, is_max_level, plan,
-                             set_bonus_keys)
+                             energy_factor, energy_is_damage, gap_factor, instance_tag,
+                             is_max_level, plan, set_bonus_keys)
+from src.echo_panel import DerivedBonus                                             # noqa: E402
 
 A, B = "套装A", "套装B"
 
@@ -124,6 +125,16 @@ class TestEnergyThreshold(unittest.TestCase):
         self.assertNotEqual({i.name[0] for i in penal.combos[0].items}, {"a"})   # 换成共效更好的混搭
         self.assertGreater(penal.combos[0].energy_f, 0.95)
         self.assertGreater(plain.combos[0].score, penal.combos[0].score)          # 代价: 排第一的 E 变低了
+
+
+    def test_energy_is_damage(self):
+        """共效驱动型天赋(如西格莉卡) → 有效分不适用(用 `energy_is_damage` 判定, 显示为 —)。"""
+        self.assertFalse(energy_is_damage(PlanRequest(mode="5", set_a=A)))
+        self.assertTrue(energy_is_damage(PlanRequest(
+            mode="5", set_a=A,
+            derived=(DerivedBonus(source="共鸣效率", threshold=125, per_point=2, cap=50),))))
+        self.assertFalse(energy_is_damage(PlanRequest(          # 别的触发属性不算
+            mode="5", set_a=A, derived=(DerivedBonus(source="暴击", threshold=50, per_point=1),))))
 
 
 class TestBonusFilter(unittest.TestCase):

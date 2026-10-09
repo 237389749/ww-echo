@@ -1,19 +1,24 @@
-"""用 `logs/eval_debug/<时间戳>/` 的既有素材**离线重放一次评估** → 生成可直接打开的报告。
+"""用既有素材**离线重放一次评估** → 生成可直接打开的报告。两种输入:
 
-素材(无需游戏, 也无需 OCR 引擎):
-- 详情文本: `image_report.md` —— 对 `<tag>_detail.png` 的 OCR 转录(已人工清洗前缀)
-- 套装图标: `<tag>_full.png` 的详情面板图标区 → `src/echo_icon_match` 识别(低置信回退名字候选)
+1. `logs/eval_debug/<时间戳>/`(**无需游戏, 也无需 OCR 引擎**):
+   - 详情文本: `image_report.md` —— 对 `<tag>_detail.png` 的 OCR 转录(已人工清洗前缀)
+   - 套装图标: `<tag>_full.png` 的详情面板图标区 → `src/echo_icon_match` 识别(低置信回退名字候选)
+2. `--from-json <评估报告.json>`(**最快**: 记录里已含 名字/套装/词条/主属性/COST, 不需要任何图片):
+   跳过 OCR 与图标识别, 直接用**当前套装配置**重新评分 + 判定 + 前瞻 + 重铸方案 →
+   改过套装权重(如听唤的重击置 0、共效提到 0.9)后, 用它看"新口径下谁会升降"。
+   截图沿用原报告引用的文件名(不重建)。
 
 复用线上同一份实现: `_normalize_stat` 词条名容错 / 前 2 行主属性排除 + `is_stat_match` 离散档位过滤 /
 `compute_weighted_score` + `judge_echo` 评分判定 / `dedup_key` 去重(名字+档位值) / 0 级不入报告 /
 `_build_eval_html` 渲染。**改评分、判定或报告渲染后, 用它可以不开游戏就拿到一份真实数据的报告核对。**
 
-    python tools/offline_eval_report.py                 # 用 logs/eval_debug/ 下最新目录
+    python tools/offline_eval_report.py                          # 用 logs/eval_debug/ 下最新目录
     python tools/offline_eval_report.py <debug目录>
+    python tools/offline_eval_report.py --from-json eval_report_202610082251.json
 
 产物(与线上 UI 的落盘约定一致, 均已在 .gitignore 中):
-    eval_report.html          报告(截图按相对路径 eval_screenshots/ 引用)
-    eval_screenshots/*.png    详情面板截图
+    eval_report.html 或 eval_report_<时间戳>.html     报告(截图按相对路径 eval_screenshots/ 引用)
+    eval_screenshots/*.png                            详情面板截图(仅素材目录模式会重建)
 
 差异: 详情文本来自转录文件而非实时 OCR, 属性名/数值比线上更干净(线上会偶有错字), 故本工具
 适合验证"逻辑与渲染", 不能替代真机核对 OCR 容错。
@@ -21,6 +26,7 @@
 
 import argparse
 import glob
+import json
 import os
 import sys
 import time
@@ -52,10 +58,66 @@ def pick_set(echo_name: str, frame) -> tuple:
     return set_name, src, (score or 0.0)
 
 
+def replay_from_json(src: str, out_prefix: str) -> int:
+    """用评估报告 JSON 按**当前套装配置**重新评分/判定(不需要 OCR/图标素材)。"""
+    with open(src, encoding='utf-8') as f:
+        old = json.load(f)
+    records = old.get('results') or []
+    print(f'重放 {len(records)} 条 from {src}(按当前 assets/echo_set_templates.json 的权重)')
+
+    results, changed, verdict_stat = [], [], {}
+    per_set = {}
+    for rec in records:
+        # `evaluate_one` 的 stats 值要**数值**(它内部自己 str() 给 compute_weighted_score)
+        stats = [(s['name'], float(s['value'])) for s in (rec.get('stats') or [])]
+        mains = [(m['name'], str(m['value'])) for m in (rec.get('main_props') or [])]
+        new = task.evaluate_one(rec.get('name') or '', stats, rec.get('set') or '通用',
+                                rec.get('set_src') or 'default',
+                                main_props=mains or None, cost=rec.get('cost'))
+        merged = {**rec, **new}                       # 保留 index/screenshot/name_raw 等
+        results.append(merged)
+        verdict_stat[new['verdict']] = verdict_stat.get(new['verdict'], 0) + 1
+        d = new['score'] - float(rec.get('score') or 0)
+        per_set.setdefault(rec.get('set') or '通用', []).append(d)
+        if abs(d) >= 0.005:
+            changed.append((d, rec.get('index'), rec.get('name'), rec.get('set'),
+                            float(rec.get('score') or 0), new['score'],
+                            rec.get('verdict_cn'), new['verdict_cn']))
+
+    stamp = time.strftime('%Y%m%d%H%M%S')
+    base = out_prefix or f'eval_report_{stamp}'
+    html_path = os.path.join(ROOT, base + '.html')
+    json_path = os.path.join(ROOT, base + '.json')
+    data = {"set": old.get('set', '通用'), "total": len(results),
+            "evaluated_at": f'{time.strftime("%Y-%m-%d %H:%M:%S")} (离线重放 {os.path.basename(src)})',
+            "results": results}
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(_build_eval_html(data))
+
+    print(f'\n判定分布(新): {dict(sorted(verdict_stat.items(), key=lambda kv: -kv[1]))}')
+    print(f'分数变化 ≥0.005 的 {len(changed)}/{len(results)} 条')
+    print('\n--- 分数变化最大的 15 条 ---')
+    for d, idx, name, set_name, s0, s1, v0, v1 in sorted(changed, key=lambda x: -abs(x[0]))[:15]:
+        mark = '判定也变' if v0 != v1 else ''
+        print(f'  #{idx:<4} {name:<14} [{set_name}] {s0:6.2f} → {s1:6.2f} ({d:+.2f}) '
+              f'{v0}→{v1} {mark}')
+    print('\n--- 各套装平均分变化 ---')
+    for set_name, ds in sorted(per_set.items(), key=lambda kv: -abs(sum(kv[1]) / len(kv[1]))):
+        print(f'  {set_name:<12} n={len(ds):<4} 平均 {sum(ds) / len(ds):+.3f}分/只')
+    print(f'\n报告: {html_path}\n数据: {json_path}\n截图: 沿用原报告引用的 eval_screenshots/(未重建)')
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('debug_dir', nargs='?', default='', help='logs/eval_debug/<时间戳>')
+    ap.add_argument('--from-json', default='', help='用评估报告 JSON 重放(不需要 OCR/图标素材)')
+    ap.add_argument('--out', default='', help='输出报告名前缀(默认 eval_report_<时间戳>)')
     args = ap.parse_args()
+    if args.from_json:
+        return replay_from_json(args.from_json, args.out)
     dbg = args.debug_dir or latest_debug_dir()
     if not dbg or not os.path.isdir(dbg):
         print(f'找不到 debug 数据目录: {dbg or "logs/eval_debug/*"} (先跑一次评估模式生成)')

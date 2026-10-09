@@ -25,7 +25,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from src.echo_combos import PlanRequest, instance_tag, plan, set_bonus_keys    # noqa: E402
+from src.echo_combos import (PlanRequest, energy_is_damage, instance_tag, plan,   # noqa: E402
+                             set_bonus_keys)
 from src.echo_panel import DerivedBonus, GENERIC_BONUS_KEY               # noqa: E402
 from src.echo_inventory import load_inventory, summarize                  # noqa: E402
 from src.echo_panel import Correction, defense_zone, resist_zone               # noqa: E402
@@ -134,8 +135,9 @@ def print_result(res, req, bare, corrections, args):
         ign = sum(c.panel.ignored_bonus.values())
         s_sum, _sm = c.score_sum()
         s_dmg, _sd = c.score_sum_dmg()
+        s_dmg_txt = "   —" if energy_is_damage(req) else f"{s_dmg:>8.2f}"
         mark = f"(共效{c.panel.energy:.1f}%→×{c.energy_f:.3f})" if c.penalized else ""
-        print(f"{rank:<4}{dmg:>12.1f}{c.score:>11.1f}{s_sum:>8.2f}{s_dmg:>8.2f}{c.total_cost:>7}{sets:>10}"
+        print(f"{rank:<4}{dmg:>12.1f}{c.score:>11.1f}{s_sum:>8.2f}{s_dmg_txt}{c.total_cost:>7}{sets:>10}"
               f"{c.panel.scaling_total(req.scaling):>11.1f}"
               f"{c.panel.crit_rate:>6.1f}{'→100' if c.panel.crit_wasted() else '':>4}/{c.panel.crit_dmg:<6.1f}"
               f"{zone['属伤']:>4.0f}+{zone['专伤']:>3.0f}+{zone['通用']:>2.0f}"
@@ -144,11 +146,14 @@ def print_result(res, req, bare, corrections, args):
               + ("  " + mark if mark else "")
               + f"  " + " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
               + ("" if c.score == top else f"  (第1名 −{(1 - c.score / top) * 100:.1f}%)"))
+    eff_note = ("    「有效分」= **—**(本方案有共效驱动的天赋: 共效会转伤害, 不能当无用项扣掉);\n"
+                if energy_is_damage(req) else "")
     print("\n注: 「排序分 E」= 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区), 方案内常数(倍率/加深)"
           "已省略;\n    「伤害」= E × 防御区 × 抗性区(便于与 wuwa-calculator 对数字);\n"
           "    「评分和」= 5 只各自的**评估得分**之和(与报告同口径, 同套装内可比);\n"
-          "    「有效分」= 评分和**扣掉共效**(共效权重 0.6 但不进伤害公式) —— 暴击不溢出时它与伤害排序\n"
+          "    「有效分」= 评分和**扣掉共效**(共效不进伤害公式) —— 暴击不溢出时它与伤害排序\n"
           "      基本一致; 两者差得多, 说明这组是靠共效撑评分;\n"
+          f"{eff_note}"
           f"    「循环门槛」= 共效 ≥ {req.energy_min:g}%, 不达标按**线性缺口**扣系数"
           f"(斜率 {req.energy_slope:g} / 最低 {req.energy_floor:g}; 表里标 `共效X%→×系数`);\n"
           f"    「暴击门槛」= 暴击 ≥ {req.crit_target:g}% 才满系数, 否则按同一公式扣"

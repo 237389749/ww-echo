@@ -21,8 +21,8 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, Edi
                             InfoBarPosition, MessageBox, PushButton, SettingCard, SettingCardGroup,
                             SingleDirectionScrollArea, SpinBox, TableWidget, TitleLabel)
 
-from src.echo_combos import (PlanRequest, candidate_pool, instance_tag, is_max_level, plan,
-                             set_bonus_keys)
+from src.echo_combos import (PlanRequest, candidate_pool, energy_is_damage, instance_tag,
+                             is_max_level, plan, set_bonus_keys)
 from src.echo_inventory import load_inventory, summarize
 from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, EXTRA_BONUS_KEYS, GENERIC_BONUS_KEY, Correction,
                                DerivedBonus, aggregate, defense_zone, resist_zone)
@@ -647,7 +647,8 @@ class PlanTab(QWidget):
             s_sum, s_missing = c.score_sum()
             s_dmg, _sd = c.score_sum_dmg()
             cells = (str(row + 1), combo_text, str(c.total_cost),
-                     f"{s_sum:.2f}/{s_dmg:.2f}" + ("*" if s_missing else ""),
+                     f"{s_sum:.2f}/" + ("—" if energy_is_damage(req) else f"{s_dmg:.2f}")
+                     + ("*" if s_missing else ""),
                      f"{c.panel.crit_rate:.1f}%{'→100%' if c.panel.crit_wasted() else ''} / "
                      f"{c.panel.crit_dmg:.1f}%",
                      f"{zone['属伤']:.0f}+{zone['专伤']:.0f}+{zone['通用']:.0f}"
