@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, Correction, aggregate,          # noqa: E402
+from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, Correction, DerivedBonus, aggregate,   # noqa: E402
                             damage, defense_zone, is_bonus_key, resist_zone)
 from src.echo_set_templates import load_gamedata                                    # noqa: E402
 
@@ -104,6 +104,31 @@ class TestPanelAggregate(unittest.TestCase):
         none_on = aggregate(echo_stats=[("普攻伤害加成", 8.6)], allowed_bonus=())
         self.assertAlmostEqual(none_on.bonus_zone(), 0.0)
         self.assertAlmostEqual(none_on.ignored_bonus["普攻伤害加成"], 8.6)
+
+    def test_derived_bonus_from_panel_value(self):
+        """`DerivedBonus`: 天赋类"由面板属性推导"的补正(共效 > 125 每点 +2% 增伤, 上限 50%)。
+
+        要点: ①读**最终**属性值(含声骸副词条给的共效) ②阈值以下为 0 ③封顶 ④记进 `Panel.derived`
+        ⑤共效本身不进加成区, 不会自我循环。
+        """
+        talent = DerivedBonus(source="共鸣效率", threshold=125, per_point=2, cap=50,
+                              key="通用增伤", label="天赋")
+        p = aggregate({"共鸣效率": 100, "攻击": 1000}, echo_stats=[("共鸣效率", 30.0)],
+                      derived=[talent])
+        self.assertAlmostEqual(p.energy, 130.0)
+        self.assertAlmostEqual(p.derived["天赋"], 10.0)
+        self.assertAlmostEqual(p.bonus.get("通用增伤", 0), 10.0)
+        self.assertAlmostEqual(p.bonus_zone(), 10.0)
+        low = aggregate({"共鸣效率": 120}, derived=[talent])          # 阈值以下 → 0
+        self.assertEqual(low.derived, {})
+        self.assertAlmostEqual(low.bonus_zone(), 0.0)
+        high = aggregate({"共鸣效率": 200}, derived=[talent])         # 封顶
+        self.assertAlmostEqual(high.derived["天赋"], 50.0)
+        e = aggregate({"攻击": 1000, "攻击百分比": 50},               # 三系总值可作触发属性 + 加到属伤
+                      derived=[DerivedBonus(source="攻击", threshold=1400, per_point=0.1,
+                                            cap=5, key="热熔伤害加成", label="按攻击力")])
+        self.assertAlmostEqual(e.scaling_total("攻击"), 1500.0)
+        self.assertAlmostEqual(e.bonus.get("热熔伤害加成", 0), 5.0)
 
     def test_is_bonus_key(self):
         for key in ("普攻伤害加成", "共鸣解放伤害加成", "气动伤害加成", "声骸技能伤害加成", "通用增伤"):

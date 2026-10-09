@@ -22,7 +22,7 @@ import itertools
 import time
 from dataclasses import dataclass, field
 
-from src.echo_panel import Panel, aggregate, damage, is_bonus_key
+from src.echo_panel import DerivedBonus, Panel, aggregate, damage, is_bonus_key
 from src.echo_set_templates import get_set_weights
 
 # 有效的 COST 档(游戏里声骸只有 1/3/4)
@@ -64,6 +64,8 @@ class PlanRequest:
     max_level_only: bool = True      # 只用满级件(5 词条) —— 默认; 关掉才把未满级件也放进候选池
     # 声骸副词条里允许计入的加成键; None = 由套装模板自动推断(见 `set_bonus_keys`)
     allowed_bonus: tuple[str, ...] | None = None
+    # 由面板属性推导的补正(天赋类, 见 `echo_panel.DerivedBonus`): 逐组合按最终属性值算
+    derived: tuple[DerivedBonus, ...] = ()
     # 循环门槛(共效): 共效 < 目标(下限)时按**线性缺口**扣系数(用户口径, 2026-10-09):
     #   系数 = max(floor, 1 − slope × (目标 − 值) / 目标)     (值 ≥ 目标 → 1.0; **系数只减不增**)
     # 例(目标 120 / 斜率 0.30 / 最低 0.85): 110% → 0.975; 100% → 0.950; 60% 及以下 → 0.85。
@@ -243,7 +245,7 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
         for combo in itertools.product(*(groups[n] for n in names)):
             evaluated += 1
             panel = aggregate(bare, corrections, (s for it in combo for s in it.stats),
-                              allowed_bonus=allowed_bonus)
+                              allowed_bonus=allowed_bonus, derived=req.derived)
             raw = damage(panel, req.scaling, crit_mode=req.crit_mode)
             # 两个"用户口径"系数(同一公式, 只是目标不同): ① 共效不够 → 循环变慢 ② 暴击不够 → 不够稳
             f_energy = energy_factor(panel.energy, req.energy_min, req.energy_slope, req.energy_floor)

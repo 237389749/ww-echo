@@ -26,6 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from src.echo_combos import PlanRequest, instance_tag, plan, set_bonus_keys    # noqa: E402
+from src.echo_panel import DerivedBonus, GENERIC_BONUS_KEY               # noqa: E402
 from src.echo_inventory import load_inventory, summarize                  # noqa: E402
 from src.echo_panel import Correction, defense_zone, resist_zone               # noqa: E402
 
@@ -43,12 +44,25 @@ def parse_pairs(values, what):
     return out
 
 
+def parse_derive(text: str) -> DerivedBonus:
+    """`属性:阈值:每点:上限[:目标键][@标签]` → DerivedBonus。例 `共鸣效率:125:2:50`。"""
+    body, _, label = text.partition("@")
+    parts = body.split(":")
+    if len(parts) < 4:
+        raise SystemExit(f"--derive 需要 属性:阈值:每点:上限[:目标键], 收到 {text!r}")
+    src, th, per, cap = parts[0], float(parts[1]), float(parts[2]), float(parts[3])
+    key = parts[4] if len(parts) > 4 and parts[4] else GENERIC_BONUS_KEY
+    return DerivedBonus(source=src, threshold=th, per_point=per, cap=cap, key=key,
+                        label=label or f"天赋: {src}>{th:g} 每点+{per:g}(上限{cap:g})")
+
+
 def build_request(a) -> PlanRequest:
     return PlanRequest(scaling=a.scaling, mode=a.mode, set_a=a.set_a, set_b=a.set_b,
                        cost4_owner=a.cost4.upper(), top_k=a.top, crit_mode=a.crit,
                        max_level_only=not getattr(a, "all_levels", False),
                        allowed_bonus=None if getattr(a, "all_bonus", False) else
                        set_bonus_keys([a.set_a] + ([a.set_b] if a.mode == "3+2" else [])),
+                       derived=tuple(parse_derive(t) for t in getattr(a, "derive", [])),
                        energy_min=getattr(a, "energy_min", 120.0),
                        energy_slope=getattr(a, "energy_slope", 0.30),
                        energy_floor=getattr(a, "energy_floor", 0.85),
@@ -89,6 +103,10 @@ def print_result(res, req, bare, corrections, args):
           + ("**全部**(--all-bonus)" if req.allowed_bonus is None
              else (", ".join(req.allowed_bonus) or "无(该套装不认任何专伤)"))
           + "   ← 来自套装模板的有效词条")
+    if req.derived:
+        print("推导补正(天赋, 逐组合按最终属性算): "
+              + "; ".join(f"{d.source} > {d.threshold:g} 每点 +{d.per_point:g} → {d.key}, 上限 {d.cap:g}"
+                          for d in req.derived))
     print(f"循环门槛: 共效 ≥ {req.energy_min:g}%"
           + (f" → 不达标按线性缺口扣(斜率 {req.energy_slope:g}, 最低 {req.energy_floor:g})"
              if req.energy_slope > 0 and req.energy_min > 0 else "(已关闭)")
@@ -158,6 +176,10 @@ def main() -> int:
                     help="暴击目标%%(默认 100; 0 关闭)")
     ap.add_argument("--crit-slope", type=float, default=0.40,
                     help="暴击缺口斜率(默认 0.40; 0 关闭)")
+    ap.add_argument("--derive", action="append", default=[],
+                    metavar="属性:阈值:每点:上限[:目标键]",
+                    help="推导补正(天赋): 例 共鸣效率:125:2:50 = 共效超 125 后每多 1 点给 2 增伤, 上限 50"+
+                         "(默认加到通用增伤, 末段可写目标键; 可用 @标签 自定义名)")
     ap.add_argument("--crit-floor", type=float, default=0.80,
                     help="暴击系数下限(默认 0.80)")
     ap.add_argument("--mode", default="5", choices=("5", "3+2"), help="5 = 同套 5 件; 3+2 = A 3 件 + B 2 件")

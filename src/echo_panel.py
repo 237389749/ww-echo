@@ -61,6 +61,23 @@ def bonus_group(key: str) -> str:
 
 
 @dataclass(frozen=True)
+class DerivedBonus:
+    """**由面板属性推导**的补正(天赋类): 例 "共效 > 125 时每多 1% 得 2% 增伤, 上限 50%"。
+
+    为什么不能写成静态 `Correction`: 它取决于**每套组合**最终的该属性值(共效会被副词条改变) ——
+    有的天赋(如西格莉卡)整条数值曲线都是"共效越高越强", 静态补正根本表达不了。
+    计算时机: 面板聚合**完成后**算(共效不受加成区影响, 不会循环)。
+    只表达"超过阈值才有收益"的正向形式(要"低于阈值扣"请用 `echo_combos.gap_factor` 那套门槛)。
+    """
+    source: str                     # 触发属性(共鸣效率 / 暴击 / 暴击伤害 / 攻击 / 生命 / 防御)
+    threshold: float = 0.0          # 阈值: 超过它才开始给
+    per_point: float = 0.0          # 每超出 1 点给多少(单位同目标键, 如 % 增伤)
+    cap: float = float("inf")       # 收益上限(绝对值)
+    key: str = GENERIC_BONUS_KEY    # 加到哪个键(默认通用增伤)
+    label: str = ""                 # 展示用(如 "天赋: 共效转增伤")
+
+
+@dataclass(frozen=True)
 class Correction:
     """一条手填补正(套装 2/3/5 件效果、共鸣链、队伍增伤、天赋…): **一律视为生效**。
 
@@ -86,6 +103,20 @@ class Panel:
     unknown: list[str] = field(default_factory=list)   # 不认识的键(调用方可据此提示, 不静默吞掉)
     # 被 `allowed_bonus` 挡掉的**声骸副词条**加成(键 → 合计): 不是"无效数据", 而是"该套装不认的专伤"
     ignored_bonus: dict[str, float] = field(default_factory=dict)
+    # 由 `DerivedBonus` 推导出来的加成(标签 → 值), 供展示/回溯(值已计入 bonus)
+    derived: dict[str, float] = field(default_factory=dict)
+
+    def value_of(self, key: str) -> float:
+        """取面板上"可被天赋引用"的属性当前值(共效/暴击/暴伤/三系总值)。"""
+        if key == ENERGY_KEY:
+            return self.energy
+        if key == CRIT_RATE_KEY:
+            return self.crit_rate
+        if key == CRIT_DMG_KEY:
+            return self.crit_dmg
+        if key in BASE_KEYS:
+            return self.scaling_total(key)
+        raise KeyError(f"DerivedBonus 不支持的触发属性: {key!r}")
 
     def scaling_total(self, scaling: str) -> float:
         """缩放属性总值 = 基础值 × (1 + 百分比/100) + 固定值(calculator 口径)。"""
@@ -130,7 +161,7 @@ class Panel:
 
 
 def aggregate(bare: dict[str, float] | None = None, corrections=(), echo_stats=(),
-              allowed_bonus=None) -> Panel:
+              allowed_bonus=None, derived=()) -> Panel:
     """裸面板 + 补正 + 5 只声骸(主属性/副词条) → `Panel`。
 
     `bare`: {键: 值}; `攻击/生命/防御` 在这里是**基础值**(角色+武器, 不含声骸)。
@@ -142,6 +173,8 @@ def aggregate(bare: dict[str, float] | None = None, corrections=(), echo_stats=(
       (`echo_combos.set_bonus_keys` 从模板取), 不在这里猜。
       只过滤**声骸来的专伤**: ① 属伤/通用增伤永远计入(与技能类型无关); ② 补正(套装效果/共鸣链/队伍增伤)
       按用户口径一律计入。
+    `derived`: 可迭代的 `DerivedBonus` —— **面板算完后**按最终属性值推导的补正(天赋类, 逐组合不同);
+      例 "共效 > 125 每多 1% 给 2% 增伤, 上限 50%"。结果记进 `Panel.derived` 以便展示/回溯。
     """
     panel = Panel()
     for key in BASE_KEYS:
@@ -170,6 +203,13 @@ def aggregate(bare: dict[str, float] | None = None, corrections=(), echo_stats=(
             panel.ignored_bonus[key] = panel.ignored_bonus.get(key, 0.0) + float(v)
             continue
         _add(panel, key, float(v), base=False)
+    # 推导补正(天赋)放在最后: 它要读**最终**的属性值(共效含声骸副词条); 加成区不回灌属性, 不会循环
+    for d in derived:
+        value = min(d.cap, max(0.0, d.per_point * (panel.value_of(d.source) - d.threshold)))
+        if not value:
+            continue
+        panel.derived[d.label or f"{d.source}>{d.threshold:g}×{d.per_point:g}"] = value
+        _add(panel, d.key, value, base=False)
     return panel
 
 

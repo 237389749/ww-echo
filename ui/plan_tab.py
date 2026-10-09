@@ -24,12 +24,18 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, Edi
 from src.echo_combos import (PlanRequest, candidate_pool, instance_tag, is_max_level, plan,
                              set_bonus_keys)
 from src.echo_inventory import load_inventory, summarize
-from src.echo_panel import BASE_KEYS, EXTRA_BONUS_KEYS, Correction, aggregate, defense_zone, resist_zone
+from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, EXTRA_BONUS_KEYS, GENERIC_BONUS_KEY, Correction,
+                               DerivedBonus, aggregate, defense_zone, resist_zone)
 from src.echo_set_templates import STAT_ORDER, get_all_set_names
 from ui.widgets import make_scroll_transparent
 
 # 裸面板/补正表的行 = 13 个词条 + 3 个额外加成键(属伤/声骸技能专伤/通用增伤)
 PANEL_ROWS: tuple[str, ...] = tuple(STAT_ORDER) + tuple(EXTRA_BONUS_KEYS)
+# 「条件补正(天赋)」能引用的触发属性 + 能加到的目标键(逐组合按最终属性值算, 见 DerivedBonus)
+DERIVE_SOURCES = ("共鸣效率", "暴击", "暴击伤害", "攻击", "生命", "防御")
+DERIVE_TARGET_KEYS = (GENERIC_BONUS_KEY, "属性伤害加成", *ELEMENT_KEYS, "普攻伤害加成",
+                      "重击伤害加成", "共鸣技能伤害加成", "共鸣解放伤害加成", "声骸技能伤害加成",
+                      "攻击百分比")
 CRIT_MODES = (("期望(1+暴击率×暴击伤害)", "expect"), ("单次暴击(1+暴击伤害)", "crit"),
               ("单次不暴击(1.0)", "non_crit"))
 CORRECTION_SOURCES = ("套装 2 件套", "套装 3 件套", "套装 5 件套", "共鸣链", "队伍增伤", "天赋", "武器", "其他")
@@ -73,6 +79,7 @@ class PlanTab(QWidget):
         super().__init__(parent)
         self._items: list = []
         self._corrections: list[Correction] = []
+        self._derived: list[DerivedBonus] = []
         self._combos: list = []
         self._worker: _PlanWorker | None = None
         self._setup_ui()
@@ -330,6 +337,39 @@ class PlanTab(QWidget):
         add_row.addStretch(1)
         vb.addLayout(add_row)
 
+        # 推导补正(天赋): "共效 > 125 后每多 1% 给 2% 增伤, 上限 50%" 这类**逐组合不同**的补正
+        der_row = QHBoxLayout()
+        self.derive_src_combo = ComboBox()
+        self.derive_src_combo.addItems(list(DERIVE_SOURCES))
+        self.derive_src_combo.setFixedWidth(104)
+        self.derive_th_spin = DoubleSpinBox()
+        self.derive_th_spin.setRange(0, 999)
+        self.derive_th_spin.setDecimals(1)
+        self.derive_th_spin.setValue(125.0)
+        self.derive_th_spin.setFixedWidth(84)
+        self.derive_per_spin = DoubleSpinBox()
+        self.derive_per_spin.setRange(-99, 99)
+        self.derive_per_spin.setDecimals(2)
+        self.derive_per_spin.setValue(2.0)
+        self.derive_per_spin.setFixedWidth(78)
+        self.derive_cap_spin = DoubleSpinBox()
+        self.derive_cap_spin.setRange(0, 999)
+        self.derive_cap_spin.setDecimals(1)
+        self.derive_cap_spin.setValue(50.0)
+        self.derive_cap_spin.setFixedWidth(84)
+        self.derive_key_combo = ComboBox()
+        self.derive_key_combo.addItems(list(DERIVE_TARGET_KEYS))
+        self.derive_key_combo.setFixedWidth(128)
+        der_add = PushButton(FIF.ADD, "添加条件补正")
+        der_add.clicked.connect(self._add_derived)
+        for w in (CaptionLabel("条件补正(天赋)"), CaptionLabel("触发"), self.derive_src_combo,
+                  CaptionLabel("≥"), self.derive_th_spin, CaptionLabel("每点+"), self.derive_per_spin,
+                  CaptionLabel("上限"), self.derive_cap_spin, CaptionLabel("加到"), self.derive_key_combo,
+                  der_add):
+            der_row.addWidget(w)
+        der_row.addStretch(1)
+        vb.addLayout(der_row)
+
         self.corr_table = TableWidget()
         self.corr_table.setColumnCount(3)
         self.corr_table.setHorizontalHeaderLabels(["补正键", "值", "来源"])
@@ -454,6 +494,7 @@ class PlanTab(QWidget):
                            crit_mode=dict((t, k) for t, k in CRIT_MODES)[self.crit_combo.currentText()],
                            max_level_only=self.max_level_check.isChecked(),
                            allowed_bonus=None if self.all_bonus_check.isChecked() else set_bonus_keys(sets),
+                           derived=tuple(self._derived),
                            energy_min=self.energy_min_spin.value(),
                            energy_slope=self.energy_slope_spin.value(),
                            energy_floor=self.energy_floor_spin.value(),
@@ -470,19 +511,44 @@ class PlanTab(QWidget):
         self._corrections.append(Correction(key, value, source))
         self._refresh_corrections()
 
+    def _add_derived(self):
+        """加一条**推导补正(天赋)**: 触发属性超过阈值后, 每多 1 点给"每点"量, 封顶。"""
+        src = self.derive_src_combo.currentText()
+        th = self.derive_th_spin.value()
+        per = self.derive_per_spin.value()
+        cap = self.derive_cap_spin.value()
+        key = self.derive_key_combo.currentText()
+        label = f"天赋: {src}>{th:g} 每点+{per:g}(上限{cap:g})"
+        self._derived.append(DerivedBonus(source=src, threshold=th, per_point=per, cap=cap,
+                                          key=key, label=label))
+        self._refresh_corrections()
+
     def _del_correction(self):
         row = self.corr_table.currentRow()
         if 0 <= row < len(self._corrections):
             self._corrections.pop(row)
-            self._refresh_corrections()
+        elif 0 <= row - len(self._corrections) < len(self._derived):
+            self._derived.pop(row - len(self._corrections))
+        else:
+            return
+        self._refresh_corrections()
 
     def _refresh_corrections(self):
-        self.corr_table.setRowCount(len(self._corrections))
+        n = len(self._corrections)
+        self.corr_table.setRowCount(n + len(self._derived))
         for row, c in enumerate(self._corrections):
             for col, text in enumerate((c.key, f"{c.value:g}", c.source)):
                 cell = QTableWidgetItem(text)
                 cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
                 self.corr_table.setItem(row, col, cell)
+        for i, d in enumerate(self._derived):
+            cells = (f"条件: {d.source}(特征值)",
+                     f"每超 1 点 +{d.per_point:g}, 上限 {d.cap:g}",
+                     f"{d.label} → {d.key}(阈值 {d.threshold:g})")
+            for col, text in enumerate(cells):
+                cell = QTableWidgetItem(text)
+                cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                self.corr_table.setItem(n + i, col, cell)
         self._refresh_panel()
 
     def _refresh_panel(self):
@@ -603,6 +669,9 @@ class PlanTab(QWidget):
                            f" | 双爆区 {c.panel.crit_zone():.3f}")
                     if main_dir:
                         tip += "\n主属性: " + " ".join(main_dir) + "(评分和只算副词条, 看不到这块)"
+                    if c.panel.derived:
+                        tip += "\n条件补正(天赋): " + ", ".join(
+                            f"{k} +{v:g}" for k, v in c.panel.derived.items())
                     if row > 0:
                         tip += f"\n与第 1 名相差 −{(1 - c.score / top) * 100:.1f}%(排序分)"
                     cell.setToolTip(tip)
@@ -674,7 +743,7 @@ class PlanTab(QWidget):
             with open(path, "w", encoding="utf-8-sig", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["名次", "组合", "套装只数", "ΣCOST", "评分和", "均分", "有效分", "缩放属性总值",
-                            "暴击率%", "暴击伤害%", "属伤%", "专伤%", "通用%", "忽略专伤%", "共效%",
+                            "暴击率%", "暴击伤害%", "属伤%", "专伤%", "通用%", "忽略专伤%", "条件补正", "共效%",
                             "循环系数", "稳定性系数", "排序分E", "未乘系数E", "伤害"])
                 zb, rb = self._zone_factors()
                 for rank, c in enumerate(self._combos, 1):
@@ -687,7 +756,9 @@ class PlanTab(QWidget):
                                 f"{c.panel.scaling_total(self._scaling()):.1f}",
                                 f"{c.panel.crit_rate:.1f}", f"{c.panel.crit_dmg:.1f}",
                                 f"{zone['属伤']:.1f}", f"{zone['专伤']:.1f}", f"{zone['通用']:.1f}",
-                                f"{sum(c.panel.ignored_bonus.values()):.1f}", f"{c.panel.energy:.1f}",
+                                f"{sum(c.panel.ignored_bonus.values()):.1f}",
+                                " + ".join(f"{k}+{v:g}" for k, v in c.panel.derived.items()),
+                                f"{c.panel.energy:.1f}",
                                 f"{c.energy_f:.4f}", f"{c.crit_f:.4f}",
                                 f"{c.score:.1f}", f"{c.score_raw:.1f}", f"{c.score * zb * rb:.1f}"])
             self._info(True, "已导出", path)
