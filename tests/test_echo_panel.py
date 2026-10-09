@@ -71,6 +71,40 @@ class TestPanelAggregate(unittest.TestCase):
         self.assertEqual(p.unknown, ["X攻击"])
         self.assertAlmostEqual(p.scaling_total("攻击"), 100.0)
 
+    def test_allowed_bonus_filters_echo_substats_only(self):
+        """`allowed_bonus`: **声骸副词条**里不属于有效词条的专伤不计(补正一律计入)。
+
+        实测动机: 雪落无声之愿的有效词条里专伤只有「共鸣解放伤害加成」, 刷到的
+        普攻/重击副词条等于白给 —— 无差别相加会把它们当收益(用户 2026-10-09 指出)。
+        """
+        p = aggregate({"攻击": 1000},
+                      corrections=[("普攻伤害加成", 12.0, "队伍增伤")],
+                      echo_stats=[("共鸣解放伤害加成", 20.0), ("普攻伤害加成", 8.6),
+                                  ("重击伤害加成", 7.1), ("热熔伤害加成", 30.0)],
+                      allowed_bonus=("共鸣解放伤害加成",))
+        self.assertAlmostEqual(p.bonus.get("共鸣解放伤害加成", 0), 20.0)
+        self.assertAlmostEqual(p.bonus.get("普攻伤害加成", 0), 12.0)      # 补正保留
+        self.assertNotIn("重击伤害加成", p.bonus)
+        self.assertAlmostEqual(p.ignored_bonus["普攻伤害加成"], 8.6)
+        self.assertAlmostEqual(p.ignored_bonus["重击伤害加成"], 7.1)
+        self.assertAlmostEqual(p.bonus_zone(), 20 + 12 + 30)             # 属伤 30 不受过滤
+        # **不能被挡的键**: 基础/百分比/双暴/共效都不是"专伤"
+        # (曾少写一层 is_bonus_key → 它们全被挡掉, 面板只剩裸值: 实测踩过)
+        q = aggregate({"攻击": 1000},
+                      echo_stats=[("攻击百分比", 9.4), ("暴击", 6.9), ("共鸣效率", 10.0),
+                                  ("普攻伤害加成", 8.6)],
+                      allowed_bonus=("共鸣解放伤害加成",))
+        self.assertAlmostEqual(q.pct["攻击"], 9.4)
+        self.assertAlmostEqual(q.crit_rate, 6.9)
+        self.assertAlmostEqual(q.energy, 10.0)
+        self.assertEqual(set(q.ignored_bonus), {"普攻伤害加成"})
+        # 不过滤(None)/空集 的两种边界
+        all_on = aggregate(echo_stats=[("普攻伤害加成", 8.6)], allowed_bonus=None)
+        self.assertAlmostEqual(all_on.bonus_zone(), 8.6)
+        none_on = aggregate(echo_stats=[("普攻伤害加成", 8.6)], allowed_bonus=())
+        self.assertAlmostEqual(none_on.bonus_zone(), 0.0)
+        self.assertAlmostEqual(none_on.ignored_bonus["普攻伤害加成"], 8.6)
+
     def test_is_bonus_key(self):
         for key in ("普攻伤害加成", "共鸣解放伤害加成", "气动伤害加成", "声骸技能伤害加成", "通用增伤"):
             self.assertTrue(is_bonus_key(key), key)

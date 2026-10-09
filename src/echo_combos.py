@@ -22,7 +22,8 @@ import itertools
 import time
 from dataclasses import dataclass, field
 
-from src.echo_panel import Panel, aggregate, damage
+from src.echo_panel import Panel, aggregate, damage, is_bonus_key
+from src.echo_set_templates import get_set_weights
 
 # 有效的 COST 档(游戏里声骸只有 1/3/4)
 VALID_COSTS: tuple[int, ...] = (1, 3, 4)
@@ -32,7 +33,7 @@ MAX_TOTAL_COST = 12
 
 @dataclass(frozen=True)
 class EchoItem:
-    """库存里的一只声骸: 名字 / COST / 套装 / 面板贡献(主属性 + 副词条)。"""
+    """库存里的一只声骸: 名字 / COST / 套装 / 面板贡献(主属性 + 副词条) / 评估得分。"""
     name: str
     cost: int
     set_name: str
@@ -40,6 +41,7 @@ class EchoItem:
     main: tuple[tuple[str, float], ...] = ()      # 主属性(展示用; 通常 = stats 前 2 条)
     level: int | None = None
     source: str = ""                              # 数据来源(便于追溯)
+    score: float | None = None                    # 评估得分(该套装权重下的条分和, 与报告同口径)
 
     def __str__(self) -> str:
         return f"{self.name}({self.cost}C·{self.set_name})"
@@ -57,6 +59,8 @@ class PlanRequest:
     crit_mode: str = "expect"        # 期望 / 单次暴击 / 单次不暴击
     max_total_cost: int = MAX_TOTAL_COST
     max_level_only: bool = True      # 只用满级件(5 词条) —— 默认; 关掉才把未满级件也放进候选池
+    # 声骸副词条里允许计入的加成键; None = 由套装模板自动推断(见 `set_bonus_keys`)
+    allowed_bonus: tuple[str, ...] | None = None
 
 
 @dataclass
@@ -79,6 +83,15 @@ class Combo:
 
     def scaling_total(self, scaling: str) -> float:
         return self.panel.scaling_total(scaling)
+
+    def score_sum(self) -> tuple[float, int]:
+        """五只的**评估得分之和** + 其中几只缺分数(报告路径没现成分数的会缺)。
+
+        评分口径与评估报告一致(该套装权重下 档位值÷期望 ×10×权重), 所以同一套装内的组合可比;
+        它是"这 5 只各自练得怎么样"的汇总, 与伤害排序分 E 是两个维度(高分件不一定面板最优)。
+        """
+        vals = [i.score for i in self.items if i.score is not None]
+        return round(sum(vals), 2), len(self.items) - len(vals)
 
 
 @dataclass
@@ -161,6 +174,10 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
     seq = 0
     cancelled = False
     owner_set = req.set_a if req.cost4_owner == "A" else req.set_b
+    # 声骸副词条里只计**该套装有效词条**的加成键(专伤分类型; 3+2 取两套并集)。
+    # `req.allowed_bonus` 显式给了就用它(None = 由模板推断; 传 () = 一个专伤都不计)。
+    allowed_bonus = req.allowed_bonus if req.allowed_bonus is not None else set_bonus_keys(
+        [req.set_a] + ([req.set_b] if req.mode == "3+2" else []))
     for names in name_combos:
         if should_stop is not None and cancelled:
             break
@@ -171,7 +188,8 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
             continue                                     # 4C 归属不满足
         for combo in itertools.product(*(groups[n] for n in names)):
             evaluated += 1
-            panel = aggregate(bare, corrections, (s for it in combo for s in it.stats))
+            panel = aggregate(bare, corrections, (s for it in combo for s in it.stats),
+                              allowed_bonus=allowed_bonus)
             score = damage(panel, req.scaling, crit_mode=req.crit_mode)
             seq += 1
             item = (score, seq, combo, panel)
@@ -186,6 +204,28 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
     combos = [Combo(items=c, panel=p, score=s) for s, _, c, p in sorted(heap, key=lambda x: (-x[0], x[1]))]
     return PlanResult(combos=combos, candidates=len(pool), names=len(groups),
                       evaluated=evaluated, elapsed=time.perf_counter() - t0, cancelled=cancelled)
+
+
+def set_bonus_keys(set_names) -> tuple[str, ...] | None:
+    """这些套装**有效词条**里的"专伤键", 用作 `allowed_bonus` 的默认值。
+
+    **为什么要过滤**: 专伤分技能类型 —— 只打共鸣解放的角色刷到"普攻伤害加成"副词条等于白给。
+    "哪几种专伤有效"的唯一来源 = 套装模板的权重键(`echo_set_templates`, 与评估/评分同一份口径:
+    权重 0 = 不认)。3+2 取两套的**并集**。属伤/通用增伤不在这里管(它们与技能类型无关, 永远计入)。
+    模板缺失 → 返回 `None`(`None` = 不过滤, 老行为可复现)。
+    """
+    from src.echo_panel import bonus_group
+    keys: set[str] = set()
+    found = False
+    for name in set_names:
+        if not name:
+            continue
+        weights = get_set_weights(name)
+        if weights is None:
+            continue
+        found = True
+        keys |= {k for k in weights if is_bonus_key(k) and bonus_group(k) == "专伤"}
+    return tuple(sorted(keys)) if found else None
 
 
 def instance_tag(item: EchoItem) -> str:

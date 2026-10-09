@@ -18,16 +18,25 @@
 (`src/echo_main_prop`)判 —— 词条档位表里固定值与百分比区间不重叠(攻击 30~60 vs 6.4~11.6), 判定唯一。
 
 **5★**: 评估产物里没有稀有度字段 —— 导入即视为 5★(契约"只用 5★"由用户口径保证: 只练 5★)。
+
+**评估得分**: JSON 路径直接用记录里的 `score`; `image_report.md` 没有这一项, 用**评估同一份实现**
+(`EnhanceEchoTask.compute_weighted_score`)现算 —— 这样"组合的评分和"两条途径给同一个数。
 """
 from __future__ import annotations
 
 import glob
 import json
+import logging
 import os
 import re
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# 现算评分用的轻量 task 实例(只借纯计算方法; 延迟创建, 见 `echo_score`)
+_SCORE_TASK = None
 
 from src.echo_combos import EchoItem
 from src.echo_icon_match import match_icon
@@ -222,6 +231,25 @@ def _subs_from_props(props: list, main_n: int = 2) -> tuple:
     return tuple(out[:5])
 
 
+def echo_score(stats, set_name: str, set_src: str = "") -> float | None:
+    """一只声骸的**评估得分**(与报告同一份实现: `EnhanceEchoTask.compute_weighted_score`)。
+
+    评估 JSON 里已带 `score`, 但 `image_report.md` 转录没有 → 报告路径用它补上,
+    这样"组合的评分和"两条导入途径一致。
+    """
+    global _SCORE_TASK
+    if _SCORE_TASK is None:
+        _SCORE_TASK = EnhanceEchoTask.__new__(EnhanceEchoTask)      # 只借用纯计算方法, 不跑 __init__
+        _SCORE_TASK.config = {"当前套装": "通用"}
+    try:
+        score, _details = _SCORE_TASK.compute_weighted_score(
+            [(n, str(v)) for n, v in stats], set_name=set_name)
+        return round(float(score), 2)
+    except Exception as e:                                          # noqa: BLE001 - 分数算不出不影响导入
+        logger.warning(f"评分失败(忽略): {e}")
+        return None
+
+
 def item_from_report(tag: str, lines: list, frame=None) -> EchoItem | None:
     """一组详情文字(+ 可选整帧) → `EchoItem`; 0 级(无词条)返回 None。"""
     name, props, cost = split_rows(lines)
@@ -232,12 +260,13 @@ def item_from_report(tag: str, lines: list, frame=None) -> EchoItem | None:
         return None                       # 0 级: 无词条, 不入库存(与评估报告一致)
     level = parse_level(lines)
     main = tuple((normalize_main_prop(n, v, level, len(subs)), parse_number(v)) for n, v in props[:2])
-    set_name, src, score = resolve_set(name, frame)
+    set_name, src, icon_score = resolve_set(name, frame)
     cost, inferred = resolve_cost(cost, main, level, len(subs))
-    tail = f"{tag}|{src}" + (f"|s1={score:.3f}" if score is not None else "") + \
+    tail = f"{tag}|{src}" + (f"|s1={icon_score:.3f}" if icon_score is not None else "") + \
         ("|cost=反推" if inferred else "")
     return EchoItem(name=name, cost=cost, set_name=set_name,
-                    stats=tuple(main) + subs, main=main, level=level, source=tail)
+                    stats=tuple(main) + subs, main=main, level=level, source=tail,
+                    score=echo_score(tuple(main) + subs, set_name, src))
 
 
 def item_from_record(rec: dict) -> EchoItem | None:
@@ -252,9 +281,14 @@ def item_from_record(rec: dict) -> EchoItem | None:
     main = tuple((normalize_main_prop(m.get("name"), m.get("value"), None, tier),
                   float(m.get("value") or 0)) for m in (rec.get("main_props") or []))
     cost, inferred = resolve_cost(rec.get("cost"), main, None, tier)
+    try:
+        score = float(rec["score"]) if rec.get("score") is not None else None
+    except (TypeError, ValueError):
+        score = None
     return EchoItem(name=name, cost=cost,
                     set_name=str(rec.get("set") or "通用"), stats=main + subs, main=main,
-                    level=None, source=f"json#{rec.get('index', '')}" + ("|cost=反推" if inferred else ""))
+                    level=None, score=score,
+                    source=f"json#{rec.get('index', '')}" + ("|cost=反推" if inferred else ""))
 
 
 def load_inventory(path: str = "", use_icons: bool = True) -> list[EchoItem]:

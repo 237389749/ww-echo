@@ -1,4 +1,4 @@
-﻿"""`src/echo_combos.py` 单测: 组合过滤(互异 / ΣCOST≤12 / 套装只数 / 4C 归属) + 排名。
+"""`src/echo_combos.py` 单测: 组合过滤(互异 / ΣCOST≤12 / 套装只数 / 4C 归属) + 排名。
 
 跑法(项目根目录):
     python -m unittest discover -s tests -v
@@ -14,7 +14,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.echo_combos import EchoItem, PlanRequest, candidate_pool, is_max_level, plan   # noqa: E402
+from src.echo_combos import (EchoItem, PlanRequest, candidate_pool, is_max_level, plan,   # noqa: E402
+                             set_bonus_keys)
 
 A, B = "套装A", "套装B"
 
@@ -38,6 +39,33 @@ def req(**kw):
     """组合用例的请求: 合成件只有 1~2 条词条, 显式关掉"只用满级件"才进得了候选池。"""
     kw.setdefault("max_level_only", False)
     return PlanRequest(**kw)
+
+
+class TestBonusFilter(unittest.TestCase):
+    """声骸副词条的专伤按**套装模板的有效词条**过滤(3+2 取并集); 补正不受影响。"""
+
+    def test_set_bonus_keys_from_template(self):
+        self.assertEqual(set_bonus_keys(["雪落无声之愿"]), ("共鸣解放伤害加成",))
+        self.assertEqual(set_bonus_keys(["长路启航之星"]), ("共鸣解放伤害加成",))
+        self.assertEqual(set_bonus_keys(["息界同调之律"]), ("重击伤害加成",))
+        # 3+2 = 两套并集; 模板缺失的套装 → None(不过滤)
+        self.assertEqual(set_bonus_keys(["息界同调之律", "听唤语义之愿"]), ("重击伤害加成",))
+        self.assertIsNone(set_bonus_keys(["不存在的套装"]))
+        self.assertIsNone(set_bonus_keys([]))
+
+    def test_all_bonus_switch_changes_score(self):
+        """模板不认的专伤: 过滤后不算分, `allowed_bonus=None` 才全算。"""
+        pool = [full(f"n{i}", 1, A, 共鸣解放伤害加成=8.0, 普攻伤害加成=9.0) for i in range(5)]
+        off = plan(pool, req(mode="5", set_a=A, top_k=1)).combos[0]
+        # 「套装A」不在模板里 → set_bonus_keys 返回 None → 不过滤(老行为)
+        on = plan(pool, req(mode="5", set_a=A, top_k=1, allowed_bonus=None)).combos[0]
+        self.assertAlmostEqual(off.score, on.score)
+        # 显式给一个只认共解的集合 → 普攻 9 被忽略, 分数下降
+        only_burst = plan(pool, req(mode="5", set_a=A, top_k=1,
+                                    allowed_bonus=("共鸣解放伤害加成",))).combos[0]
+        self.assertLess(only_burst.score, on.score)
+        # 5 只各带 普攻 9.0 → 合计被忽略 45.0
+        self.assertAlmostEqual(only_burst.panel.ignored_bonus["普攻伤害加成"], 45.0)
 
 
 class TestMaxLevelFilter(unittest.TestCase):

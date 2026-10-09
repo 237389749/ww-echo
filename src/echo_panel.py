@@ -84,6 +84,8 @@ class Panel:
     heal: float = 0.0
     bonus: dict[str, float] = field(default_factory=dict)
     unknown: list[str] = field(default_factory=list)   # 不认识的键(调用方可据此提示, 不静默吞掉)
+    # 被 `allowed_bonus` 挡掉的**声骸副词条**加成(键 → 合计): 不是"无效数据", 而是"该套装不认的专伤"
+    ignored_bonus: dict[str, float] = field(default_factory=dict)
 
     def scaling_total(self, scaling: str) -> float:
         """缩放属性总值 = 基础值 × (1 + 百分比/100) + 固定值(calculator 口径)。"""
@@ -127,18 +129,26 @@ class Panel:
         return out
 
 
-def aggregate(bare: dict[str, float] | None = None, corrections=(), echo_stats=()) -> Panel:
+def aggregate(bare: dict[str, float] | None = None, corrections=(), echo_stats=(),
+              allowed_bonus=None) -> Panel:
     """裸面板 + 补正 + 5 只声骸(主属性/副词条) → `Panel`。
 
     `bare`: {键: 值}; `攻击/生命/防御` 在这里是**基础值**(角色+武器, 不含声骸)。
-    `corrections`: 可迭代的 `Correction` 或 `(键, 值[, 来源])`。
+    `corrections`: 可迭代的 `Correction` 或 `(键, 值[, 来源])` —— **一律计入**(用户手填, 视为生效)。
     `echo_stats`: 可迭代的 `(键, 值)` —— 5 只声骸的全部主属性 + 副词条平铺。
+    `allowed_bonus`: **声骸副词条里允许计入的专伤键**(None = 不过滤)。
+      为什么需要: 专伤是**分技能类型**的 —— 一个只打共鸣解放的角色, 刷出"普攻伤害加成"的副词条等于白给。
+      哪几种专伤算"有效"由**套装模板**(`echo_set_templates` 的权重键)定义
+      (`echo_combos.set_bonus_keys` 从模板取), 不在这里猜。
+      只过滤**声骸来的专伤**: ① 属伤/通用增伤永远计入(与技能类型无关); ② 补正(套装效果/共鸣链/队伍增伤)
+      按用户口径一律计入。
     """
     panel = Panel()
     for key in BASE_KEYS:
         panel.base[key] = 0.0
         panel.flat[key] = 0.0
         panel.pct[key] = 0.0
+    allowed = None if allowed_bonus is None else {str(k) for k in allowed_bonus}
     for k, v in (bare or {}).items():
         _add(panel, str(k), float(v), base=True)
 
@@ -152,7 +162,14 @@ def aggregate(bare: dict[str, float] | None = None, corrections=(), echo_stats=(
     for k, v in _iter_corrections():
         _add(panel, k, v, base=False)
     for k, v in echo_stats:
-        _add(panel, str(k), float(v), base=False)
+        key = str(k)
+        # 只挡"专伤": `bonus_group` 对非加成键也会返回"专伤"(它假定调用方已过 `is_bonus_key`),
+        # 少了 is_bonus_key 这一层会把攻击/暴击/共效也一起挡掉(实测踩过: 面板只剩裸值)。
+        if (allowed is not None and is_bonus_key(key) and bonus_group(key) == "专伤"
+                and key not in allowed):
+            panel.ignored_bonus[key] = panel.ignored_bonus.get(key, 0.0) + float(v)
+            continue
+        _add(panel, key, float(v), base=False)
     return panel
 
 

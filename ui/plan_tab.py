@@ -20,7 +20,8 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, Edi
                             InfoBarPosition, MessageBox, PushButton, SettingCard, SettingCardGroup,
                             SingleDirectionScrollArea, SpinBox, TableWidget, TitleLabel)
 
-from src.echo_combos import PlanRequest, candidate_pool, instance_tag, is_max_level, plan
+from src.echo_combos import (PlanRequest, candidate_pool, instance_tag, is_max_level, plan,
+                             set_bonus_keys)
 from src.echo_inventory import load_inventory, summarize
 from src.echo_panel import BASE_KEYS, EXTRA_BONUS_KEYS, Correction, aggregate, defense_zone, resist_zone
 from src.echo_set_templates import STAT_ORDER, get_all_set_names
@@ -139,12 +140,18 @@ class PlanTab(QWidget):
             self.mode_card.hBoxLayout.addSpacing(8)
         self.mode_card.hBoxLayout.addSpacing(16)
 
-        self.level_card = SettingCard(FIF.EDUCATION, "候选等级",
-                                      "默认只用「满级件」(5 词条): 未满级件的词条还会涨, 用现状词条排名会低估它; "
-                                      "取消勾选可把它们一起排(看现有全部件用)", self.view)
+        self.level_card = SettingCard(FIF.EDUCATION, "候选等级 / 专伤口径",
+                                      "满级件: 未满级件的词条还会涨, 用现状词条排名会低估它; "
+                                      "专伤: 默认**只计该套装有效词条**里的专伤(如雪落无声之愿只认共鸣解放, "
+                                      "普攻/重击副词条等于白给), 取消勾选则所有专伤都算", self.view)
         self.max_level_check = CheckBox("只用满级件")
         self.max_level_check.setChecked(True)
+        self.all_bonus_check = CheckBox("专伤不过滤")
+        self.all_bonus_check.setChecked(False)
+        self.all_bonus_check.setToolTip("勾选 = 所有类型专伤都计入(旧口径, 用来看差异)")
         self.level_card.hBoxLayout.addWidget(self.max_level_check, 0, Qt.AlignRight)
+        self.level_card.hBoxLayout.addSpacing(14)
+        self.level_card.hBoxLayout.addWidget(self.all_bonus_check)
         self.level_card.hBoxLayout.addSpacing(16)
 
         self.inv_card = SettingCard(FIF.FOLDER, "声骸库存",
@@ -301,15 +308,16 @@ class PlanTab(QWidget):
         vb.addLayout(bar)
 
         self.result_table = TableWidget()
-        self.result_table.setColumnCount(9)
+        self.result_table.setColumnCount(10)
         self.result_table.setHorizontalHeaderLabels(
-            ["名次", "5 只声骸(名·COST)", "套装只数", "ΣCOST", "缩放属性总值", "暴击/爆伤",
+            ["名次", "5 只声骸(名#实例·COST)", "套装只数", "ΣCOST", "评分和", "缩放属性总值", "暴击/爆伤",
              "加成区(属+专+通)", "排序分 E", "伤害(防御/抗性)"])
         hh = self.result_table.horizontalHeader()
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
-        for col in (0, 2, 3, 4, 5, 6, 7, 8):
+        for col in (0, 2, 3, 4, 5, 6, 7, 8, 9):
             hh.setSectionResizeMode(col, QHeaderView.Fixed)
-        for col, width in ((0, 52), (2, 140), (3, 64), (4, 100), (5, 110), (6, 120), (7, 92), (8, 124)):
+        for col, width in ((0, 52), (2, 130), (3, 64), (4, 82), (5, 100), (6, 110), (7, 118),
+                           (8, 92), (9, 124)):
             self.result_table.setColumnWidth(col, width)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.setBorderVisible(True)
@@ -322,8 +330,10 @@ class PlanTab(QWidget):
         note = CaptionLabel()
         note.setWordWrap(True)
         note.setText("排序分 E = 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区); "
-                     "加成区 = 属伤 + 专伤合计(各类型直接相加) + 通用增伤, 共效不计; "
-                     "暴击率按 100% 封顶(溢出部分算 0 收益, 表里标 →100%)。"
+                     "加成区 = 属伤 + 专伤合计 + 通用增伤, 共效不计; "
+                     "**声骸副词条只计「该套装有效词条」里的专伤**(雪落无声之愿只认共鸣解放, "
+                     "普攻/重击副词条不计 —— 标 `(忽略N)`; 要全算就勾「专伤不过滤」); "
+                     "暴击率按 100% 封顶(溢出部分 0 收益, 表里标 →100%); "
                      "技能倍率/加深/防御/抗性在方案内是常数(排序不受影响), 「伤害」列只把防御区×抗性区折进去。")
         vb.addWidget(note)
         return card
@@ -373,6 +383,9 @@ class PlanTab(QWidget):
         return bare, list(self._corrections)
 
     def _build_request(self) -> PlanRequest:
+        sets = [self.set_a_combo.currentText()]
+        if self.mode_combo.currentText() == "3+2":
+            sets.append(self.set_b_combo.currentText())
         return PlanRequest(scaling=self.scaling_combo.currentText(),
                            mode=self.mode_combo.currentText(),
                            set_a=self.set_a_combo.currentText(),
@@ -380,6 +393,7 @@ class PlanTab(QWidget):
                            cost4_owner=self.cost4_combo.currentText(),
                            crit_mode=dict((t, k) for t, k in CRIT_MODES)[self.crit_combo.currentText()],
                            max_level_only=self.max_level_check.isChecked(),
+                           allowed_bonus=None if self.all_bonus_check.isChecked() else set_bonus_keys(sets),
                            top_k=50)
 
     # ══════════════════ 裸面板/补正 ══════════════════
@@ -497,17 +511,30 @@ class PlanTab(QWidget):
             zone = c.panel.bonus_split()
             sets = " + ".join(f"{k}×{v}" for k, v in sorted(c.set_counts.items()))
             combo_text = " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
+            ign = sum(c.panel.ignored_bonus.values())
+            s_sum, s_missing = c.score_sum()
             cells = (str(row + 1), combo_text, sets, str(c.total_cost),
+                     f"{s_sum:.2f}" + ("*" if s_missing else ""),
                      f"{c.panel.scaling_total(self._scaling()):.1f}",
                      f"{c.panel.crit_rate:.1f}%{'→100%' if c.panel.crit_wasted() else ''} / "
                      f"{c.panel.crit_dmg:.1f}%",
-                     f"{zone['属伤']:.0f}+{zone['专伤']:.0f}+{zone['通用']:.0f}",
+                     f"{zone['属伤']:.0f}+{zone['专伤']:.0f}+{zone['通用']:.0f}"
+                     + (f"(忽略{ign:.0f})" if ign else ""),
                      f"{c.score:.1f}", f"{c.score * zb * rb:.1f}")
             for col, text in enumerate(cells):
                 cell = QTableWidgetItem(text)
                 cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
                 if col == 1 and row > 0:
                     cell.setToolTip(f"与第 1 名相差 −{(1 - c.score / top) * 100:.1f}%(排序分)")
+                if col == 4:
+                    cell.setToolTip("5 只各自的评估得分之和(与报告同口径, 同套装内可比)"
+                                    + (f"; 有 {s_missing} 只没有分数" if s_missing else "")
+                                    + ": " + " + ".join(
+                                        f"{i.name} {i.score:.2f}" if i.score is not None else f"{i.name} —"
+                                        for i in c.items))
+                if col == 7 and ign:
+                    cell.setToolTip("已忽略的副词条专伤(不属于该套装有效词条): " +
+                                    ", ".join(f"{k} {v:g}%" for k, v in sorted(c.panel.ignored_bonus.items())))
                 self.result_table.setItem(row, col, cell)
 
     def _scaling(self) -> str:
@@ -528,10 +555,12 @@ class PlanTab(QWidget):
             main = "、".join(f"{k} {v:g}" for k, v in item.main) or "—"
             subs = "、".join(f"{k} {v:g}" for k, v in item.stats[len(item.main):]) or "—"
             tag = instance_tag(item) or item.source or "—"
-            lines.append(f"{i}. {item.name}  {item.cost}C  [{item.set_name}]  实例 {tag}")
+            score_txt = f"{item.score:.2f}" if item.score is not None else "—"
+            lines.append(f"{i}. {item.name}  {item.cost}C  [{item.set_name}]  实例 {tag}  评分 {score_txt}")
             lines.append(f"    主属性: {main}")
             lines.append(f"    词条: {subs}")
-        lines += ["", "（同名多只时, 靠「实例」编号区分是哪一只: json#N = 评估记录序号; 四位数字 = 素材文件名序号）"]
+        lines += ["", "（同名多只时, 靠「实例」编号区分是哪一只: json#N = 评估记录序号; 四位数字 = 素材文件名序号）",
+                  "（评分 = 该只在该套装权重下的评估得分, 与报告同口径）"]
         MessageBox("组合详情", "\n".join(lines), self).exec()
 
     def _export_csv(self):
@@ -544,16 +573,19 @@ class PlanTab(QWidget):
         try:
             with open(path, "w", encoding="utf-8-sig", newline="") as f:
                 w = csv.writer(f)
-                w.writerow(["名次", "组合", "套装只数", "ΣCOST", "缩放属性总值", "暴击率%", "暴击伤害%",
-                            "属伤%", "专伤%", "通用%", "排序分E", "伤害"])
+                w.writerow(["名次", "组合", "套装只数", "ΣCOST", "评分和", "均分", "缩放属性总值", "暴击率%",
+                            "暴击伤害%", "属伤%", "专伤%", "通用%", "忽略专伤%", "排序分E", "伤害"])
                 zb, rb = self._zone_factors()
                 for rank, c in enumerate(self._combos, 1):
                     zone = c.panel.bonus_split()
+                    s_sum, _missing = c.score_sum()
                     w.writerow([rank, " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items),
                                 " + ".join(f"{k}×{v}" for k, v in sorted(c.set_counts.items())),
-                                c.total_cost, f"{c.panel.scaling_total(self._scaling()):.1f}",
+                                c.total_cost, f"{s_sum:.2f}", f"{s_sum / 5:.2f}",
+                                f"{c.panel.scaling_total(self._scaling()):.1f}",
                                 f"{c.panel.crit_rate:.1f}", f"{c.panel.crit_dmg:.1f}",
                                 f"{zone['属伤']:.1f}", f"{zone['专伤']:.1f}", f"{zone['通用']:.1f}",
+                                f"{sum(c.panel.ignored_bonus.values()):.1f}",
                                 f"{c.score:.1f}", f"{c.score * zb * rb:.1f}"])
             self._info(True, "已导出", path)
         except OSError as e:
