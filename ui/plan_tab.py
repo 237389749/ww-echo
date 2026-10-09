@@ -183,18 +183,33 @@ class PlanTab(QWidget):
             self.energy_card.hBoxLayout.addSpacing(8)
         self.energy_card.hBoxLayout.addSpacing(8)
 
-        self.crit_card = SettingCard(FIF.HEART, "稳定性嘉奖(暴击)",
-                                     "越接近 100% 越稳, 0 = 关闭", self.view)
-        self.crit_bonus_spin = DoubleSpinBox()          # 暴击 100% 时的加成上限
-        self.crit_bonus_spin.setRange(0.0, 0.50)
-        self.crit_bonus_spin.setDecimals(2)
-        self.crit_bonus_spin.setSingleStep(0.01)
-        self.crit_bonus_spin.setValue(0.05)
-        self.crit_bonus_spin.setFixedWidth(124)
-        self.crit_card.hBoxLayout.addWidget(CaptionLabel("100% 暴击加成"), 0, Qt.AlignRight)
-        self.crit_card.hBoxLayout.addSpacing(4)
-        self.crit_card.hBoxLayout.addWidget(self.crit_bonus_spin)
-        self.crit_card.hBoxLayout.addSpacing(16)
+        self.crit_card = SettingCard(FIF.HEART, "暴击门槛(稳定性)",
+                                     "与共效同一公式: 低于目标就扣(单段/少段伤害看重稳定)", self.view)
+        self.crit_target_spin = DoubleSpinBox()         # 目标暴击%
+        self.crit_target_spin.setRange(0, 100)
+        self.crit_target_spin.setDecimals(0)
+        self.crit_target_spin.setValue(100)
+        self.crit_target_spin.setSuffix(" %")
+        self.crit_target_spin.setFixedWidth(140)
+        self.crit_slope_spin = DoubleSpinBox()          # 斜率
+        self.crit_slope_spin.setRange(0.0, 2.0)
+        self.crit_slope_spin.setDecimals(2)
+        self.crit_slope_spin.setSingleStep(0.05)
+        self.crit_slope_spin.setValue(0.40)
+        self.crit_slope_spin.setFixedWidth(124)
+        self.crit_floor_spin = DoubleSpinBox()          # 最低系数
+        self.crit_floor_spin.setRange(0.10, 1.00)
+        self.crit_floor_spin.setDecimals(2)
+        self.crit_floor_spin.setSingleStep(0.01)
+        self.crit_floor_spin.setValue(0.80)
+        self.crit_floor_spin.setFixedWidth(124)
+        for cap, w in (("目标", self.crit_target_spin), ("斜率", self.crit_slope_spin),
+                       ("最低", self.crit_floor_spin)):
+            self.crit_card.hBoxLayout.addWidget(CaptionLabel(cap), 0, Qt.AlignRight)
+            self.crit_card.hBoxLayout.addSpacing(4)
+            self.crit_card.hBoxLayout.addWidget(w)
+            self.crit_card.hBoxLayout.addSpacing(8)
+        self.crit_card.hBoxLayout.addSpacing(8)
 
         self.inv_card = SettingCard(FIF.FOLDER, "声骸库存",
                                     "「运行」页评估后保存的报告同目录会生成同名 .json(推荐: 含套装/COST/主属性/词条); "
@@ -377,8 +392,8 @@ class PlanTab(QWidget):
                      "**声骸副词条只计「该套装有效词条」里的专伤**(雪落无声之愿只认共鸣解放, "
                      "普攻/重击副词条不计 —— 标 `(忽略N)`; 要全算就勾「专伤不过滤」); "
                      "暴击率按 100% 封顶(溢出部分 0 收益, 表里标 →100%); "
-                     "**共效按线性缺口扣系数**(越低扣越多, 见表内悬停), "
-                     "**暴击越接近 100% 有稳定性嘉奖**(系数 1+上限×暴击率/100); "
+                     "**共效/暴击都按线性缺口扣系数**(低于门槛才扣, 见表内悬停), "
+                     "两者都以门槛为 1.0(不抬高 E, 可与未乘值直接比); "
                      "技能倍率/加深/防御/抗性在方案内是常数(排序不受影响), 「伤害」列只把防御区×抗性区折进去。")
         vb.addWidget(note)
         return card
@@ -442,7 +457,9 @@ class PlanTab(QWidget):
                            energy_min=self.energy_min_spin.value(),
                            energy_slope=self.energy_slope_spin.value(),
                            energy_floor=self.energy_floor_spin.value(),
-                           crit_bonus=self.crit_bonus_spin.value(),
+                           crit_target=self.crit_target_spin.value(),
+                           crit_slope=self.crit_slope_spin.value(),
+                           crit_floor=self.crit_floor_spin.value(),
                            top_k=50)
 
     # ══════════════════ 裸面板/补正 ══════════════════
@@ -592,8 +609,8 @@ class PlanTab(QWidget):
                 if col == 4:
                     cell.setToolTip(f"暴击率 {c.panel.crit_rate:.1f}%(100% 封顶) / 爆伤 {c.panel.crit_dmg:.1f}%"
                                     f" → 双爆区 {c.panel.crit_zone():.3f}"
-                                    f"\n稳定性嘉奖 ×{c.crit_f:.4f}"
-                                    f"(= 1 + {self.crit_bonus_spin.value():g}×暴击率/100)")
+                                    f"\n暴击门槛系数 ×{c.crit_f:.4f}"
+                                    f"(= max({self.crit_floor_spin.value():g}, 1 − {self.crit_slope_spin.value():g}×缺口比例))")
                 if col == 5 and ign:
                     cell.setToolTip("已忽略的副词条专伤(不属于该套装有效词条): " +
                                     ", ".join(f"{k} {v:g}%" for k, v in sorted(c.panel.ignored_bonus.items())))

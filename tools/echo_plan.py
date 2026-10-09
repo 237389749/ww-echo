@@ -52,7 +52,9 @@ def build_request(a) -> PlanRequest:
                        energy_min=getattr(a, "energy_min", 120.0),
                        energy_slope=getattr(a, "energy_slope", 0.30),
                        energy_floor=getattr(a, "energy_floor", 0.85),
-                       crit_bonus=getattr(a, "crit_bonus", 0.05))
+                       crit_target=getattr(a, "crit_target", 100.0),
+                       crit_slope=getattr(a, "crit_slope", 0.40),
+                       crit_floor=getattr(a, "crit_floor", 0.80))
 
 
 def print_inventory(items, limit=12):
@@ -90,8 +92,8 @@ def print_result(res, req, bare, corrections, args):
     print(f"循环门槛: 共效 ≥ {req.energy_min:g}%"
           + (f" → 不达标按线性缺口扣(斜率 {req.energy_slope:g}, 最低 {req.energy_floor:g})"
              if req.energy_slope > 0 and req.energy_min > 0 else "(已关闭)")
-          + f" | 暴击稳定性嘉奖: 上限 {req.crit_bonus:g}(暴击 100% 时 ×{1 + req.crit_bonus:g})"
-          + ("" if req.crit_bonus > 0 else " 已关闭"))
+          + f" | 暴击门槛: 目标 {req.crit_target:g}%(斜率 {req.crit_slope:g}, 最低 {req.crit_floor:g})"
+          + ("" if req.crit_slope > 0 and req.crit_target > 0 else " 已关闭"))
     if not res.combos:
         print("没有合法组合: 检查套装是否有 4C/3C/1C 声骸、ΣCOST≤12 与 4C 归属")
         return
@@ -127,8 +129,8 @@ def print_result(res, req, bare, corrections, args):
           "      基本一致; 两者差得多, 说明这组是靠共效撑评分;\n"
           f"    「循环门槛」= 共效 ≥ {req.energy_min:g}%, 不达标按**线性缺口**扣系数"
           f"(斜率 {req.energy_slope:g} / 最低 {req.energy_floor:g}; 表里标 `共效X%→×系数`);\n"
-          f"    「稳定性嘉奖」= 暴击越接近 100%% 越高: ×(1 + {req.crit_bonus:g}×暴击率/100)"
-          f"(单段伤害更看重稳定暴击);\n"
+          f"    「暴击门槛」= 暴击 ≥ {req.crit_target:g}% 才满系数, 否则按同一公式扣"
+          f"(斜率 {req.crit_slope:g} / 最低 {req.crit_floor:g}; 单段伤害更看重稳定暴击);\n"
           f"    「排序分E」已是 E(未乘) × 循环系数 × 稳定性系数 —— 悬停/CSV 里有未乘值与两个系数;\n"
           "    暴击率按 100% 封顶(标 →100 表示溢出, 溢出部分算 0 收益);\n"
           "    名字后的 #N 是实例编号(json#N = 评估记录序号): 同名多只靠它区分是哪一只;\n"
@@ -152,8 +154,12 @@ def main() -> int:
                     help="共效缺口斜率(默认 0.30: 差满一个下限比例就扣 0.30; 设 0 关闭)")
     ap.add_argument("--energy-floor", type=float, default=0.85,
                     help="共效系数下限(默认 0.85)")
-    ap.add_argument("--crit-bonus", type=float, default=0.05,
-                    help="暴击稳定性嘉奖上限(默认 0.05: 暴击 100%% 时 ×1.05; 设 0 关闭)")
+    ap.add_argument("--crit-target", type=float, default=100.0,
+                    help="暴击目标%%(默认 100; 0 关闭)")
+    ap.add_argument("--crit-slope", type=float, default=0.40,
+                    help="暴击缺口斜率(默认 0.40; 0 关闭)")
+    ap.add_argument("--crit-floor", type=float, default=0.80,
+                    help="暴击系数下限(默认 0.80)")
     ap.add_argument("--mode", default="5", choices=("5", "3+2"), help="5 = 同套 5 件; 3+2 = A 3 件 + B 2 件")
     ap.add_argument("--set-a", default="", help="套装 A(3+2 时是 3 件那套, 也是 4C 默认归属)")
     ap.add_argument("--set-b", default="", help="套装 B(3+2 必填, 2 件)")

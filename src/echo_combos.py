@@ -64,31 +64,43 @@ class PlanRequest:
     max_level_only: bool = True      # 只用满级件(5 词条) —— 默认; 关掉才把未满级件也放进候选池
     # 声骸副词条里允许计入的加成键; None = 由套装模板自动推断(见 `set_bonus_keys`)
     allowed_bonus: tuple[str, ...] | None = None
-    # 循环门槛(共效): 共效 < 下限时按**线性缺口**扣系数(用户口径, 2026-10-09 定的方案 2):
-    #   系数 = max(energy_floor, 1 − energy_slope × (下限 − 共效) / 下限)
-    # 例(下限 120 / 斜率 0.30 / 最低 0.85): 110% → ×0.975; 100% → ×0.95; 60% 及以下 → ×0.85。
+    # 循环门槛(共效): 共效 < 目标(下限)时按**线性缺口**扣系数(用户口径, 2026-10-09):
+    #   系数 = max(floor, 1 − slope × (目标 − 值) / 目标)     (值 ≥ 目标 → 1.0; **系数只减不增**)
+    # 例(目标 120 / 斜率 0.30 / 最低 0.85): 110% → 0.975; 100% → 0.950; 60% 及以下 → 0.85。
     # `energy_min <= 0` 或 `energy_slope == 0` 即关闭。
     energy_min: float = 120.0
     energy_slope: float = 0.30
     energy_floor: float = 0.85
-    # 稳定性嘉奖(暴击): 越接近 100% 系数越高(单段/少段伤害更看重稳定暴击; 用户口径, 同样线性):
-    #   系数 = 1 + crit_bonus × min(暴击率, 100) / 100      (crit_bonus = 暴击 100% 时的加成上限)
-    # `crit_bonus <= 0` 即关闭。注: 与"暴击区(1+暴击率×暴伤)"不是一回事 —— 这是稳定性的加成, 不是期望收益。
-    crit_bonus: float = 0.05
+    # 暴击门槛(稳定性): 与共效**同一个公式** —— 低于目标就扣(用户口径: 单段/少段伤害看重稳定暴击)。
+    # 为什么不用"接近 100% 给奖励": 暴击与共效一样有天然上限, 增益形在现实区间(90~100%)只有
+    # ±0.2% 的动态范围, 几乎不区分; 惩罚形把 100% 定为 1.0 基准(E 不再被整体抬高, 可与未乘值直接比),
+    # 同样的参数能把 90% 与 100% 拉开数倍。
+    # 例(目标 100 / 斜率 0.40 / 最低 0.80): 96% → 0.984; 93% → 0.972; 80% → 0.920; ≤50% → 0.80。
+    # 与"暴击区(1+暴击率×暴伤)"不是一回事: 那是期望收益, 这是稳定性的口径加成。
+    crit_target: float = 100.0
+    crit_slope: float = 0.40
+    crit_floor: float = 0.80
+
+
+def gap_factor(value: float, target: float, slope: float, floor: float) -> float:
+    """"离目标多远的线性惩罚": `max(floor, 1 − slope × (target − value)/target)`; 达标/关闭 → 1.0。
+
+    共效(目标 120)与暴击(目标 100)共用这一个公式 —— 两者都是有上限的属性, 用"缺口惩罚"比
+    "接近上限给奖励"更合理(奖励形在现实区间几乎恒定, 还会把所有 E 整体抬高、失去可比性)。
+    """
+    if target <= 0 or slope <= 0 or value >= target:
+        return 1.0
+    return max(floor, 1 - slope * (target - value) / target)
 
 
 def energy_factor(energy: float, req_min: float, slope: float, floor: float) -> float:
-    """共效循环系数(线性缺口): `max(floor, 1 − slope × (下限−共效)/下限)`, 达标/关闭时 1.0。"""
-    if req_min <= 0 or slope <= 0 or energy >= req_min:
-        return 1.0
-    return max(floor, 1 - slope * (req_min - energy) / req_min)
+    """共效循环系数(缺口线性惩罚)。"""
+    return gap_factor(energy, req_min, slope, floor)
 
 
-def crit_factor(crit_rate: float, bonus: float) -> float:
-    """暴击稳定性系数: `1 + bonus × min(暴击率,100)/100`(bonus = 100% 暴击时的加成上限)。"""
-    if bonus <= 0:
-        return 1.0
-    return 1 + bonus * min(crit_rate, 100.0) / 100.0
+def crit_factor(crit_rate: float, target: float, slope: float, floor: float) -> float:
+    """暴击稳定性系数(缺口线性惩罚; 暴击超过目标按目标算, 不再给额外奖励)。"""
+    return gap_factor(min(crit_rate, 100.0), target, slope, floor)
 
 
 @dataclass
@@ -233,9 +245,9 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
             panel = aggregate(bare, corrections, (s for it in combo for s in it.stats),
                               allowed_bonus=allowed_bonus)
             raw = damage(panel, req.scaling, crit_mode=req.crit_mode)
-            # 两个"用户口径"系数: ① 共效不够 → 循环变慢(按缺口线性扣) ② 暴击越接近 100% → 稳定性嘉奖
+            # 两个"用户口径"系数(同一公式, 只是目标不同): ① 共效不够 → 循环变慢 ② 暴击不够 → 不够稳
             f_energy = energy_factor(panel.energy, req.energy_min, req.energy_slope, req.energy_floor)
-            f_crit = crit_factor(panel.crit_rate, req.crit_bonus)
+            f_crit = crit_factor(panel.crit_rate, req.crit_target, req.crit_slope, req.crit_floor)
             penalized = f_energy < 1.0
             score = raw * f_energy * f_crit
             seq += 1

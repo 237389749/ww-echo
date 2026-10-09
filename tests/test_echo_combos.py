@@ -15,7 +15,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.echo_combos import (EchoItem, PlanRequest, candidate_pool, crit_factor,      # noqa: E402
-                             energy_factor, instance_tag, is_max_level, plan, set_bonus_keys)
+                             energy_factor, gap_factor, instance_tag, is_max_level, plan,
+                             set_bonus_keys)
 
 A, B = "套装A", "套装B"
 
@@ -77,13 +78,24 @@ class TestEnergyThreshold(unittest.TestCase):
         self.assertEqual(energy_factor(100, 120, 0.0, 0.85), 1.0)                     # 斜率 0 = 关
         self.assertEqual(energy_factor(100, 0, 0.30, 0.85), 1.0)                      # 下限 0 = 关
 
-    def test_crit_stability_bonus(self):
-        self.assertAlmostEqual(crit_factor(100, 0.05), 1.05, places=6)
-        self.assertAlmostEqual(crit_factor(50, 0.05), 1.025, places=6)
-        self.assertAlmostEqual(crit_factor(120, 0.05), 1.05, places=6)   # 溢出仍按 100% 算
-        self.assertEqual(crit_factor(100, 0.0), 1.0)                     # 0 = 关
+    def test_crit_stability_penalty(self):
+        # 与共效同一公式: 低于目标才扣, 目标是 1.0(不给额外奖励)
+        self.assertAlmostEqual(crit_factor(100, 100, 0.40, 0.80), 1.0, places=6)
+        self.assertAlmostEqual(crit_factor(120, 100, 0.40, 0.80), 1.0, places=6)   # 溢出仍按目标算
+        self.assertAlmostEqual(crit_factor(93, 100, 0.40, 0.80), 0.972, places=6)
+        self.assertAlmostEqual(crit_factor(80, 100, 0.40, 0.80), 0.920, places=6)
+        self.assertAlmostEqual(crit_factor(10, 100, 0.40, 0.80), 0.80, places=6)   # floor 兜底
+        self.assertEqual(crit_factor(50, 100, 0.0, 0.80), 1.0)                     # 斜率 0 = 关
+        self.assertEqual(crit_factor(50, 0, 0.40, 0.80), 1.0)                      # 目标 0 = 关
         c = plan(self._pool(130.0), req(mode="5", set_a=A, top_k=1)).combos[0]
         self.assertAlmostEqual(c.score, c.score_raw * c.energy_f * c.crit_f)
+        self.assertLessEqual(c.crit_f, 1.0)                                        # 只减不增
+
+    def test_gap_factor_shared_by_both_rules(self):
+        """共效与暴击共用 `gap_factor`(同一公式、不同目标)。"""
+        self.assertAlmostEqual(gap_factor(100, 120, 0.30, 0.85), 0.95, places=6)
+        self.assertAlmostEqual(gap_factor(93, 100, 0.40, 0.80), 0.972, places=6)
+        self.assertEqual(gap_factor(120, 120, 0.30, 0.85), 1.0)
 
     def test_score_is_raw_times_both_factors(self):
         c = plan(self._pool(110.0), req(mode="5", set_a=A, top_k=1)).combos[0]
