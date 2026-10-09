@@ -1,4 +1,4 @@
-"""
+﻿"""
 「组合穷举」页 —— 声骸组合穷举 + 伤害排名的**输入装配与展示**(规格 panel_plan.md 的 UI 规格)。
 
 边界(与阶段二十四"判定唯一收口"同一条纪律): **UI 不碰伤害公式** ——
@@ -156,27 +156,45 @@ class PlanTab(QWidget):
         self.level_card.hBoxLayout.addSpacing(16)
 
         self.energy_card = SettingCard(FIF.SPEED_HIGH, "循环门槛(共效)",
-                                       "共效低于下限 = 循环不成立 → 排序分 × 系数(系数待定, 默认 0.95)", self.view)
+                                       "缺口扣分, 0 = 关闭", self.view)
         self.energy_min_spin = DoubleSpinBox()          # 下限%
         self.energy_min_spin.setRange(0, 300)
         self.energy_min_spin.setDecimals(0)
         self.energy_min_spin.setValue(120)
         self.energy_min_spin.setSuffix(" %")
         self.energy_min_spin.setFixedWidth(140)         # 窄于 ~156 会把数字/后缀挤掉(实测)
-        self.energy_pen_spin = DoubleSpinBox()          # 系数
-        self.energy_pen_spin.setRange(0.10, 1.00)
-        self.energy_pen_spin.setDecimals(2)
-        self.energy_pen_spin.setSingleStep(0.01)
-        self.energy_pen_spin.setValue(0.95)
-        self.energy_pen_spin.setFixedWidth(120)
-        self.energy_card.hBoxLayout.addWidget(CaptionLabel("共效下限"), 0, Qt.AlignRight)
-        self.energy_card.hBoxLayout.addSpacing(4)
-        self.energy_card.hBoxLayout.addWidget(self.energy_min_spin)
-        self.energy_card.hBoxLayout.addSpacing(10)
-        self.energy_card.hBoxLayout.addWidget(CaptionLabel("不达标系数"))
-        self.energy_card.hBoxLayout.addSpacing(4)
-        self.energy_card.hBoxLayout.addWidget(self.energy_pen_spin)
-        self.energy_card.hBoxLayout.addSpacing(16)
+        self.energy_slope_spin = DoubleSpinBox()        # 每差 1 个"下限比例"扣多少
+        self.energy_slope_spin.setRange(0.0, 2.0)
+        self.energy_slope_spin.setDecimals(2)
+        self.energy_slope_spin.setSingleStep(0.05)
+        self.energy_slope_spin.setValue(0.30)
+        self.energy_slope_spin.setFixedWidth(124)
+        self.energy_floor_spin = DoubleSpinBox()        # 最低系数
+        self.energy_floor_spin.setRange(0.10, 1.00)
+        self.energy_floor_spin.setDecimals(2)
+        self.energy_floor_spin.setSingleStep(0.01)
+        self.energy_floor_spin.setValue(0.85)
+        self.energy_floor_spin.setFixedWidth(124)
+        for cap, w in (("下限", self.energy_min_spin), ("斜率", self.energy_slope_spin),
+                       ("最低", self.energy_floor_spin)):
+            self.energy_card.hBoxLayout.addWidget(CaptionLabel(cap), 0, Qt.AlignRight)
+            self.energy_card.hBoxLayout.addSpacing(4)
+            self.energy_card.hBoxLayout.addWidget(w)
+            self.energy_card.hBoxLayout.addSpacing(8)
+        self.energy_card.hBoxLayout.addSpacing(8)
+
+        self.crit_card = SettingCard(FIF.HEART, "稳定性嘉奖(暴击)",
+                                     "越接近 100% 越稳, 0 = 关闭", self.view)
+        self.crit_bonus_spin = DoubleSpinBox()          # 暴击 100% 时的加成上限
+        self.crit_bonus_spin.setRange(0.0, 0.50)
+        self.crit_bonus_spin.setDecimals(2)
+        self.crit_bonus_spin.setSingleStep(0.01)
+        self.crit_bonus_spin.setValue(0.05)
+        self.crit_bonus_spin.setFixedWidth(124)
+        self.crit_card.hBoxLayout.addWidget(CaptionLabel("100% 暴击加成"), 0, Qt.AlignRight)
+        self.crit_card.hBoxLayout.addSpacing(4)
+        self.crit_card.hBoxLayout.addWidget(self.crit_bonus_spin)
+        self.crit_card.hBoxLayout.addSpacing(16)
 
         self.inv_card = SettingCard(FIF.FOLDER, "声骸库存",
                                     "「运行」页评估后保存的报告同目录会生成同名 .json(推荐: 含套装/COST/主属性/词条); "
@@ -194,7 +212,7 @@ class PlanTab(QWidget):
         self.inv_card.hBoxLayout.addSpacing(16)
 
         g.addSettingCards([self.goal_card, self.mode_card, self.level_card, self.energy_card,
-                           self.inv_card])
+                           self.crit_card, self.inv_card])
         return g
 
     # ── 战斗环境 ──
@@ -359,7 +377,8 @@ class PlanTab(QWidget):
                      "**声骸副词条只计「该套装有效词条」里的专伤**(雪落无声之愿只认共鸣解放, "
                      "普攻/重击副词条不计 —— 标 `(忽略N)`; 要全算就勾「专伤不过滤」); "
                      "暴击率按 100% 封顶(溢出部分 0 收益, 表里标 →100%); "
-                     "**共效低于「循环门槛」的组合, 排序分 × 系数**(表里在 E 后标 ×系数, 悬停看未乘值); "
+                     "**共效按线性缺口扣系数**(越低扣越多, 见表内悬停), "
+                     "**暴击越接近 100% 有稳定性嘉奖**(系数 1+上限×暴击率/100); "
                      "技能倍率/加深/防御/抗性在方案内是常数(排序不受影响), 「伤害」列只把防御区×抗性区折进去。")
         vb.addWidget(note)
         return card
@@ -421,7 +440,9 @@ class PlanTab(QWidget):
                            max_level_only=self.max_level_check.isChecked(),
                            allowed_bonus=None if self.all_bonus_check.isChecked() else set_bonus_keys(sets),
                            energy_min=self.energy_min_spin.value(),
-                           energy_penalty=self.energy_pen_spin.value(),
+                           energy_slope=self.energy_slope_spin.value(),
+                           energy_floor=self.energy_floor_spin.value(),
+                           crit_bonus=self.crit_bonus_spin.value(),
                            top_k=50)
 
     # ══════════════════ 裸面板/补正 ══════════════════
@@ -568,20 +589,26 @@ class PlanTab(QWidget):
                                     + ": " + " + ".join(
                                         f"{i.name} {i.score:.2f}" if i.score is not None else f"{i.name} —"
                                         for i in c.items))
+                if col == 4:
+                    cell.setToolTip(f"暴击率 {c.panel.crit_rate:.1f}%(100% 封顶) / 爆伤 {c.panel.crit_dmg:.1f}%"
+                                    f" → 双爆区 {c.panel.crit_zone():.3f}"
+                                    f"\n稳定性嘉奖 ×{c.crit_f:.4f}"
+                                    f"(= 1 + {self.crit_bonus_spin.value():g}×暴击率/100)")
                 if col == 5 and ign:
                     cell.setToolTip("已忽略的副词条专伤(不属于该套装有效词条): " +
                                     ", ".join(f"{k} {v:g}%" for k, v in sorted(c.panel.ignored_bonus.items())))
                 if col == 6:
                     if c.penalized:
                         cell.setForeground(QColor("#d13438"))
-                        cell.setToolTip(f"共效 {c.panel.energy:.1f}% < 下限 "
-                                        f"{self.energy_min_spin.value():g}% → 循环不成立, 排序分 ×"
-                                        f"{self.energy_pen_spin.value():g}(未乘系数前 E {c.score_raw:.1f})")
+                        cell.setToolTip(f"共效 {c.panel.energy:.1f}% < 下限 {self.energy_min_spin.value():g}%"
+                                        f" → 循环系数 ×{c.energy_f:.4f}"
+                                        f"(= max({self.energy_floor_spin.value():g}, 1 − "
+                                        f"{self.energy_slope_spin.value():g}×缺口比例))")
                     else:
-                        cell.setToolTip(f"共效 {c.panel.energy:.1f}%(≥ 下限 → 不乘系数)")
-                if col == 7 and c.penalized:
-                    cell.setToolTip(f"已乘共效不达标系数 ×{self.energy_pen_spin.value():g}"
-                                    f"(未乘系数前 E {c.score_raw:.1f})")
+                        cell.setToolTip(f"共效 {c.panel.energy:.1f}%(≥ 下限 → 循环系数 1.0)")
+                if col == 7:
+                    cell.setToolTip(f"E(未乘系数) {c.score_raw:.1f} × 循环 {c.energy_f:.4f} × "
+                                    f"稳定性 {c.crit_f:.4f} = {c.score:.1f}")
                 self.result_table.setItem(row, col, cell)
 
     def _scaling(self) -> str:
@@ -624,7 +651,7 @@ class PlanTab(QWidget):
                 w = csv.writer(f)
                 w.writerow(["名次", "组合", "套装只数", "ΣCOST", "评分和", "均分", "有效分", "缩放属性总值",
                             "暴击率%", "暴击伤害%", "属伤%", "专伤%", "通用%", "忽略专伤%", "共效%",
-                            "共效不达标", "排序分E", "未乘系数E", "伤害"])
+                            "循环系数", "稳定性系数", "排序分E", "未乘系数E", "伤害"])
                 zb, rb = self._zone_factors()
                 for rank, c in enumerate(self._combos, 1):
                     zone = c.panel.bonus_split()
@@ -637,7 +664,7 @@ class PlanTab(QWidget):
                                 f"{c.panel.crit_rate:.1f}", f"{c.panel.crit_dmg:.1f}",
                                 f"{zone['属伤']:.1f}", f"{zone['专伤']:.1f}", f"{zone['通用']:.1f}",
                                 f"{sum(c.panel.ignored_bonus.values()):.1f}", f"{c.panel.energy:.1f}",
-                                "是" if c.penalized else "否",
+                                f"{c.energy_f:.4f}", f"{c.crit_f:.4f}",
                                 f"{c.score:.1f}", f"{c.score_raw:.1f}", f"{c.score * zb * rb:.1f}"])
             self._info(True, "已导出", path)
         except OSError as e:

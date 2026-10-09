@@ -14,8 +14,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.echo_combos import (EchoItem, PlanRequest, candidate_pool, instance_tag,   # noqa: E402
-                             is_max_level, plan, set_bonus_keys)
+from src.echo_combos import (EchoItem, PlanRequest, candidate_pool, crit_factor,      # noqa: E402
+                             energy_factor, instance_tag, is_max_level, plan, set_bonus_keys)
 
 A, B = "套装A", "套装B"
 
@@ -54,47 +54,64 @@ class TestInstanceTag(unittest.TestCase):
 
 
 class TestEnergyThreshold(unittest.TestCase):
-    """循环门槛: 共效 < 下限 → 最终排序分 × 系数(用户口径: 共效不够会影响实战循环)。"""
+    """循环门槛(线性缺口) + 稳定性嘉奖(暴击): 两个"用户口径"系数。"""
 
     def _pool(self, energy=110.0):
         return [full(f"n{i}", 1, A, 共鸣效率=energy / 5) for i in range(5)]
 
-    def test_penalty_applied_below_min(self):
+    def test_linear_energy_factor(self):
+        # 缺 10/120 = 8.33% → 1 − 0.30×0.0833 = 0.975
         c = plan(self._pool(110.0), req(mode="5", set_a=A, top_k=1)).combos[0]
         self.assertAlmostEqual(c.panel.energy, 110.0)
         self.assertTrue(c.penalized)
-        self.assertAlmostEqual(c.score, c.score_raw * 0.95)
+        self.assertAlmostEqual(c.energy_f, 0.975, places=6)
+        # 达标 → 1.0; 缺口极大 → 落到 floor(共效 20% → 缺口 83.3% → 1−0.25 = 0.75 → floor 0.85)
+        self.assertAlmostEqual(plan(self._pool(120.0), req(mode="5", set_a=A, top_k=1)).combos[0].energy_f, 1.0)
+        self.assertAlmostEqual(plan(self._pool(20.0), req(mode="5", set_a=A, top_k=1)).combos[0].energy_f, 0.85)
 
-    def test_no_penalty_at_or_above_min(self):
-        for energy in (120.0, 130.0):
-            with self.subTest(energy=energy):
-                c = plan(self._pool(energy), req(mode="5", set_a=A, top_k=1)).combos[0]
-                self.assertFalse(c.penalized)
-                self.assertAlmostEqual(c.score, c.score_raw)
+    def test_energy_factor_function(self):
+        self.assertEqual(energy_factor(120, 120, 0.30, 0.85), 1.0)
+        self.assertEqual(energy_factor(130, 120, 0.30, 0.85), 1.0)
+        self.assertAlmostEqual(energy_factor(100, 120, 0.30, 0.85), 0.95, places=6)
+        self.assertAlmostEqual(energy_factor(0, 120, 0.30, 0.85), 0.85, places=6)     # floor 兜底
+        self.assertEqual(energy_factor(100, 120, 0.0, 0.85), 1.0)                     # 斜率 0 = 关
+        self.assertEqual(energy_factor(100, 0, 0.30, 0.85), 1.0)                      # 下限 0 = 关
+
+    def test_crit_stability_bonus(self):
+        self.assertAlmostEqual(crit_factor(100, 0.05), 1.05, places=6)
+        self.assertAlmostEqual(crit_factor(50, 0.05), 1.025, places=6)
+        self.assertAlmostEqual(crit_factor(120, 0.05), 1.05, places=6)   # 溢出仍按 100% 算
+        self.assertEqual(crit_factor(100, 0.0), 1.0)                     # 0 = 关
+        c = plan(self._pool(130.0), req(mode="5", set_a=A, top_k=1)).combos[0]
+        self.assertAlmostEqual(c.score, c.score_raw * c.energy_f * c.crit_f)
+
+    def test_score_is_raw_times_both_factors(self):
+        c = plan(self._pool(110.0), req(mode="5", set_a=A, top_k=1)).combos[0]
+        self.assertAlmostEqual(c.score, c.score_raw * c.energy_f * c.crit_f)
 
     def test_disabled(self):
-        # 下限 0 / 系数 1.0 都视为关闭
-        for kw in ({"energy_min": 0.0}, {"energy_penalty": 1.0}):
+        # 下限 0 / 斜率 0 都视为关闭循环系数; 稳定性系数单独关
+        for kw in ({"energy_min": 0.0}, {"energy_slope": 0.0}):
             with self.subTest(**kw):
                 c = plan(self._pool(50.0), req(mode="5", set_a=A, top_k=1, **kw)).combos[0]
                 self.assertFalse(c.penalized)
-                self.assertAlmostEqual(c.score, c.score_raw)
+                self.assertAlmostEqual(c.energy_f, 1.0)
 
     def test_penalty_can_change_ranking(self):
-        """甲组 5 只共效 22%(合计 110, 不达标) + 攻击% 10; 乙组共效 26%(130) + 攻击% 9。
+        """甲组 5 只共效 15%(合计 75, 缺口 37.5% → ×0.8875) + 攻击% 10; 乙组共效 26%(130) + 攻击% 9。
 
-        关掉系数时"全甲组"第一(攻击最高); 门槛生效后第一名换成共效达标的混搭(3 乙 + 2 甲, 共效 122)。
+        关掉循环系数时"全甲组"第一(攻击最高); 打开后第一名换成共效达标的混搭(3 乙 + 2 甲, 共效 122)。
         """
-        pool = [full(f"a{i}", 1, A, 共鸣效率=22.0, 攻击百分比=10.0) for i in range(5)]
+        pool = [full(f"a{i}", 1, A, 共鸣效率=15.0, 攻击百分比=10.0) for i in range(5)]
         pool += [full(f"b{i}", 1, A, 共鸣效率=26.0, 攻击百分比=9.0) for i in range(5)]
         bare = {"攻击": 1000}
-        plain = plan(pool, req(mode="5", set_a=A, top_k=2, energy_penalty=1.0), bare=bare)
+        plain = plan(pool, req(mode="5", set_a=A, top_k=2, energy_slope=0.0), bare=bare)
         penal = plan(pool, req(mode="5", set_a=A, top_k=2), bare=bare)
         self.assertEqual({i.name[0] for i in plain.combos[0].items}, {"a"})
         self.assertFalse(plain.combos[0].penalized)
-        self.assertFalse(penal.combos[0].penalized)                      # 新的第一名共效达标
-        self.assertNotEqual({i.name[0] for i in penal.combos[0].items}, {"a"})
-        self.assertGreater(plain.combos[0].score, penal.combos[0].score)  # 代价: 排第一的 E 变低了
+        self.assertNotEqual({i.name[0] for i in penal.combos[0].items}, {"a"})   # 换成共效更好的混搭
+        self.assertGreater(penal.combos[0].energy_f, 0.95)
+        self.assertGreater(plain.combos[0].score, penal.combos[0].score)          # 代价: 排第一的 E 变低了
 
 
 class TestBonusFilter(unittest.TestCase):

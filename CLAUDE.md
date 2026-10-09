@@ -107,10 +107,12 @@ tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 
   评分和最高(129.87)的组合有效分只有 117.62, 而伤害第 1 的组合是 121.95 —— 扣掉共效后与伤害排序一致。
   注意它仍不是伤害的完美代理: 评分权重(暴击 1.0/共解 0.4)是静态近似, 伤害边际随当前双暴/加成区变化。
   排名表把它与评分和并成一列(`评分和/有效分`, UI 悬停给 5 只明细), CLI/CSV 各占一列。
-- **循环门槛(共效)**: `PlanRequest.energy_min`(默认 120%)与 `energy_penalty`(默认 0.95, **值待用户定**);
-  共效 < 下限 → 最终排序分 × 系数(用户口径: 共效不够会拖慢循环)。`Combo.score` 是最终分,
-  `score_raw` 存未乘值、`penalized` 是标记; `energy_min<=0` 或 `energy_penalty==1.0` 关闭。
-  UI 卡片「循环门槛(共效)」两个框 + 结果表 **共效** 列(不达标红色 + ⚠ + 悬停说明); CLI `--energy-min/--energy-penalty`。
+- **循环门槛(共效, 线性缺口)**: `系数 = max(energy_floor, 1 − energy_slope × (energy_min − 共效)/energy_min)`
+  (默认 120% / 0.30 / 0.85): 110% → 0.975、100% → 0.950、60% 及以下 → 0.85; `energy_min<=0` 或 `energy_slope==0` 关闭。
+- **稳定性嘉奖(暴击)**: `系数 = 1 + crit_bonus × min(暴击率,100)/100`(默认 0.05 → 100% 暴击 ×1.05); 填 0 关闭。
+  **不是**暴击区的重复: 暴击区是期望收益, 这是"单段伤害要稳"的用户口径加成。
+- 最终 `Combo.score = score_raw × energy_f × crit_f`(`EchoItem`/`Combo` 都保留未乘值与两个系数);
+  UI 两张卡片 + 悬停显示系数与未乘值, CSV 有 循环系数/稳定性系数 两列, CLI 有 `--energy-min/--energy-slope/--energy-floor/--crit-bonus`。
 - **排名表的列宽按 1120 默认窗口实测文本宽度定**(视口 1001; 见 `ui/plan_tab` 里那行注释) ——
   加列前先用 `.scratch/measure_table2.py` 量一下, 否则会挤成"1..."这种截断。
 - **声骸主属性有 2 行, 两行都算面板贡献**(实测 219 张面板 + 逐张看图核对): 第 1 行 = 声骸主属性;

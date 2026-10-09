@@ -50,7 +50,9 @@ def build_request(a) -> PlanRequest:
                        allowed_bonus=None if getattr(a, "all_bonus", False) else
                        set_bonus_keys([a.set_a] + ([a.set_b] if a.mode == "3+2" else [])),
                        energy_min=getattr(a, "energy_min", 120.0),
-                       energy_penalty=getattr(a, "energy_penalty", 0.95))
+                       energy_slope=getattr(a, "energy_slope", 0.30),
+                       energy_floor=getattr(a, "energy_floor", 0.85),
+                       crit_bonus=getattr(a, "crit_bonus", 0.05))
 
 
 def print_inventory(items, limit=12):
@@ -86,7 +88,10 @@ def print_result(res, req, bare, corrections, args):
              else (", ".join(req.allowed_bonus) or "无(该套装不认任何专伤)"))
           + "   ← 来自套装模板的有效词条")
     print(f"循环门槛: 共效 ≥ {req.energy_min:g}%"
-          + (f"(否则排序分 ×{req.energy_penalty:g})" if req.energy_penalty != 1.0 else "(已关闭系数)"))
+          + (f" → 不达标按线性缺口扣(斜率 {req.energy_slope:g}, 最低 {req.energy_floor:g})"
+             if req.energy_slope > 0 and req.energy_min > 0 else "(已关闭)")
+          + f" | 暴击稳定性嘉奖: 上限 {req.crit_bonus:g}(暴击 100% 时 ×{1 + req.crit_bonus:g})"
+          + ("" if req.crit_bonus > 0 else " 已关闭"))
     if not res.combos:
         print("没有合法组合: 检查套装是否有 4C/3C/1C 声骸、ΣCOST≤12 与 4C 归属")
         return
@@ -105,7 +110,7 @@ def print_result(res, req, bare, corrections, args):
         ign = sum(c.panel.ignored_bonus.values())
         s_sum, _sm = c.score_sum()
         s_dmg, _sd = c.score_sum_dmg()
-        mark = f"(共效{c.panel.energy:.1f}%<{req.energy_min:g}%→×{req.energy_penalty:g})" if c.penalized else ""
+        mark = f"(共效{c.panel.energy:.1f}%→×{c.energy_f:.3f})" if c.penalized else ""
         print(f"{rank:<4}{dmg:>12.1f}{c.score:>11.1f}{s_sum:>8.2f}{s_dmg:>8.2f}{c.total_cost:>7}{sets:>10}"
               f"{c.panel.scaling_total(req.scaling):>11.1f}"
               f"{c.panel.crit_rate:>6.1f}{'→100' if c.panel.crit_wasted() else '':>4}/{c.panel.crit_dmg:<6.1f}"
@@ -120,7 +125,11 @@ def print_result(res, req, bare, corrections, args):
           "    「评分和」= 5 只各自的**评估得分**之和(与报告同口径, 同套装内可比);\n"
           "    「有效分」= 评分和**扣掉共效**(共效权重 0.6 但不进伤害公式) —— 暴击不溢出时它与伤害排序\n"
           "      基本一致; 两者差得多, 说明这组是靠共效撑评分;\n"
-          f"    「循环门槛」= 共效 ≥ {req.energy_min:g}%, 不达标(表里标 `共效X%<…→×系数`)则排序分 ×{req.energy_penalty:g};\n"
+          f"    「循环门槛」= 共效 ≥ {req.energy_min:g}%, 不达标按**线性缺口**扣系数"
+          f"(斜率 {req.energy_slope:g} / 最低 {req.energy_floor:g}; 表里标 `共效X%→×系数`);\n"
+          f"    「稳定性嘉奖」= 暴击越接近 100%% 越高: ×(1 + {req.crit_bonus:g}×暴击率/100)"
+          f"(单段伤害更看重稳定暴击);\n"
+          f"    「排序分E」已是 E(未乘) × 循环系数 × 稳定性系数 —— 悬停/CSV 里有未乘值与两个系数;\n"
           "    暴击率按 100% 封顶(标 →100 表示溢出, 溢出部分算 0 收益);\n"
           "    名字后的 #N 是实例编号(json#N = 评估记录序号): 同名多只靠它区分是哪一只;\n"
           "    加成区的 `(忽略N)` = 该组合里**该套装不认的专伤**副词条(不计入), 见上面「计入的加成键」。")
@@ -138,9 +147,13 @@ def main() -> int:
     ap.add_argument("--all-bonus", action="store_true",
                     help="声骸副词条的专伤**不过滤**(默认只计该套装有效词条里的专伤)")
     ap.add_argument("--energy-min", type=float, default=120.0,
-                    help="共效下限%%(默认 120; 低于它视为循环不成立 → 排序分 × 系数; 设 0 关闭)")
-    ap.add_argument("--energy-penalty", type=float, default=0.95,
-                    help="共效不达标时的系数(默认 0.95; 设 1.0 关闭)")
+                    help="共效下限%%(默认 120; 设 0 关闭)")
+    ap.add_argument("--energy-slope", type=float, default=0.30,
+                    help="共效缺口斜率(默认 0.30: 差满一个下限比例就扣 0.30; 设 0 关闭)")
+    ap.add_argument("--energy-floor", type=float, default=0.85,
+                    help="共效系数下限(默认 0.85)")
+    ap.add_argument("--crit-bonus", type=float, default=0.05,
+                    help="暴击稳定性嘉奖上限(默认 0.05: 暴击 100%% 时 ×1.05; 设 0 关闭)")
     ap.add_argument("--mode", default="5", choices=("5", "3+2"), help="5 = 同套 5 件; 3+2 = A 3 件 + B 2 件")
     ap.add_argument("--set-a", default="", help="套装 A(3+2 时是 3 件那套, 也是 4C 默认归属)")
     ap.add_argument("--set-b", default="", help="套装 B(3+2 必填, 2 件)")

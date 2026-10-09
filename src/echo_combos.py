@@ -64,10 +64,31 @@ class PlanRequest:
     max_level_only: bool = True      # 只用满级件(5 词条) —— 默认; 关掉才把未满级件也放进候选池
     # 声骸副词条里允许计入的加成键; None = 由套装模板自动推断(见 `set_bonus_keys`)
     allowed_bonus: tuple[str, ...] | None = None
-    # 循环门槛: 共效 < `energy_min` 视为"循环不成立" → 排序分 × `energy_penalty`(用户口径; 系数待定, 默认 0.95)。
-    # `energy_min <= 0` 或 `energy_penalty == 1.0` 即关闭该规则。
+    # 循环门槛(共效): 共效 < 下限时按**线性缺口**扣系数(用户口径, 2026-10-09 定的方案 2):
+    #   系数 = max(energy_floor, 1 − energy_slope × (下限 − 共效) / 下限)
+    # 例(下限 120 / 斜率 0.30 / 最低 0.85): 110% → ×0.975; 100% → ×0.95; 60% 及以下 → ×0.85。
+    # `energy_min <= 0` 或 `energy_slope == 0` 即关闭。
     energy_min: float = 120.0
-    energy_penalty: float = 0.95
+    energy_slope: float = 0.30
+    energy_floor: float = 0.85
+    # 稳定性嘉奖(暴击): 越接近 100% 系数越高(单段/少段伤害更看重稳定暴击; 用户口径, 同样线性):
+    #   系数 = 1 + crit_bonus × min(暴击率, 100) / 100      (crit_bonus = 暴击 100% 时的加成上限)
+    # `crit_bonus <= 0` 即关闭。注: 与"暴击区(1+暴击率×暴伤)"不是一回事 —— 这是稳定性的加成, 不是期望收益。
+    crit_bonus: float = 0.05
+
+
+def energy_factor(energy: float, req_min: float, slope: float, floor: float) -> float:
+    """共效循环系数(线性缺口): `max(floor, 1 − slope × (下限−共效)/下限)`, 达标/关闭时 1.0。"""
+    if req_min <= 0 or slope <= 0 or energy >= req_min:
+        return 1.0
+    return max(floor, 1 - slope * (req_min - energy) / req_min)
+
+
+def crit_factor(crit_rate: float, bonus: float) -> float:
+    """暴击稳定性系数: `1 + bonus × min(暴击率,100)/100`(bonus = 100% 暴击时的加成上限)。"""
+    if bonus <= 0:
+        return 1.0
+    return 1 + bonus * min(crit_rate, 100.0) / 100.0
 
 
 @dataclass
@@ -75,9 +96,11 @@ class Combo:
     """一个合法组合 + 它的面板与排序分。"""
     items: tuple[EchoItem, ...]
     panel: Panel
-    score: float                     # **最终排序分**(已含共效不达标的系数)
-    score_raw: float = 0.0           # 未乘系数前的 E(展示/对比用)
-    penalized: bool = False          # 共效 < 门槛 → 乘了系数
+    score: float                     # **最终排序分**(已含共效循环系数与暴击稳定性系数)
+    score_raw: float = 0.0           # 未乘任何系数前的 E(展示/对比用)
+    penalized: bool = False          # 共效 < 门槛 → 循环系数 < 1
+    energy_f: float = 1.0            # 用到的共效循环系数
+    crit_f: float = 1.0              # 用到的暴击稳定性系数
 
     @property
     def total_cost(self) -> int:
@@ -210,12 +233,13 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
             panel = aggregate(bare, corrections, (s for it in combo for s in it.stats),
                               allowed_bonus=allowed_bonus)
             raw = damage(panel, req.scaling, crit_mode=req.crit_mode)
-            # 循环门槛: 共效不达标 → 最终排序分乘系数(用户口径: 共效不够会影响实战循环)
-            penalized = (req.energy_min > 0 and req.energy_penalty != 1.0
-                         and panel.energy < req.energy_min)
-            score = raw * req.energy_penalty if penalized else raw
+            # 两个"用户口径"系数: ① 共效不够 → 循环变慢(按缺口线性扣) ② 暴击越接近 100% → 稳定性嘉奖
+            f_energy = energy_factor(panel.energy, req.energy_min, req.energy_slope, req.energy_floor)
+            f_crit = crit_factor(panel.crit_rate, req.crit_bonus)
+            penalized = f_energy < 1.0
+            score = raw * f_energy * f_crit
             seq += 1
-            item = (score, seq, combo, panel, raw, penalized)
+            item = (score, seq, combo, panel, raw, penalized, f_energy, f_crit)
             if len(heap) < max(1, req.top_k):
                 heapq.heappush(heap, item)
             elif score > heap[0][0]:
@@ -224,8 +248,9 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
                 cancelled = True
                 break
 
-    combos = [Combo(items=c, panel=p, score=s, score_raw=raw, penalized=pen)
-              for s, _, c, p, raw, pen in sorted(heap, key=lambda x: (-x[0], x[1]))]
+    combos = [Combo(items=c, panel=p, score=s, score_raw=raw, penalized=pen,
+                    energy_f=fe, crit_f=fc)
+              for s, _, c, p, raw, pen, fe, fc in sorted(heap, key=lambda x: (-x[0], x[1]))]
     return PlanResult(combos=combos, candidates=len(pool), names=len(groups),
                       evaluated=evaluated, elapsed=time.perf_counter() - t0, cancelled=cancelled)
 
