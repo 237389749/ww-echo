@@ -1,4 +1,4 @@
-﻿"""
+"""
 「组合穷举」页 —— 声骸组合穷举 + 伤害排名的**输入装配与展示**(规格 panel_plan.md 的 UI 规格)。
 
 边界(与阶段二十四"判定唯一收口"同一条纪律): **UI 不碰伤害公式** ——
@@ -593,9 +593,16 @@ class PlanTab(QWidget):
                 cell = QTableWidgetItem(text)
                 cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
                 if col == 1:
+                    # 主属性方向是"评分和"看不到、却最影响伤害的一块(评分只算副词条) → 必须可见
+                    main_dir = []
+                    for it in c.items:
+                        if it.cost in (3, 4) and it.main:
+                            main_dir.append(f"{it.cost}C主={it.main[0][0]}{it.main[0][1]:g}")
                     tip = (f"{self._scaling()}总值 {c.panel.scaling_total(self._scaling()):.1f}"
                            f" | 套装 {' + '.join(f'{k}×{v}' for k, v in sorted(c.set_counts.items()))}"
                            f" | 双爆区 {c.panel.crit_zone():.3f}")
+                    if main_dir:
+                        tip += "\n主属性: " + " ".join(main_dir) + "(评分和只算副词条, 看不到这块)"
                     if row > 0:
                         tip += f"\n与第 1 名相差 −{(1 - c.score / top) * 100:.1f}%(排序分)"
                     cell.setToolTip(tip)
