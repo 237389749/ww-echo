@@ -102,6 +102,17 @@ class TestDamage(unittest.TestCase):
         # 1000 × (1 + 0.6×2.0) × (1 + 0.40) = 1000 × 2.2 × 1.4 = 3080
         self.assertAlmostEqual(damage(self._panel(), "攻击"), 3080.0)
 
+    def test_crit_rate_capped_at_100(self):
+        """暴击率按 100% 封顶: 溢出部分不产生收益(真实组合里会出现 112%~119% 暴击)。"""
+        base = aggregate({"攻击": 1000, "暴击": 62.3, "暴击伤害": 220.0})
+        over = aggregate({"攻击": 1000, "暴击": 112.3, "暴击伤害": 220.0})
+        self.assertAlmostEqual(base.crit_zone(), 1 + 0.623 * 2.2)
+        self.assertAlmostEqual(over.crit_zone(), 1 + 1.0 * 2.2)        # 与"刚好 100%"同分
+        self.assertAlmostEqual(over.crit_wasted(), 12.3)
+        self.assertEqual(base.crit_wasted(), 0.0)
+        self.assertAlmostEqual(damage(over, "攻击") / damage(base, "攻击"),
+                               (1 + 2.2) / (1 + 0.623 * 2.2))
+
     def test_single_hit_modes(self):
         p = self._panel()
         self.assertAlmostEqual(damage(p, "攻击", crit_mode="crit"), 1000 * 3.0 * 1.4)

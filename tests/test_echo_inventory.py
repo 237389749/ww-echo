@@ -171,6 +171,24 @@ class TestLoadInventory(unittest.TestCase):
                          ("辛吉勒姆", 4, "长路启航之星"))
         self.assertEqual(summarize(items)["by_cost"], {4: 1})
 
+    def test_exact_duplicates_are_collapsed(self):
+        """OCR 抖动可能让同一只被记两次(名字里的间隔号 `·`↔`・`) → 导入时折成一条。"""
+        rec = {"index": 1, "name": "双极·渊陨重锋", "set": "长路启航之星", "cost": 3,
+               "main_props": [{"name": "攻击", "value": 30.0}, {"name": "攻击", "value": 100.0}],
+               "stats": [{"name": "暴击", "value": 6.3}]}
+        same = dict(rec, index=2)
+        items = load_inventory(self._write_json([rec, same]))
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].cost, 3)
+
+    @staticmethod
+    def _write_json(records):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "eval_report.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"set": "通用", "results": records}, f, ensure_ascii=False)
+        return p
+
     def test_missing_path_raises(self):
         with self.assertRaises(FileNotFoundError):
             load_inventory(os.path.join(tempfile.gettempdir(), "不存在的目录_zzz"))

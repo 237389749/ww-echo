@@ -56,6 +56,7 @@ class PlanRequest:
     top_k: int = 50
     crit_mode: str = "expect"        # 期望 / 单次暴击 / 单次不暴击
     max_total_cost: int = MAX_TOTAL_COST
+    max_level_only: bool = True      # 只用满级件(5 词条) —— 默认; 关掉才把未满级件也放进候选池
 
 
 @dataclass
@@ -90,8 +91,19 @@ class PlanResult:
     cancelled: bool = False          # 被 `should_stop` 提前中止(结果是部分排名)
 
 
+def is_max_level(item: EchoItem) -> bool:
+    """满级(5★ +25) ⇔ **5 条词条**: 第 n 条词条在 +5n 开, 而 5★ 上限就是 +25,
+    所以"5 词条"与"满级"等价(反过来 `+22` 也可能已有 5 条 —— 那种也算满级口径)。
+    评估产物里没有等级字段, 只能这么判(见 `src/echo_inventory` 的说明)。"""
+    return len(item.stats) - len(item.main) >= 5
+
+
 def candidate_pool(items, req: PlanRequest) -> list[EchoItem]:
-    """过滤候选: 5★(由导入方保证) + COST 合法 + 属于目标套装。"""
+    """过滤候选: 5★(由导入方保证) + COST 合法 + 属于目标套装 + (默认)**满级**。
+
+    默认只收满级件: 未满级件的词条还会涨, 拿现状词条参与排名会低估它、也会把"其实要再练"的件
+    混进推荐; 需要"看现有全部件"时把 `req.max_level_only` 置 False。
+    """
     if not req.set_a:
         raise ValueError("必须指定目标套装")
     wanted = {req.set_a}
@@ -103,7 +115,8 @@ def candidate_pool(items, req: PlanRequest) -> list[EchoItem]:
         wanted.add(req.set_b)
     elif req.mode != "5":
         raise ValueError(f"未知模式: {req.mode!r}(只有 '5' / '3+2')")
-    return [it for it in items if it.cost in VALID_COSTS and it.set_name in wanted]
+    return [it for it in items if it.cost in VALID_COSTS and it.set_name in wanted
+            and (not req.max_level_only or is_max_level(it))]
 
 
 def _by_name(pool: list[EchoItem]) -> dict[str, list[EchoItem]]:
@@ -175,9 +188,22 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
                       evaluated=evaluated, elapsed=time.perf_counter() - t0, cancelled=cancelled)
 
 
+def instance_tag(item: EchoItem) -> str:
+    """同名多只时用来区分"是哪一只"的短标签(取自 `source`): `json#38` → `#38`; 素材路径 → `0001`。
+
+    排名表里同名不同实例的组合看起来一模一样(名字+COST 相同), 只有词条/面板不同 —— 标出实例编号
+    才能照着装。
+    """
+    src = item.source or ""
+    if src.startswith("json#"):
+        return "#" + src[5:].split("|")[0]
+    head = src.split("|")[0]
+    return head[:4] if head[:4].isdigit() else ""
+
+
 def combo_summary(combo: Combo, req: PlanRequest) -> str:
     """一行文字摘要(CLI 表格与日志共用)。"""
-    parts = ", ".join(f"{i.name} {i.cost}C" for i in combo.items)
+    parts = ", ".join(f"{i.name}{instance_tag(i)} {i.cost}C" for i in combo.items)
     counts = " + ".join(f"{k}×{v}" for k, v in sorted(combo.set_counts.items()))
     return (f"{combo.score:.1f} | ΣCOST {combo.total_cost} | {counts} | "
             f"{req.scaling} {combo.panel.scaling_total(req.scaling):.1f} | "

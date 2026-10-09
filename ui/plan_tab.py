@@ -15,12 +15,12 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QHeaderView, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from qfluentwidgets import (CaptionLabel, ComboBox, DoubleSpinBox, EditableComboBox, FluentIcon as FIF,
-                            HeaderCardWidget, IndeterminateProgressBar, InfoBar, InfoBarPosition, MessageBox,
-                            PushButton, SettingCard, SettingCardGroup, SingleDirectionScrollArea, SpinBox,
-                            TableWidget, TitleLabel)
+from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, EditableComboBox,
+                            FluentIcon as FIF, HeaderCardWidget, IndeterminateProgressBar, InfoBar,
+                            InfoBarPosition, MessageBox, PushButton, SettingCard, SettingCardGroup,
+                            SingleDirectionScrollArea, SpinBox, TableWidget, TitleLabel)
 
-from src.echo_combos import PlanRequest, candidate_pool, plan
+from src.echo_combos import PlanRequest, candidate_pool, instance_tag, is_max_level, plan
 from src.echo_inventory import load_inventory, summarize
 from src.echo_panel import BASE_KEYS, EXTRA_BONUS_KEYS, Correction, aggregate, defense_zone, resist_zone
 from src.echo_set_templates import STAT_ORDER, get_all_set_names
@@ -139,6 +139,14 @@ class PlanTab(QWidget):
             self.mode_card.hBoxLayout.addSpacing(8)
         self.mode_card.hBoxLayout.addSpacing(16)
 
+        self.level_card = SettingCard(FIF.EDUCATION, "候选等级",
+                                      "默认只用「满级件」(5 词条): 未满级件的词条还会涨, 用现状词条排名会低估它; "
+                                      "取消勾选可把它们一起排(看现有全部件用)", self.view)
+        self.max_level_check = CheckBox("只用满级件")
+        self.max_level_check.setChecked(True)
+        self.level_card.hBoxLayout.addWidget(self.max_level_check, 0, Qt.AlignRight)
+        self.level_card.hBoxLayout.addSpacing(16)
+
         self.inv_card = SettingCard(FIF.FOLDER, "声骸库存",
                                     "「运行」页评估后保存的报告同目录会生成同名 .json(推荐: 含套装/COST/主属性/词条); "
                                     "也可选 logs/eval_debug 素材目录。导入即视为 5★(评估数据无稀有度字段)", self.view)
@@ -154,7 +162,7 @@ class PlanTab(QWidget):
         self.inv_card.hBoxLayout.addWidget(self.pick_btn)
         self.inv_card.hBoxLayout.addSpacing(16)
 
-        g.addSettingCards([self.goal_card, self.mode_card, self.inv_card])
+        g.addSettingCards([self.goal_card, self.mode_card, self.level_card, self.inv_card])
         return g
 
     # ── 战斗环境 ──
@@ -195,7 +203,7 @@ class PlanTab(QWidget):
         vb = _card_body(card)
         tip = CaptionLabel()
         tip.setWordWrap(True)
-        tip.setText("「攻击/生命/防御」填**基础值**(角色 + 武器, 不含声骸): 面板 = 基础值 × (1 + 百分比/100) "
+        tip.setText("「攻击/生命/防御」填「基础值」(角色 + 武器, 不含声骸): 面板 = 基础值 × (1 + 百分比/100) "
                     "+ 固定值(calculator 口径, 固定值不吃百分比)。补正可多条、一律视为生效; "
                     "来源只用于追溯(套装 2/3/5 件套、共鸣链、天赋、队伍增伤…) —— 套装效果不自动解析。")
         vb.addWidget(tip)
@@ -314,7 +322,8 @@ class PlanTab(QWidget):
         note = CaptionLabel()
         note.setWordWrap(True)
         note.setText("排序分 E = 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区); "
-                     "加成区 = 属伤 + 专伤合计(各类型直接相加) + 通用增伤, 共效不计。"
+                     "加成区 = 属伤 + 专伤合计(各类型直接相加) + 通用增伤, 共效不计; "
+                     "暴击率按 100% 封顶(溢出部分算 0 收益, 表里标 →100%)。"
                      "技能倍率/加深/防御/抗性在方案内是常数(排序不受影响), 「伤害」列只把防御区×抗性区折进去。")
         vb.addWidget(note)
         return card
@@ -351,7 +360,8 @@ class PlanTab(QWidget):
             return
         self._items = items
         s = summarize(items)
-        self.inv_label.setText(f"{s['total']} 只 / {s['names']} 个名字 | "
+        n_max = sum(1 for i in items if is_max_level(i))
+        self.inv_label.setText(f"{s['total']} 只 / {s['names']} 个名字(满级 {n_max}) | "
                                f"套装 {len(s['by_set'])} 个")
         self._info(True, "已导入库存", f"{s['total']} 只(COST {s['by_cost']})"
                                        + (f", 含「{next(iter(s['by_set']))}」等 {len(s['by_set'])} 套"
@@ -369,6 +379,7 @@ class PlanTab(QWidget):
                            set_b=self.set_b_combo.currentText(),
                            cost4_owner=self.cost4_combo.currentText(),
                            crit_mode=dict((t, k) for t, k in CRIT_MODES)[self.crit_combo.currentText()],
+                           max_level_only=self.max_level_check.isChecked(),
                            top_k=50)
 
     # ══════════════════ 裸面板/补正 ══════════════════
@@ -435,8 +446,9 @@ class PlanTab(QWidget):
             self._info(False, "参数不合法", str(e))
             return
         if not pool:
+            hint = "；这些件可能都不是满级件 —— 可取消「只用满级件」" if req.max_level_only else ""
             self._info(False, "没有候选", f"库存里没有「{req.set_a}」"
-                                          + (f"/「{req.set_b}」" if req.mode == "3+2" else "") + " 的声骸")
+                                          + (f"/「{req.set_b}」" if req.mode == "3+2" else "") + " 的声骸" + hint)
             return
         bare, corrections = self._collect_inputs()
         self._set_running(True)
@@ -484,10 +496,11 @@ class PlanTab(QWidget):
         for row, c in enumerate(res.combos):
             zone = c.panel.bonus_split()
             sets = " + ".join(f"{k}×{v}" for k, v in sorted(c.set_counts.items()))
-            combo_text = " ".join(f"{i.name}·{i.cost}C" for i in c.items)
+            combo_text = " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
             cells = (str(row + 1), combo_text, sets, str(c.total_cost),
                      f"{c.panel.scaling_total(self._scaling()):.1f}",
-                     f"{c.panel.crit_rate:.1f}% / {c.panel.crit_dmg:.1f}%",
+                     f"{c.panel.crit_rate:.1f}%{'→100%' if c.panel.crit_wasted() else ''} / "
+                     f"{c.panel.crit_dmg:.1f}%",
                      f"{zone['属伤']:.0f}+{zone['专伤']:.0f}+{zone['通用']:.0f}",
                      f"{c.score:.1f}", f"{c.score * zb * rb:.1f}")
             for col, text in enumerate(cells):
@@ -514,9 +527,11 @@ class PlanTab(QWidget):
         for i, item in enumerate(combo.items, 1):
             main = "、".join(f"{k} {v:g}" for k, v in item.main) or "—"
             subs = "、".join(f"{k} {v:g}" for k, v in item.stats[len(item.main):]) or "—"
-            lines.append(f"{i}. {item.name}  {item.cost}C  [{item.set_name}]")
+            tag = instance_tag(item) or item.source or "—"
+            lines.append(f"{i}. {item.name}  {item.cost}C  [{item.set_name}]  实例 {tag}")
             lines.append(f"    主属性: {main}")
             lines.append(f"    词条: {subs}")
+        lines += ["", "（同名多只时, 靠「实例」编号区分是哪一只: json#N = 评估记录序号; 四位数字 = 素材文件名序号）"]
         MessageBox("组合详情", "\n".join(lines), self).exec()
 
     def _export_csv(self):
@@ -534,7 +549,7 @@ class PlanTab(QWidget):
                 zb, rb = self._zone_factors()
                 for rank, c in enumerate(self._combos, 1):
                     zone = c.panel.bonus_split()
-                    w.writerow([rank, " ".join(f"{i.name}·{i.cost}C" for i in c.items),
+                    w.writerow([rank, " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items),
                                 " + ".join(f"{k}×{v}" for k, v in sorted(c.set_counts.items())),
                                 c.total_cost, f"{c.panel.scaling_total(self._scaling()):.1f}",
                                 f"{c.panel.crit_rate:.1f}", f"{c.panel.crit_dmg:.1f}",

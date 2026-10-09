@@ -41,6 +41,9 @@ _COST_RE = re.compile(r'COST\s*([134])')
 _COST_ROI = (0.685, 0.19, 0.792, 0.25)
 _COST_UPSCALE = 3
 
+# 声骸名里的"间隔号/空白/中点"(OCR 变体: ·/・/./空格) —— 只用于去重签名的相等性比较
+_NAME_PUNCT_RE = re.compile(r'[\s·・•․∙.\-—_]')
+
 
 def parse_cost(boxes) -> int | None:
     """详情面板 OCR 框 → COST(1/3/4); 认不出返回 None。"""
@@ -1097,8 +1100,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """去重签名 = 声骸名 + 全部属性行的档位值(主属性+词条), 档位值稳定不受 OCR 抖动影响。
         全量 OCR 文本签名(含原始数值)对同一只每次识别会因个别字符抖动而不同 → 跨屏重叠时
         seen_sigs 拦不住 → 重复记录; 档位值是离散集合, 同一声骸多次识别结果一致。
-        **评估遍历与 tools/offline_eval_report 共用这一份**(以前两边各写一遍, 改一处漏一处)。"""
-        parts = [echo_name]
+        **评估遍历与 tools/offline_eval_report 共用这一份**(以前两边各写一遍, 改一处漏一处)。
+
+        名字里的**间隔号/空白/中点**先去掉: OCR 会把 `双极·渊陨重锋` 读成 `双极・渊陨重锋`(全角中点),
+        名字不同 → 同一只被记两次(实测 20261008 那批 #38/#44 就是同一只两次, 让组合穷举出现成对的同分组合)。
+        这里只做"相等性比较"用, 不做名字查表, 所以去掉标点是安全的。
+        """
+        parts = [_NAME_PUNCT_RE.sub('', str(echo_name))]
         for raw_n, v_str in paired_all:
             norm = EnhanceEchoTask._normalize_stat(raw_n, v_str)
             v = parse_number(v_str)

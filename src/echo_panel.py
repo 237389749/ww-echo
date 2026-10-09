@@ -93,8 +93,16 @@ class Panel:
             + self.flat.get(scaling, 0.0)
 
     def crit_zone(self, mode: str = "expect") -> float:
-        """暴击区: `expect`(默认, 期望) = 1 + 暴击率×暴击伤害; `crit`/`non_crit` = 单次口径。"""
-        rate, dmg = self.crit_rate / 100.0, self.crit_dmg / 100.0
+        """暴击区: `expect`(默认, 期望) = 1 + 暴击率×暴击伤害; `crit`/`non_crit` = 单次口径。
+
+        **暴击率按 100% 封顶**: 超出 100% 的部分不产生收益(实测用户组合里就会出现 112%~119%:
+        4C 暴击主属性 + 5 条暴击词条 + 套装/共鸣链补正)。不封顶会把"溢出暴击"当成收益,
+        让"暴击堆过头"的组合排在前面 —— 参考实现(wuwa-calculator)的边际分析也是 `Math.min(100, critRate + 10)`,
+        说明 100% 就是口径上的上限。面板显示仍用原始值(游戏面板怎么显示就怎么显示),
+        溢出量见 `crit_wasted()`。
+        """
+        rate = min(self.crit_rate, 100.0) / 100.0
+        dmg = self.crit_dmg / 100.0
         if mode == "expect":
             return 1 + rate * dmg
         if mode == "crit":
@@ -102,6 +110,10 @@ class Panel:
         if mode == "non_crit":
             return 1.0
         raise ValueError(f"未知暴击模式: {mode!r}")
+
+    def crit_wasted(self) -> float:
+        """暴击率超出 100% 的溢出点数(展示用; 不影响 `crit_zone` 之外的任何东西)。"""
+        return max(0.0, self.crit_rate - 100.0)
 
     def bonus_zone(self) -> float:
         """加成区(%) = 属伤 + 专伤合计 + 通用增伤(各类型直接相加)。"""

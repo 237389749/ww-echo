@@ -283,6 +283,23 @@ def load_inventory(path: str = "", use_icons: bool = True) -> list[EchoItem]:
     return _load_report(path, {})
 
 
+def drop_exact_duplicates(items: list[EchoItem]) -> list[EchoItem]:
+    """丢掉**完全同一个实例**的重复记录(名字/套装/COST/词条全同)。
+
+    评估侧本来有 `dedup_key` 去重, 但 OCR 抖动会溜过去(实测: 同一只 `双极·渊陨重锋` 因名字里的
+    间隔号被读成 `・` 而记了两次 → 组合穷举给出成对同分组合)。契约里"同名多只 = 同一只的多个词条版本",
+    所以词条也全同的两条对排名没有任何贡献, 直接折成一条。
+    """
+    seen, out = set(), []
+    for it in items:
+        key = (it.name, it.set_name, it.cost, tuple(sorted(it.stats)))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
+
+
 def _load_report(report_path: str, frames: dict) -> list[EchoItem]:
     report = parse_report(report_path)
     seen, items = set(), []
@@ -299,7 +316,7 @@ def _load_report(report_path: str, frames: dict) -> list[EchoItem]:
         item = item_from_report(tag, lines, frame)
         if item is not None:
             items.append(item)
-    return items
+    return drop_exact_duplicates(items)
 
 
 def _load_json(json_path: str) -> list[EchoItem]:
@@ -307,7 +324,7 @@ def _load_json(json_path: str) -> list[EchoItem]:
         data = json.load(f)
     records = data.get("results") if isinstance(data, dict) else data
     items = [item_from_record(r) for r in (records or [])]
-    return [i for i in items if i is not None]
+    return drop_exact_duplicates([i for i in items if i is not None])
 
 
 def summarize(items: list[EchoItem]) -> dict:

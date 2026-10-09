@@ -25,7 +25,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from src.echo_combos import PlanRequest, plan                            # noqa: E402
+from src.echo_combos import PlanRequest, instance_tag, plan               # noqa: E402
 from src.echo_inventory import load_inventory, summarize                  # noqa: E402
 from src.echo_panel import Correction, defense_zone, resist_zone               # noqa: E402
 
@@ -45,15 +45,20 @@ def parse_pairs(values, what):
 
 def build_request(a) -> PlanRequest:
     return PlanRequest(scaling=a.scaling, mode=a.mode, set_a=a.set_a, set_b=a.set_b,
-                       cost4_owner=a.cost4.upper(), top_k=a.top, crit_mode=a.crit)
+                       cost4_owner=a.cost4.upper(), top_k=a.top, crit_mode=a.crit,
+                       max_level_only=not getattr(a, "all_levels", False))
 
 
 def print_inventory(items, limit=12):
+    from src.echo_combos import is_max_level
     s = summarize(items)
-    print(f"库存: {s['total']} 只 / {s['names']} 个名字 | COST 分布 {s['by_cost']}")
-    print("套装(只数):")
+    n_max = sum(1 for i in items if is_max_level(i))
+    print(f"库存: {s['total']} 只 / {s['names']} 个名字 | COST 分布 {s['by_cost']} | "
+          f"满级 {n_max} / 未满级 {s['total'] - n_max}")
+    print("套装(只数, 括号内=其中满级):")
     for name, n in list(s["by_set"].items())[:limit]:
-        print(f"  {name}: {n}")
+        k = sum(1 for i in items if i.set_name == name and is_max_level(i))
+        print(f"  {name}: {n}({k})")
     if len(s["by_set"]) > limit:
         print(f"  … 其余 {len(s['by_set']) - limit} 个套装(用 --list-all 看全)")
 
@@ -70,7 +75,8 @@ def print_result(res, req, bare, corrections, args):
     print("补正(一律视为生效): " + (", ".join(f"{c.key} +{c.value:g}({c.source or '未标来源'})"
                                               for c in corrections) or "无"))
     print(f"候选 {res.candidates} 只 / {res.names} 个名字 | 评估 {res.evaluated} 组 | "
-          f"取前 {len(res.combos)} / 耗时 {res.elapsed:.3f}s")
+          f"取前 {len(res.combos)} / 耗时 {res.elapsed:.3f}s"
+          + ("" if req.max_level_only else " | **含未满级件**"))
     if not res.combos:
         print("没有合法组合: 检查套装是否有 4C/3C/1C 声骸、ΣCOST≤12 与 4C 归属")
         return
@@ -84,12 +90,14 @@ def print_result(res, req, bare, corrections, args):
         dmg = c.score * zb * rb
         print(f"{rank:<4}{dmg:>12.1f}{c.score:>11.1f}{c.total_cost:>7}{sets:>10}"
               f"{c.panel.scaling_total(req.scaling):>11.1f}"
-              f"{c.panel.crit_rate:>6.1f}/{c.panel.crit_dmg:<6.1f}"
+              f"{c.panel.crit_rate:>6.1f}{'→100' if c.panel.crit_wasted() else '':>4}/{c.panel.crit_dmg:<6.1f}"
               f"{zone['属伤']:>4.0f}+{zone['专伤']:>3.0f}+{zone['通用']:>2.0f}"
-              f"  " + " ".join(f"{i.name}·{i.cost}C" for i in c.items)
+              f"  " + " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
               + ("" if c.score == top else f"  (第1名 −{(1 - c.score / top) * 100:.1f}%)"))
     print("\n注: 「排序分 E」= 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区), 方案内常数(倍率/加深)"
-          "已省略;\n    「伤害」= E × 防御区 × 抗性区(便于与 wuwa-calculator 对数字)。")
+          "已省略;\n    「伤害」= E × 防御区 × 抗性区(便于与 wuwa-calculator 对数字);\n"
+          "    暴击率按 100% 封顶(标 →100 表示溢出, 溢出部分算 0 收益);\n"
+          "    名字后的 #N 是实例编号(json#N = 评估记录序号): 同名多只靠它区分是哪一只。")
 
 
 def main() -> int:
@@ -99,6 +107,8 @@ def main() -> int:
     ap.add_argument("--no-icons", action="store_true", help="跳过套装图标识别(快, 但多义名字会退到通用)")
     ap.add_argument("--list", action="store_true", help="只打印库存概览")
     ap.add_argument("--list-all", action="store_true", help="库存概览打印全部套装")
+    ap.add_argument("--all-levels", action="store_true",
+                    help="把**未满级**件也放进候选池(默认只用满级件 = 5 词条)")
     ap.add_argument("--mode", default="5", choices=("5", "3+2"), help="5 = 同套 5 件; 3+2 = A 3 件 + B 2 件")
     ap.add_argument("--set-a", default="", help="套装 A(3+2 时是 3 件那套, 也是 4C 默认归属)")
     ap.add_argument("--set-b", default="", help="套装 B(3+2 必填, 2 件)")

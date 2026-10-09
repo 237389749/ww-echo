@@ -49,6 +49,25 @@ class TestParseCost(unittest.TestCase):
         self.assertIsNone(parse_cost([Box('攻击', 1326, 454, 104), Box('150', 1400, 454, 40)]))
 
 
+class TestDedupKey(unittest.TestCase):
+    """去重签名: 名字里的间隔号/空白差异不该让同一只被记两次(实测 #38/#44 就是这么来的)。"""
+
+    ROWS = [("暴击", "22.0%"), ("攻击", "150"), ("暴击", "6.9%")]
+
+    def test_punctuation_variants_are_equal(self):
+        k1 = EnhanceEchoTask.dedup_key("双极·渊陨重锋", self.ROWS)
+        k2 = EnhanceEchoTask.dedup_key("双极・渊陨重锋", self.ROWS)     # OCR 读成全角中点
+        k3 = EnhanceEchoTask.dedup_key(" 双极 · 渊陨重锋 ", self.ROWS)
+        self.assertEqual(k1, k2)
+        self.assertEqual(k1, k3)
+
+    def test_different_values_still_differ(self):
+        # 注: 主属性行的原始值也会被 snap 到词条档位表(150/100 都归到最高档 60), 所以这里用**词条**区分
+        a = EnhanceEchoTask.dedup_key("甲", [("暴击", "22.0%"), ("暴击", "6.9%")])
+        b = EnhanceEchoTask.dedup_key("甲", [("暴击", "22.0%"), ("暴击", "9.3%")])
+        self.assertNotEqual(a, b)
+
+
 class TestReadCostBadge(unittest.TestCase):
     """COST 角标**单区放大重读**(全屏 1× 漏检数字时的兜底; 实测 20261008 那批 27/135 会漏)。
 
