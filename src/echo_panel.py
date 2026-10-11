@@ -1,4 +1,4 @@
-"""
+﻿"""
 声骸组合的「面板聚合 + 伤害」计算层 —— 供 `src/echo_combos.py`(穷举)与 UI/CLI 共用。
 
 **规格**: 仓库根 `panel_plan.md`(公式与分区采用 wuwa-calculator); **契约**(用户已定, 见 `handoff.md`):
@@ -37,15 +37,16 @@ ELEMENT_KEYS: tuple[str, ...] = ("冷凝伤害加成", "热熔伤害加成", "�
 ELEMENTAL_GENERIC_KEY = "属性伤害加成"
 GENERIC_BONUS_KEY = "通用增伤"
 EXTRA_BONUS_KEYS: tuple[str, ...] = (ELEMENTAL_GENERIC_KEY, "声骸技能伤害加成", GENERIC_BONUS_KEY)
-# 五种"专伤"(分技能类型; 角色通常只吃其中一种 —— 通用套为了普适会把几种都配权重)
+# 四种"专伤"**副词条**(分技能类型; 角色通常只吃其中一种 —— 通用套为了普适会把几种都配权重)。
+# 注意: `声骸技能伤害加成` **不是副词条**(不在 `echo_stats._TIERS`) —— 它只作为主属性/外来源存在,
+# 归在 EXTRA_BONUS_KEYS(永远计入加成区, 也走补正路径), 不进"可按副词条过滤"的这个列表。
 SPECIALTY_KEYS: tuple[str, ...] = ("普攻伤害加成", "重击伤害加成", "共鸣技能伤害加成",
-                                   "共鸣解放伤害加成", "声骸技能伤害加成")
+                                   "共鸣解放伤害加成")
 # 简写 → 全名(CLI/UI 输入用; "共鸣技能" 也接受 "共技", "共鸣解放" 也接受 "共解")
 SPECIALTY_ALIASES: dict[str, str] = {
     "普攻": SPECIALTY_KEYS[0], "重击": SPECIALTY_KEYS[1],
     "共鸣技能": SPECIALTY_KEYS[2], "共技": SPECIALTY_KEYS[2],
     "共鸣解放": SPECIALTY_KEYS[3], "共解": SPECIALTY_KEYS[3],
-    "声骸技能": SPECIALTY_KEYS[4],
 }
 
 

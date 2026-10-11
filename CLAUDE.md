@@ -92,6 +92,9 @@ tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 
   「只用满级件」默认勾选 / CLI `--all-levels` 反向): 未满级件词条还会涨, 用现状词条排名会低估它。
 - **导入侧会折掉完全重复的实例**(`drop_exact_duplicates`: 名字/套装/COST/词条全同): 评估的 `dedup_key`
   键在原名上, OCR 把间隔号读成 `・` 时同一只会被记两次(实测 #38/#44), 组合穷举就会出现成对同分组合。
+- **「声骸技能伤害加成」不是副词条**(2026-10-11 查证): 可刷专伤只有 普攻/重击/共鸣技能/共鸣解放 四种
+  (`echo_panel.SPECIALTY_KEYS`); 声骸技能伤害加成只在主属性/外来源(补正)里出现 → 属 `EXTRA_BONUS_KEYS`。
+  所以"专伤勾选行/`--specialty`"里不该有它(曾误收, 已修), 库存里也永远刷不到该副词条。
 - **角色预设(profile)**: `src/char_profiles.py` + `assets/char_profiles.json` —— 把"某角色每次都要填的一整套"
   (缩放属性 / 裸面板 / 补正 / 条件补正 / 指定专伤 / 两个门槛 / 配装)按角色存起来复用。UI 顶部「角色预设」卡片
   (载入/保存当前为…/删除) / CLI `--profile 名字`(作**默认值**, 显式参数优先) `--save-profile 名字` `--list-profiles`。

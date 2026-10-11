@@ -136,7 +136,9 @@ class TestPanelAggregate(unittest.TestCase):
         self.assertEqual(normalize_bonus_key("重击"), "重击伤害加成")
         self.assertEqual(normalize_bonus_key("共解"), "共鸣解放伤害加成")
         self.assertEqual(normalize_bonus_key("共技"), "共鸣技能伤害加成")
-        self.assertEqual(normalize_bonus_key(" 声骸技能 "), "声骸技能伤害加成")
+        # 声骸技能**不是副词条** → 不在专伤简写表里, 原样返回(它会走"主属性/补正"路径永远计入)
+        self.assertEqual(normalize_bonus_key("声骸技能"), "声骸技能")
+        self.assertNotIn("声骸技能伤害加成", SPECIALTY_KEYS)
         self.assertEqual(normalize_bonus_key("普攻伤害加成"), "普攻伤害加成")   # 全名原样
         self.assertEqual(normalize_bonus_key("热熔伤害加成"), "热熔伤害加成")   # 属伤不受影响
         for short, full in SPECIALTY_ALIASES.items():                         # 全部简写都能归一
