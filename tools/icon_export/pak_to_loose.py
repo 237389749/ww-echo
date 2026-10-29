@@ -114,7 +114,7 @@ def main() -> int:
             try:
                 data = idx.read_file(PakFile(paks_dir / pak), oodle, p)
             except Exception as exc:                   # noqa: BLE001
-                print(f"  ✗ {p}: {exc}")
+                print(f"  [x] {p}: {exc}")
                 fail += 1
                 continue
             rel = idx._normalize(p).removeprefix("Client/Content/")

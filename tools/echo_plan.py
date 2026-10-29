@@ -1,4 +1,4 @@
-﻿"""声骸组合穷举 + 伤害排名的**命令行**入口(UI 与它共用 `src/echo_panel.py` / `src/echo_combos.py`)。
+"""声骸组合穷举 + 伤害排名的**命令行**入口(UI 与它共用 `src/echo_panel.py` / `src/echo_combos.py`)。
 
 用法::
 
@@ -85,8 +85,11 @@ def _given(a, flag: str) -> bool:
 
 
 def build_request(a, derived_extra=()) -> PlanRequest:
-    return PlanRequest(scaling=a.scaling, mode=a.mode, set_a=a.set_a, set_b=a.set_b,
-                       cost4_owner=a.cost4.upper(), top_k=a.top, crit_mode=a.crit,
+    mode, cost4 = a.mode, (getattr(a, "cost4", "") or "").upper()
+    if mode == "3+2" and cost4 not in ("A", "B"):
+        raise SystemExit("3+2 模式必须显式指定 --cost4 A|B(4C 那只属于哪套), 留空会漏掉另一套的合法组合")
+    return PlanRequest(scaling=a.scaling, mode=mode, set_a=a.set_a, set_b=a.set_b,
+                       cost4_owner=cost4, top_k=a.top, crit_mode=a.crit,
                        max_level_only=not getattr(a, "all_levels", False),
                        allowed_bonus=allowed_bonus_of(a),
                        derived=tuple(derived_extra) + tuple(parse_derive(t) for t in
@@ -105,6 +108,8 @@ def print_inventory(items, limit=12):
     n_max = sum(1 for i in items if is_max_level(i))
     print(f"库存: {s['total']} 只 / {s['names']} 个名字 | COST 分布 {s['by_cost']} | "
           f"满级 {n_max} / 未满级 {s['total'] - n_max}")
+    if s.get("no_cost"):
+        print(f"  [!] {s['no_cost']} 只没有 COST(旧报告/角标未读) —— 组合穷举会跳过; 重新评估可补全")
     print("套装(只数, 括号内=其中满级):")
     for name, n in list(s["by_set"].items())[:limit]:
         k = sum(1 for i in items if i.set_name == name and is_max_level(i))
@@ -174,7 +179,7 @@ def print_result(res, req, bare, corrections, args):
               + (f"(忽略{ign:.0f})" if ign else "")
               + ("  " + mark if mark else "")
               + f"  " + " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
-              + ("" if c.score == top else f"  (第1名 −{(1 - c.score / top) * 100:.1f}%)"))
+              + ("" if c.score == top else f"  (第1名 -{(1 - c.score / top) * 100:.1f}%)"))
     eff_note = ("    「有效分」= **—**(本方案有共效驱动的天赋: 共效会转伤害, 不能当无用项扣掉);\n"
                 if energy_is_damage(req) else "")
     print("\n注: 「排序分 E」= 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区), 方案内常数(倍率/加深)"
@@ -200,6 +205,7 @@ def main() -> int:
     ap.add_argument("--no-icons", action="store_true", help="跳过套装图标识别(快, 但多义名字会退到通用)")
     ap.add_argument("--list", action="store_true", help="只打印库存概览")
     ap.add_argument("--list-all", action="store_true", help="库存概览打印全部套装")
+    ap.add_argument("--list-profiles", action="store_true", help="列出已保存的角色预设(不需要库存)")
     ap.add_argument("--all-levels", action="store_true",
                     help="把**未满级**件也放进候选池(默认只用满级件 = 5 词条)")
     ap.add_argument("--profile", default="", metavar="角色名",
@@ -207,7 +213,7 @@ def main() -> int:
     ap.add_argument("--save-profile", default="", metavar="角色名",
                     help="把本次输入装配存成角色预设(存在 assets/char_profiles.json)")
     ap.add_argument("--specialty", action="append", default=[], metavar="专伤",
-                    help="**指定计进加成区的专伤**(可重复; 简写 重击/普攻/共技/共解/声骸技能 或全名)。"+
+                    help="**指定计进加成区的专伤**(可重复; 简写 重击/普攻/共技/共解 或全名)。"+
                          "不给则由套装模板推断(并集) —— 通用套的 0.1 占位键会被并集带上, 所以要按角色指定")
     ap.add_argument("--all-bonus", action="store_true",
                     help="声骸副词条的专伤**不过滤**(默认只计该套装有效词条里的专伤)")
@@ -228,9 +234,10 @@ def main() -> int:
     ap.add_argument("--crit-floor", type=float, default=0.80,
                     help="暴击系数下限(默认 0.80)")
     ap.add_argument("--mode", default="5", choices=("5", "3+2"), help="5 = 同套 5 件; 3+2 = A 3 件 + B 2 件")
-    ap.add_argument("--set-a", default="", help="套装 A(3+2 时是 3 件那套, 也是 4C 默认归属)")
+    ap.add_argument("--set-a", default="", help="套装 A(3+2 时是 3 件那套)")
     ap.add_argument("--set-b", default="", help="套装 B(3+2 必填, 2 件)")
-    ap.add_argument("--cost4", default="A", choices=("A", "B", "a", "b"), help="3+2 时 4C 声骸属于哪套")
+    ap.add_argument("--cost4", default="",
+                    help="3+2 **必填**: 4C 声骸属于 A 还是 B(不给会报错, 避免漏掉另一套的合法组合)")
     ap.add_argument("--scaling", default="攻击", choices=("攻击", "防御", "生命"), help="缩放属性开关")
     ap.add_argument("--crit", default="expect", choices=("expect", "crit", "non_crit"),
                     help="暴击区口径: 期望 / 单次暴击 / 单次不暴击")
@@ -244,6 +251,27 @@ def main() -> int:
     ap.add_argument("--def-ignore", type=float, default=0, help="无视防御%%(防御区用)")
     ap.add_argument("--resist", type=float, default=10, help="抗性%%(抗性区用; calculator 默认 20)")
     a = ap.parse_args()
+
+    if a.list_profiles:                       # 不需要库存: 只看已存的角色预设
+        profs = load_all()
+        if not profs:
+            print("(还没有角色预设; 用 --save-profile 名字 保存当前输入装配)")
+            return 0
+        print(f"角色预设 {len(profs)} 个:")
+        for name in sorted(profs):
+            p = profs[name] or {}
+            pl = p.get("plan") or {}
+            spec = ", ".join(s.replace("伤害加成", "") for s in (p.get("specialty") or [])) or "按模板并集"
+            extra = ""
+            if pl:
+                extra = f" | 配装 {pl.get('mode', '5')} {pl.get('set_a', '')}"
+                if pl.get("set_b"):
+                    extra += f" + {pl['set_b']}"
+                if pl.get("cost4_owner"):
+                    extra += f" (4C 属 {pl['cost4_owner']})"
+            print(f"  {name}: 缩放 {p.get('scaling') or '攻击'} | 裸面板 {len(p.get('bare') or {})} 项"
+                  f" | 补正 {len(p.get('corrections') or [])} 条 | 专伤 {spec}{extra}")
+        return 0
 
     items = load_inventory(a.inventory or a.dir, use_icons=not a.no_icons)
     print_inventory(items, limit=99 if a.list_all else 12)
@@ -296,7 +324,7 @@ def main() -> int:
     unknown = sorted({k for c in res.combos for k in c.panel.unknown})
     print_result(res, req, bare, corrections, a)
     if unknown:
-        print(f"\n⚠ 这些键不认识, 已忽略(检查拼写/是否属于加成区): {unknown}")
+        print(f"\n[!] 这些键不认识, 已忽略(检查拼写/是否属于加成区): {unknown}")
     return 0
 
 

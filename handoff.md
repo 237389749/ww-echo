@@ -14,15 +14,20 @@
 | 二十八 | `7246757` | 生成物补 `pieces`（套装效果的"几件套"：2 件套 31 / 5 件套 31 / 3 件套 5 / 1 件套 1） |
 | — | `7d20e1d` | 交接文档 `handoff.md` + CLAUDE.md 指针 |
 | **二十九** | `219357d` / `ea53b5d` | **声骸组合穷举 + 伤害排名**：`src/echo_panel.py` / `src/echo_combos.py` / `src/echo_inventory.py` / `tools/echo_plan.py` / `ui/plan_tab.py` + 单测；评估结束顺手写 `<报告>.json`；修 JSON 途径「攻击%↔固定攻击」误判 |
-| — | 本次 | **首份真机评估报告(135 只)体检 + COST 漏读修复**：实时 `read_cost_badge()`(角标区 3× 放大重读) + 离线 `infer_cost()`(第 2 行反推)，130 项单测 |
+| — | 本次 | **首份真机评估报告(135 只)体检 + COST 漏读修复**：实时 `read_cost_badge()`(角标区 3× 放大重读) + 离线 `infer_cost()`(第 2 行反推)，当时 130 项单测 |
 
-**基线（改东西后必须复跑）**
-- `python -m unittest discover -s tests` → **135 passed / 1 skipped**
-- `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `hold 38 / fail 24 / pass 39 / keep 1 / pending 7`、
+**基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
+- `python -m unittest discover -s tests` → **172 项**（当前 HEAD；素材类用例在缺数据集时 skip。需 Python 3.11+ + ok-script==1.0.160；
+  3.14 已实测通过，见 `docs/BASELINE.md`。换环境/缺 `ok` 会 17 个模块 ImportError，此时不要拿"通过数"当基线）
+- `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`
+  （六档文案：达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17）、
   **主属性数值可疑 0 条**、套装来源 `{icon:108, name:1}`
+  ⚠ 旧的 `39/38/1/7/12/12` 是**「听唤语义之愿」权重调整前**的 `eval_report.html` 口径（与 `_core_first` 无关，
+  后者对这份数据零影响）；逐套装只有听唤那一行变。复现/核对方式见 `eval_rules.md` §8 开头、CHANGELOG 补记 21。
 - `python tools/eval_icon_match.py` → 217/219（99.1%）
 - `python tools/ui_shot.py [--dark]` → 离屏渲染 **8 页**（改 UI 后必跑；深色兜底见下）
 - `python tools/echo_plan.py --list` → 库存概览（109 只 / 47 个名字 / COST `{1:55, 3:35, 4:19}`）
+- `python tools/patches/check_patches.py` → ok-script 4 处补丁在位（升级后先跑它）
 
 ## 二、阶段二十九做了什么（组合穷举）
 
@@ -65,7 +70,8 @@ python tools/echo_plan.py --mode 3+2 --set-a 息界同调之律 --set-b 听唤�
   3C 攻击 std20 / 4C 攻击 std30）。**交叉验证：角标与反推一致 108/108、缺失 27/27 反推出、0 不一致。**
   修完库存 135 只全部有 COST `{1:64, 3:54, 4:17}`。
 - 未满级件 18 只，几乎都是 1 词条（`格洛犸图×6`/`风鳞蜃甲×3`/`共鸣回响·冠顶苍隼×3`…）——
-  组合穷举目前按**现状词条**入池；要"只用满级件"需要加开关（未做）。
+  组合穷举**默认只用满级件**（`PlanRequest.max_level_only=True`，UI 勾选 / CLI `--all-levels` 反开关），
+  要"看现有全部件"时取消勾选。
 - 名字层残留：`风鳞屋甲`（应 `风鳞蜃甲`，图标也没救回来）落"通用"被排除；`侏侏'`/`阿磁磁` 是既有容错链已知失效类。
 - **可跑性速查**（同套 5 件 / 3+2 当 3 件 / 当 2 件）：
   长路启航之星 8 名 ✓✓✓ · 隐世回光 11 ✓✓✓ · 轻云出月 10 ✓✓✓ · 雪落无声之愿 8 ✓✓✓ ·
@@ -130,12 +136,15 @@ python tools/echo_plan.py --mode 3+2 --set-a 息界同调之律 --set-b 听唤�
   （没有窗口背景）→ 要照"已填数据"的页面时，把它挂进 `FluentWindow` 再 grab（见 `.scratch/plan_page_shot.py`）。
 - **别再用 `python -c "..."`**（PowerShell 引号/编码反复踩坑）→ 一律写成 `.py` 文件执行；
   要看中文输出就 `Out-File -Encoding utf8` 再用编辑器读（控制台是 GBK，直接看会乱码）。
+- **`.scratch/` 不在版本库里**（它在 `ww-echo` 父目录）：本文与 CLAUDE 引用的 `.scratch/xxx.py` 只在本机存在。
+  脚本/期望输出的索引与基线口径见 `docs/BASELINE.md`；新增复现脚本请放 `tools/analysis/`。
 - `BinData.pairs()` 返回 **(件数, fetter_id)**（件数在前）。
-- 真机实跑**仍未验证**（阶段十六~二十九 的判定链 + 新页面）。
+- **真机状态**: 评估已真机跑过(2026-10-08, 135 只, 见 §三)；**仍未验证**：强化 `run()` 的"切下一只"推进、
+  「组合穷举」页走查、与 wuwa-calculator 的对账。
 - **⚠ 待决策（用户拍板后我再动手）：达标不拦"有效词条太少"**（2026-10-09，CHANGELOG 补记 13 /
   `eval_rules.md` §7）：达标只看 `A ≥ B` 且 `score ≥ A`，而 A 只统计"出现的那几条" —— 5 词条的件**只有 3 条有用**
   也可能达标（实测 #1 虚造神型 k=3 / A=21.0 / B=18.5 / score 22.51）。新报告满级 117 只里 **k < tier−1 有 61 只**，
-  其中 **16 只仍判达标**。推荐口径 (a) `k < tier−1` 最高只能"保留"。分析脚本 `.scratch/why_pass.py`。
+  其中 **16 只仍判达标**。推荐口径 (a) `k < tier−1` 最高只能"保留"。分析脚本 `.scratch/why_pass.py`（本机，未入库）。
 - **离线重放评估有两条路**（改评分/判定后不用开游戏）：①`tools/offline_eval_report.py`（素材目录，走 OCR+图标）
   ②`--from-json <报告.json>`（**最快**：直接用报告数据 + 当前套装配置重算，截图沿用）。
   改套装权重（如听唤共效 0.4→0.9、重击置 0）后就用它出对比报告。

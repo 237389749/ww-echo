@@ -118,5 +118,30 @@ class TestEchoNameMatching(unittest.TestCase):
         self.skipTest('模板中无多套装声骸样本')
 
 
+class TestCoreFirstFallback(unittest.TestCase):
+    """`get_set_core_first` 的缺省必须是**权重 > 0** 的词条 —— 不是 weights 字典的全部键。
+
+    旧实现返回全部键(模板里未认的词条记 0), 于是 Lv5/L10 的结构判定会放过该套装完全不认的词条
+    (如凝夜白霜只出 防御 也判"存在核心词条")。33/37 套走缺省路径, 所以这条要钉住。
+    """
+
+    def test_default_is_positive_weight_only(self):
+        w = T.get_set_weights("凝夜白霜")
+        if not w:
+            self.skipTest("无模板")
+        core = T.get_set_core_first("凝夜白霜") or []
+        self.assertEqual(set(core), {k for k, v in w.items() if v > 0})
+        self.assertNotIn("防御", core)
+        self.assertNotIn("生命", core)
+
+    def test_explicit_core_first_wins(self):
+        if not T.get_set_weights("隐世回光"):
+            self.skipTest("无模板")
+        self.assertEqual(T.get_set_core_first("隐世回光"), ["攻击百分比", "共鸣效率"])
+
+    def test_general_mode_returns_none(self):
+        self.assertIsNone(T.get_set_core_first("通用"))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -1,0 +1,93 @@
+# BASELINE.md — 基线清单（改东西后按这里复跑）
+
+> 目的：让"文档里的数字"能在**指定环境 + 指定提交**上重跑出来。
+> 2026-10-29 的文档审核发现：基线数字散落在 README/CLAUDE/handoff/eval_rules 且各自漂移（122/130/135/156），
+> 复现脚本又在仓库外（`.scratch/`）—— 这份清单把口径固定在一处。
+> 数字与其守卫：`tests/test_doc_claims.py`（文档数字写错 → 测试红）。
+
+## 0. 环境
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| OS | Windows 10/11 | 抓屏/键鼠依赖 Win32 |
+| Python | **3.11+**（推荐 3.12；3.14 已实测） | ok-script 1.0.160 起 `Requires-Python>=3.11`；**1.0.159 钉死 3.12.\***，所以旧 pin 在新解释器上装不上。3.14 实测口径：Python **3.14.4** + ok-script 1.0.160 + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`） |
+| 依赖 | `pip install -r requirements.txt` | `ok-script==1.0.160` / `opencv-python==4.14.0.94`（numpy 约束无 `<2.3` 上限）/ `openvino==2026.0.0` 等 5 个顶层包（传递依赖未锁版本） |
+| ok-script 补丁 | 4 处，见 `tools/patches/` | **pip 安装/升级会丢失**，装完先跑 `python tools/patches/apply_patches.py`，再用 `check_patches.py` 自检 |
+| 显示器/分辨率 | 任何 16:9（离线工具不需要游戏） | 真机评估需要游戏在"背包声骸列表"界面 |
+
+自检：
+
+```powershell
+python -c "import ok, cv2, numpy; print('ok')"     # 任一失败 = 环境不对，下面的基线都不用看
+python tools/patches/check_patches.py              # 4 处补丁是否在位（退出码 0 = OK）
+```
+
+## 1. 基线（每次改动后复跑）
+
+| # | 命令 | 期望输出 | 依赖 |
+|---|---|---|---|
+| B1 | `python -m unittest discover -s tests` | **172 项**（`Ran 172 tests` / `OK (skipped=1)`；素材类用例在缺数据集时 skip） | 仅代码 |
+| B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物（不是 `_core_first` 造成的），复现方式见 `eval_rules.md` §8 开头 | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
+| B3 | `python tools/eval_icon_match.py` | **217/219**（99.1%）；s1 中位 ≈0.894；名字候选一致 196/211 | 同上 |
+| B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **8 页** PNG，无异常 | 仅代码 |
+| B5 | `python tools/echo_plan.py --list` | 库存 **109 只 / 47 个名字**；COST `{1:55, 3:35, 4:19}`（满级数按输出核对） | 同 B2 |
+| B6 | `python tools/echo_plan.py --list-profiles` | **4 个**预设：爱弥斯 / 绯雪 / 西格莉卡 / 仇远 | 仅 `assets/char_profiles.json` |
+
+参照提交：**「文档审核修正 + 去掉 Python 3.12 限制」那次提交**（2026-10-29；下表 B1~B6 的实测就在它上面，
+`git log --oneline --grep "去掉 Python 3.12 限制"` 可取到哈希 —— 不在本文件内写死，避免 amend 后失效）。
+历史锚点：`01ddb89`（2026-10-11，文档审核时的 HEAD —— 当时的 `39/38/1/7/12/12` 是听唤权重调整前的产物）。
+**改了权重/判定/数据后，这些数字会变**：变了就同步改本表 + 相关文档（`eval_rules.md` §8、`CLAUDE.md`、`handoff.md`），并跑 B1 的文档守卫。
+
+> **实测记录**：2026-10-29 晚在 Python 3.14.4（`..\.venv314`）上 **B1~B6 六条全跑过**：
+> B1 `Ran 172 / OK (skipped=1)`、B2 见上表、B3 `217/219 (99.1%)`、B4 8 页、B5 `109 只 / 47 名 / {1:55,3:35,4:19}`、B6 4 个预设。
+> 这些数字在此之前只有 3.12 的旧记录（"3.14 已实测"当时只做了静态核对 + `py_compile`）。
+
+离线快速重放（不需要素材，只看当前权重下的判定）：
+
+```powershell
+python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
+```
+
+## 2. 复现脚本索引
+
+**已入库（`tools/analysis/`）**：
+
+| 脚本 | 回答什么问题 | 产物 | 文档出处 |
+|---|---|---|---|
+| `b2_distribution.py` | B2 那份报告的六档分布 + 逐套装分解 | stdout | `eval_rules.md` §8、本表 B2 |
+| `b2_replay_old_weights.py <提交>` | 文档里那版旧分布是哪套权重跑出来的 | stdout（覆盖 `eval_report.html`） | CHANGELOG 补记 21 证据① |
+| `b2_replay_old_core_first.py` | `_core_first` 修正对这份数据到底有没有影响 | stdout（同上） | CHANGELOG 补记 21 证据② |
+
+历史脚本原本都在工作区根 `.scratch/`（**不在版本库**，见 §3），它们支撑了文档里的这些结论：
+
+| 脚本 | 回答什么问题 | 产物 | 文档出处 |
+|---|---|---|---|
+| `margins.py` | 当前面板下每条词条 +1 点的边际伤害（用于定套装权重） | `margins.txt` | `CLAUDE.md` 组合穷举·套装权重 |
+| `derive_weights.py` | 按边际反推权重（后被否决） | `derived_weights.txt` | 同上·"权重不是瓶颈" |
+| `weight_agreement.py` | 组合级 + 件级秩相关（手调 vs 推导） | `weight_agreement.txt` | 同上（0.380 vs 0.373、0.559 vs 0.523） |
+| `generic_weights.py` | 四角色 × 三套权重的 ρ（通用权重该不该改） | `generic_weights.txt` | `CLAUDE.md:95-98`（含仇远 −0.13） |
+| `score_agreement.py` | 评分和/有效分与伤害排序的秩相关、Top-K 重合、第 540 名 | `score_agreement.txt` | `CLAUDE.md:151-156` |
+| `score_vs_damage.py` | 同上另一版（指定专伤后的口径） | `score_vs_damage.txt` | 同上（注意：第 1122 名是这一版） |
+| `why_pass.py` | "只有 3 条有效词条为什么也能达标" | `why_pass.txt` | `eval_rules.md` §7 / CHANGELOG 补记 13 |
+| `margins`/`measure_table2.py` | 结果表列宽实测 | — | `CLAUDE.md` 排名表列宽 |
+| `plan_page_shot.py` / `sigelika_page.py` | "已导入+已排名"的页面走查图 | `plan_page_*.png` | `CLAUDE.md` 改表后必跑 |
+| `scan_icons.py` / `extract_icons.py` / `swap_icons.py` | 从客户端 pak 抽套装图标（C# 程序已入库到 `tools/icon_export/`） | `assets/echo_icons/` | `CLAUDE.md` 官方静态数据层 |
+
+> 迁移约定：**新写的复现脚本放 `tools/analysis/`**（入库），文件头写"输入 → 输出 → 支撑哪条结论"。
+> 老脚本暂留 `.scratch/`，需要重跑时从这里复制并改成相对路径。
+
+## 3. 已知不可复现项（干净克隆上会缺的东西）
+
+| 缺什么 | 为什么 | 影响 |
+|---|---|---|
+| `logs/eval_debug/20260911_110817/`（1097 个文件） | `.gitignore: logs/` | B2/B3/B5 无法跑；相关用例会 `skipTest` |
+| `eval_report_*.json` / `eval_report.html` | `.gitignore`（评估产物） | 无法复核 §8 的判定分布；`--from-json` 没输入 |
+| `.scratch/` 整个目录 | 在仓库**父目录**，`git ls-files` 为 0 | §2 的脚本全部缺失，文档里的 `.scratch/...` 路径悬空 |
+| ok-script 的 4 处补丁 | 只存在于本机 site-packages | 重装后需按 `tools/patches/` 重打，否则云模式/后台抓屏失效 |
+
+> 环境坑（本机写明的那个受限沙箱）：`tempfile.gettempdir()` 会落到**仓库根**（`%TEMP%` 探测不通过），
+> 于是每次跑 B1 都会在根目录留一个 `tmpXXXX/`（`tests/test_echo_inventory.py` 的 `mkdtemp`）—— **无害，别提交**；
+> 正常机器上它落在 `%TEMP%`。同理 `tools/ui_shot.py` 的默认输出是仓库内的 `.scratch/ui_shots/`（也不入库）。
+
+**想让它们可复现**：① 提交一份小型 fixture（如 20 只的评估 JSON + 2 张图标），把 B2/B5 的冒烟测试改成用它；
+② 把 `.scratch` 的脚本搬进 `tools/analysis/`；③ 补丁做成规格 + 校验脚本（已完成，见 `tools/patches/`）。

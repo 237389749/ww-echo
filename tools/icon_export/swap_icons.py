@@ -65,7 +65,7 @@ def main() -> int:
     if replaced:
         print(f"  替换: {replaced}")
     if missing:
-        print(f"  ⚠ 缺官方图(先确认 pak 里有该资产): {missing}")
+        print(f"  [!] 缺官方图(先确认 pak 里有该资产): {missing}")
     print("(--apply 才会真正覆盖)" if not a.apply else "已覆盖 assets/echo_icons/")
     return 1 if missing else 0
 

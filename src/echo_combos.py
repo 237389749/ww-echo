@@ -57,7 +57,7 @@ class PlanRequest:
     mode: str = "5"                  # "5" | "3+2"
     set_a: str = ""
     set_b: str = ""                  # 3+2 必填
-    cost4_owner: str = "A"           # 3+2 必填: 4C 那只属于哪套("A" / "B")
+    cost4_owner: str = ""            # 3+2 必填: 4C 那只属于哪套("A" / "B"); 空 = 未指定(会报错)
     top_k: int = 50
     crit_mode: str = "expect"        # 期望 / 单次暴击 / 单次不暴击
     max_total_cost: int = MAX_TOTAL_COST
@@ -175,6 +175,8 @@ def candidate_pool(items, req: PlanRequest) -> list[EchoItem]:
     """
     if not req.set_a:
         raise ValueError("必须指定目标套装")
+    if req.mode == "3+2" and req.cost4_owner not in ("A", "B"):
+        raise ValueError("3+2 模式必须指定 4C 归属(A 或 B)")
     wanted = {req.set_a}
     if req.mode == "3+2":
         if not req.set_b:
@@ -199,7 +201,7 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
          should_stop=None) -> PlanResult:
     """穷举 + 排名。返回按 `score` 降序的 Top-K(`req.top_k`)。
 
-    `should_stop` = 可选的 `() -> bool`: 每评估 4096 组查一次, 返回 True 就提前停下
+    `should_stop` = 可选的 `() -> bool`: 每评估 512 组查一次, 返回 True 就提前停下
     (UI 的"取消"按钮用; 结果是**部分排名**, `PlanResult.cancelled` 会置 True)。
     """
     t0 = time.perf_counter()

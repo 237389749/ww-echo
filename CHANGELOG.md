@@ -1,4 +1,4 @@
-﻿# 开发历程 | Development Log
+# 开发历程 | Development Log
 
 ## 阶段一：剥离 ok-ww (2026-07-07)
 
@@ -246,7 +246,8 @@ Agent 审查日志质量：
 
 **离线重放工具(`tools/offline_eval_report.py`)**
 - 用 `logs/eval_debug/<时间戳>/` 的整帧 + `image_report.md` 转录, 走线上同一份实现生成 `eval_report.html`
-- 改评分/判定/报告渲染后可**不开游戏**核对; 实测 219 张 → 109 条(去重 102、0 级 1)
+- 改评分/判定/报告渲染后可**不开游戏**核对; 实测 219 张 → 109 条(先去重 102 张滚动重叠 + 1 张 0 级 → 116,
+  再因签名一致化合并 7 张 → 109)
 
 **漏条排查(结论: 离线脚本 bug, 线上无此问题)**
 - 现象: 用户核对报告发现若干声骸词条数少于截图
@@ -283,6 +284,7 @@ Agent 审查日志质量：
 
 **同步**: 报告「评估规则」卡片 / README / CLAUDE.md 已改为新公式。**遗留待校准**: 套装权重仍应遵守
 "同尺度 ≤1"的约定(现 隐世回光 的 攻% 权重为 1.7, 会让该套装锚线偏高)
+`（2026-10-29 注：该套现权重为 攻% 1.0 / 共效 1.2 / 固定攻 0.5 / 暴击 0.25 / 爆伤 0.15，本条保留为当时的描述，见补记 20）`
 
 ---
 
@@ -639,7 +641,7 @@ E_feat  = 10 × Σw(该套装认的、未被锁定的词条) ÷ 池      ← 一
 
 ---
 
-## 当前架构
+## 当前架构（阶段二十三 时点快照，34 套 / 7 tab；现状见 README「项目结构」）
 
 ```
 ww-echo/
@@ -824,6 +826,16 @@ Gallery**(其 `setting_interface.py` 是设置页标准写法)与 **WinUI Galler
 - **验收**: `python -m unittest discover -s tests` **79 项通过**; `tools/offline_eval_report.py` 重放 109 只,
   **主属性数值可疑 0 条**、判定分布与基线逐项一致(纯增标记, 不动判定)。
 
+## 阶段二十八: 套装效果的"几件套"(生成物补 `pieces`, 2026-10-07)
+
+**动机**: UI 要按件数显示套装效果原文(如"3 件套: 角色施放声骸技能时…"), 而生成物只存了 `fetter_id` → 丢了件数。
+- `_sets` 新增 `fetter_map`(每套 `[[件数, fetter_id], …]`); `_effects` 每条效果写 `pieces`。
+  **`BinData.pairs()` 的返回顺序是 `(件数, fetter_id)`** —— 实测判定, 反了会把 2/5 件套挂错。
+- 实测分布(37 套): **2 件套 31 / 5 件套 31 / 3 件套 5 / 1 件套 1**, 与游戏内一致
+  (例: `息界同调之律` = 3 件套; `听唤语义之愿` = 2 件套 + 5 件套) —— 这也解释了 3+2 里"3 件那套"吃的是**3 件套效果**。
+- `tests/test_gamedata.py`: 断言每条效果都带件数(正数; 不锁死 2/3/5, 因为有 1 件套的特殊套装)。
+- 提交 `7246757`; **未动判定链** → 79 项通过、判定分布与基线逐项一致。
+
 ## 阶段二十九: 声骸组合穷举 + 伤害排名(2026-10-08)
 
 **规格**: `panel_plan.md`(v3, 采用 wuwa-calculator 的公式与分区) + `handoff.md` 的**契约**(用户已定)。
@@ -911,7 +923,8 @@ Gallery**(其 `setting_interface.py` 是设置页标准写法)与 **WinUI Galler
      (1C 生命 std456 / 3C 攻击 std20 / 4C 攻击 std30, 按官方成长曲线比对该等级的网格)。
      交叉验证: 角标与反推一致 **108/108**、角标缺失 **27/27 全部反推出**、0 不一致 → 结论可信。
      不唯一时(等级未知且落进 20·m 与 30·m 的撞值, 实测 68/78/97)返回 None, 不猜。
-  效果: 135 只全部有 COST(`{1:64, 3:54, 4:17}`), 组合穷举不再丢掉 20% 的库存
+  效果: 库存 135 只全部有 COST(`{1:64, 3:54, 4:17}`; 报告 JSON 本身仍有 27 个 `null`, 由导入侧的
+  `infer_cost` 反推补全 —— 所以"全部有 COST"是**库存口径**, 不是报告文件), 组合穷举不再丢掉 20% 的库存
   (3+2 试跑: 候选 25 只 / 2660 组 / 0.06s)。
 - **新增 8 项回归(130 项)**: `TestReadCostBadge`(ROI/放大/合并与分框形态/无帧)、`TestInferCost`
   (满级三档 / 缺第 2 行 / 撞值不猜 / 角标优先)、`test_recent_eval_json_cost_is_complete_and_consistent`
@@ -1334,3 +1347,110 @@ Gallery**(其 `setting_interface.py` 是设置页标准写法)与 **WinUI Galler
 若坚持按纯伤害口径, 降到 0.5(= 攻击%)或 0.4(= 专伤), 但要接受 ~20 套装判定变化。
 
 → 真正值得投入的仍是**把主属性折进"每只贡献"**(「本只贡献」列, 见补记 18), 而不是继续调权重。
+
+---
+
+**补记 20(2026-10-29: 文档审核 —— "文档承诺 → 代码事实"与"复现链"核对 + 一轮修正)**
+
+对全部文档(README / CLAUDE / eval_rules / handoff / panel_plan / build_optimizer / 本文件)做了一次审核。
+结论: **主体是落实的**(面板口径 / 六档判定 / 组合契约 / 图标优先 / 单一来源都能在代码里找到唯一实现,
+关键数字也有脚本与产物锚点); 问题集中在两处 —— **文档作为"当前状态"漂移**, 与**复现链断在仓库边界**。
+
+**改了什么(文档)**
+- `eval_rules.md` §8 判定分布整表更新为 `达标 39 / 保留 38 / 建议重铸 1 / 建议强化 7 / 不建议强化 12 / 不合格 12`
+  (旧表 `39/38/0/13/19` 是阶段二十一快照, 阶段二十二/二十三改过判定后没回来改); 逐套装分解同步。
+  同文: §2 标题"五档"→"六档"; §1 "34 套"→37、满档 r 下界 1.318→**1.308**(固定防御);
+  §7 "隐世回光低门槛"改为只指 `轻云出月`(隐世回光现 5 键、B=19.0)。
+- **"未定制套装的 B = 通用线 6.5/11.5/17.5"是错的**: B 只看套装自身非零权重
+  (凝夜白霜 20.5 / 隐世回光 19.0 / 3.7 新 13 键套 11.5), 6.5/11.5/17.5 只属**通用模式**。
+  README / CLAUDE / 报告规则卡 / 套装配置页提示 / 代码注释共 6 处同步改正。
+- README 渐进式表把 Lv15/Lv20 的基准写成 B(当前级) → 改为 **B(满级)**(与 `judge_echo` 一致);
+  评分式补 `×10`; 多义名字统计 181/120 → **229/158**; TODO 的真机项拆清(评估已跑, 未验证的是强化 run / 穷举页 / 对账)。
+- CLAUDE: `if True:` → `SAVE_DEBUG_DATASET`; "通用表最低 0.5" → **0.25**; 专伤"5 个勾选框/含声骸技能" → **4 个**;
+  S1/S2 指向 `build_optimizer.md`(原指 `panel_plan.md` 是空指针); 测试基线 122 → **171**(本轮 +15: 文档自检 12 + core_first 3);
+  `_core_first` 缺省语义改为"权重 > 0"; 补 `.scratch/` 未入库的说明。
+- `handoff.md`: 基线 135/1 → **171**; "只用满级件未做" → 已做; "真机实跑仍未验证" → 评估已跑、其余三项; 指向 `docs/BASELINE.md`。
+- 本文件: 补上缺失的**阶段二十八**(pieces); "当前架构"标注为**阶段二十三 时点快照**; COST 那行注明"库存口径";
+  去重 `102 + 1 → 116 → 109` 两步写清; 隐世回光 1.7 加现状注。
+
+**改了什么(代码, 都有对应文档口径)**
+- `tools/echo_plan.py`: 新增 `--list-profiles`(文档承诺但未实现); `--specialty` help 去掉"声骸技能"(已不是副词条, 传了会 SystemExit)。
+- `src/echo_set_templates.py::get_set_core_first`: 缺省从"weights 的全部键"改为**只取权重 > 0 的键** ——
+  原实现会让 Lv5/L10 放过该套装不认的词条(33/37 套走缺省路径)。
+- `src/echo_inventory.py`: `summarize` 增加 `no_cost`; `load_inventory` 对"反推不出 COST"的件发 warning;
+  「组合穷举」页导入时用 InfoBar 提示"N 只缺 COST 未入池"(旧报告导入不再静默 0 组)。
+  `echo_combos` 的过滤保持不变(契约: 无 COST 无法判 ΣCOST)。
+- `PlanRequest.cost4_owner` 默认 `""`; `candidate_pool` 在 3+2 且未指定时抛 `ValueError`;
+  CLI `--cost4` 无默认并在 `build_request` 给中文提示; UI 下拉首项"请选择"(载入预设会写回 A/B)。
+- 新增 `tests/test_doc_claims.py`(把文档数字变成断言) + `tests/test_echo_set_templates.py` 的 `_core_first` 用例。
+
+**新增的可复现设施**
+- `docs/BASELINE.md`: 每条基线的提交号 / 解释器 / ok-script 版本 / 命令 / 期望输出(含 skip 数) / 复现脚本索引。
+- `tools/patches/`: ok-script 4 处补丁的逐处 old→new 规格 + `check_patches.py`(升级后自检, 缺补丁即退出码 1)。
+- `tools/analysis/README.md`: `.scratch` 里被引用的复现脚本清单(输入/输出/支撑哪条结论)与迁移约定。
+
+**未验证**: 本机没有可用的 Python 3.12 + ok 环境, **171 项单测未实跑**(三条集成基线同样未跑; 改动只做了静态核对与 `py_compile`,
+`test_doc_claims` / `test_echo_combos` / `test_echo_set_templates` 用最小 ok stub 跑过并通过)。下次有环境时按 `docs/BASELINE.md` 的清单复跑。
+> **已于同日补跑**(3.14 环境, 见补记 21): B1 `Ran 171` → 加 GBK 输出守卫后 **172**, 均 `OK (skipped=1)`; B2~B6 全部通过; 其中 B2 的判定分布**与本条记录的不同**,
+> 归因见补记 21（不是判据改动, 是听唤权重调整前的旧产物）。
+
+---
+
+**补记 21(2026-10-29: 去掉 Python 3.12 限制 —— ok-script 1.0.160 + opencv 4.14, 并在 3.14 上跑完六条基线)**
+
+**背景**: `ok-script==1.0.159` 在 PyPI 上钉了 `Requires-Python ==3.12.*`, 而本机常驻解释器是 **3.14** → 装不上 ok-script
+→ 抓屏/OCR/任务层全部 import 失败(补记 20 的审核因此只能用最小 `ok` stub 做静态核对, 171 项单测与三条集成基线都跑不了)。
+
+**依赖(仅 2 个 pin 改动, 均在 `requirements.txt` 留了原因)**
+- `ok-script` **1.0.159 → 1.0.160**: 1.0.160 起 `Requires-Python>=3.11`。两者 `ok/` 代码**逐字节一致**, 只改了 dist-info
+  元数据 → "去掉 3.12 限制"的最短路径是升 pin, 而不是自己改包元数据。**装完必须重打 4 处补丁**(`tools/patches/apply_patches.py`)。
+- `opencv-python` **4.12.0.88 → 4.14.0.94**: 4.14 起 numpy 约束是 `numpy>=2`(无 `<2.3` 上限) → 有 cp314 轮子;
+  4.12 的 `numpy<2.3` 在 3.14 上会退化成源码编译 numpy(本机无 MSVC → `Unknown compiler(s)` 直接失败, 实测日志)。
+
+**环境实测口径**(`..\.venv314`, Windows): Python **3.14.4** / numpy 2.4.6 / opencv 4.14.0.94 / PySide6 6.12.0 /
+PySide6-Fluent-Widgets 1.11.3 / openvino 2026.0.0 / ok-script 1.0.160; `check_patches.py` → **8 处标记 / 4 个文件在位(退出码 0)**。
+
+**六条基线全部实跑通过**(此前"3.14 已实测"只做到静态核对 + `py_compile`, 数字都是 3.12 的旧记录)
+- B1 `python -m unittest discover -s tests` → **Ran 172 / OK (skipped=1)**(171 + 本轮新增的 GBK 输出守卫)
+- B2 `tools/offline_eval_report.py` → 109 只, 分布见下; 主属性数值可疑 **0 条**; 套装来源 `{icon:108, name:1}`
+- B3 `tools/eval_icon_match.py` → **217/219 (99.1%)**, s1 中位 0.894
+- B4 `tools/ui_shot.py` → **8 页**; B5 `echo_plan.py --list` → **109 只 / 47 名 / COST {1:55,3:35,4:19}**; B6 → 4 个预设
+
+**顺带修的一处**(不是 3.14 特有, 但会**打断** B2): `tools/offline_eval_report.py` 末尾打印「主属性数值可疑: 0 条 ✓」,
+`✓`(U+2713) 不在 GBK 里 → 默认控制台/重定向时 `UnicodeEncodeError`(stderr 只剩 "--- Logging error ---"), 报告写完了却以非 0 退出。
+改成 `OK` 后 B2 在原生 GBK 控制台下退出码 0(已用 `cmd /c ... > file 2>&1` 复验)。
+
+**同一类问题一次清干净**(都是"输出流是 cp936、字符编不出来"): `tools/echo_plan.py` 的 `⚠`×2 → `[!]`
+(缺 COST 的提示 / 不认识的键) 与排名表里的 `−`(U+2212) → ASCII `-`、`tools/icon_export/swap_icons.py` 的 `⚠` → `[!]`、
+`tools/icon_export/pak_to_loose.py` 的 `✗` → `[x]`、`ui/set_config_tab.py` 的 `↔` → `与`(它走 ok 的 `Logger`)、
+`src/echo_set_templates.py` 一条 logger 文案的 `↔` → `与`、`EnhanceEchoTask` 渐进路径的 `✅ 继续` → `OK 继续`(实测真机强化会走到)。
+**保留** `ui/run_tab.py` 的 `⚠`: 纯 Qt 渲染(不进 stdout), 且 `_append_log` 正是用它来判 WARNING 级别。
+**规范**(已写进 `CLAUDE.md` 已知坑): CLI/logger 输出只用 GBK 可编码字符 —— `[!]`/`OK`/`[x]` 代替 `⚠`/`✓`/`✗`;
+Qt 日志与报告 HTML 不受此限。
+**新增守卫** `tests/test_gbk_output.py`: 用 `ast` 扫全仓 `print` / `log_info` / `log_warning` / `log_error` / `_log` 里的字符串常量,
+含 GBK 编不出的字符就红(171 → **172** 项)。注意 f-string 在 3.12+ 是单独的 `FSTRING_MIDDLE` token ——
+`echo_plan` 那个 `−` 就藏在中段, 按行 grep 抓不到。
+复验: 造一份含"无 COST 件"的 JSON 跑 `echo_plan.py --list --inventory <它>`、以及 `--profile 爱弥斯 --top 3`
+整条穷举, 在原生控制台(`cmd /c ... > file 2>&1`)都是退出码 0 且无 `UnicodeEncodeError`。
+
+**★ 顺带修掉一个会让 CLI 完全不能用的回归**: `--list-profiles`(补记 20 新加)在 `main()` 里用了局部变量名 `plan`,
+把模块级导入的 `plan()` 函数**遮蔽**了(同函数内只要出现过 `plan = ...`, 整个函数里 `plan` 就是局部名) →
+**任何真正的穷举运行**走到 `res = plan(items, req, ...)` 都 `UnboundLocalError: cannot access local variable 'plan'`,
+而 `--list` 提前 return、单测只测 `src.echo_combos.plan`, 所以一直没被发现。改名为 `pl` 后,
+`--profile 爱弥斯 --top 3` 跑通(候选 15 只 / 583 组 / 0.017s)。**验收**: 这条已在 3.14 实跑, 见上面的复验。
+
+**★ B2 判定分布修正 + 归因(重要, 防止下次误判)**
+现在是 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`(Σ109; 满级 90 = 38+35+17, 未满级 19 = 7+12)。
+补记 20 记的 `39/38/1/7/12/12` **既不是 3.14 造成的, 也不是同一轮 `_core_first` 修正造成的** —— 那份 `eval_report.html`
+是**「听唤语义之愿」权重调整之前**的产物(`726db9c` 重击 0.4→0、`8d6e313`/`cc5b96e` 共效 0.4→0.9→0.5, 都早于审核日)。三条证据:
+1. 用 `git show 726db9c~1:assets/echo_set_templates.json` 的听唤权重(共效 0.4 / 重击 0.4)重跑 → **逐项复现** `39/38/1/7/24`;
+2. 把 `_core_first` 换回旧兜底(全部键, 含 0 权重)重跑 → 分布**完全相同**(该数据集 5 只 1~2 词条件的词条里都至少有一条权重>0,
+   结构判定用的是 `any` → 两种兜底结论一致; 这条修正对这份数据零影响);
+3. 逐套装对比**只有 `听唤语义之愿` 一行变**(5/6/1/0/0/0 → 4/3/0/0/0/5) —— 它**重击置 0(原 0.4) + 共效 0.4→0.5** 后
+   B(5) 从 **15.5 抬到 17.5**, 原来那只 14.22 分的 `莳植熊蜂`(建议重铸)因此落到不合格, 5 只满级件一起掉档; 其余 8 套逐格不变。
+（复现脚本已按约定入库: `tools/analysis/b2_distribution.py`(六档分布+逐套装) / `b2_replay_old_weights.py <提交>`(换历史权重) /
+`b2_replay_old_core_first.py`(换回旧兜底)。三者都会覆盖 `eval_report.html`, 跑完用当前代码再跑一次 B2 复原。）
+
+**文档同步**: `docs/BASELINE.md`(B2 期望值 + 3.14 实测记录 + 环境版本 + B1 172 项)、`eval_rules.md` §8(六档表 + 逐套装 + 归因段)、
+`handoff.md`(基线行)、`CLAUDE.md`(真实数据验收的分布 + "CLI 输出要 GBK 安全"这条坑)。`tests/test_doc_claims.py` 不涉及分布数字, 无需改动;
+新增的 `tests/test_gbk_output.py` 是这一类的守卫。

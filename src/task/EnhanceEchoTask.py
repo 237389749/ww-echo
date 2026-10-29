@@ -120,15 +120,16 @@ def _tier_threshold(set_name: str, tier: int, stats=None) -> float:
       "出现的有效词条太少, 求和项不足以支撑达标", 该只最高只能到"保留"。
     数学: k(=出现有效词条数) ≥ L 时 A ≥ B 恒成立(k 元子集之和 ≥ 最小 k 元之和 ≥ 最小 L 元之和);
       k < L 时 A 可能 < B(实测 34% 样本 k < L, 其中 25 只真的更低)。出现有效词条 0 条 → 返回 0。
-    注: **不引入通用线**作 A 的下限 —— 套装配置若被定制, 说明其取向是刻意的(如隐世回光/轻云出月
-      用低权重"占位键"来压低基准线, 因为真正的核心词条少), 不应被通用标准覆盖。
+    注: **不引入通用线**作 A 的下限 —— 套装配置若被定制, 说明其取向是刻意的(如轻云出月
+      用 4 个 0.1 的"占位键"来压低基准线, 因为真正的核心词条少), 不应被通用标准覆盖。
     Lv5/10(tier<=2) 走"有效词条存在"结构判定 → 返回 0(不用分数)。
     **旧规则单独使用已废弃**: 它独自会把"键多但权重低"的套装锚线压到极低(实测 轻云出月 9 键/4 个
-    专伤 0.15 → Lv25 仅 6.0; 隐世回光 9 键 → 5.0), 变成"词条种类越多越易达标"。"""
+    专伤 0.1 → Lv25 仅 4.0; 隐世回光删掉 4 个占位键后现为 5 键 → 19.0, 已不属此类),
+    变成"词条种类越多越易达标"。"""
     if tier <= 2:
         return 0.0
     weight_map = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
-    base = _legacy_threshold(set_name, tier)      # 旧规则线(套装; 配置未定制的套装其值就等于通用线)
+    base = _legacy_threshold(set_name, tier)      # 旧规则线(套装按自身权重; 只有"通用"模式才等于通用线)
     appeared = [weight_map.get(n, 0.0) for n, _ in (stats or []) if weight_map.get(n, 0.0) > 0]
     if not appeared:
         return 0.0                                # A=0(必然 < B) → 该只最高只能到"保留"
@@ -303,7 +304,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
     def resolve_set_name(self, echo_name: str) -> tuple[str, str]:
         """评估用: 声骸名 + 详情面板套装图标 → (套装名, 来源)。
 
-        图标是硬信号: 名字天生多义(181 个声骸名中 120 个属 ≥2 套装) + OCR 错字 → 名字层无法
+        图标是硬信号: 名字天生多义(当前官方索引 229 个显示名里 158 个属 ≥2 套装; 旧索引 181/120) + OCR 错字 → 名字层无法
         唯一确定套装(见 CHANGELOG 阶段十一/十二)。match_icon 内部已判置信(高置信才给套装名);
         低置信/面板无图标时回退名字候选(config 套装在候选内则优先), 再不行回退 config(评估=通用)。
         来源 'icon'/'name'/'default' 记入报告, 便于离线核对图标映射。
@@ -897,9 +898,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
     def check_echo_progressive(self, properties, values):
         """渐进式强化判断 —— 判定统一走 `judge_echo`(与评估同源), 这里只负责取数与丢弃动作:
           Lv5/Lv10(1~2 条) → 结构判定: 存在首核词条即过, 不限分
-          Lv15/Lv20(3~4 条) → 总分 ≥ 基准线 B, 或 前瞻概率 ≥ ENCHANT_MIN_PROB(0.60) 且 总分 ≥ 达标线 A
+          Lv15/Lv20(3~4 条) → 总分 ≥ **B(满级)**, 或 前瞻概率 ≥ ENCHANT_MIN_PROB(0.60) 且 总分 ≥ 达标线 A
           Lv25(5 条) → A ≥ B 且 总分 ≥ A 才算达标, 否则丢弃
-        通用线 B = 6.5 / 11.5 / 17.5(Lv15/20/25); 套装模式按该套装权重算。
+        未满级一律与 B(满级) 比(不是当前级的 B(tier)); 通用模式 B(满级) = 17.5, 套装模式按该套装权重算。
         """
         self.fail_reason = ""
 
@@ -925,7 +926,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.fail_reason = '无有效词条'
                 self.log_info(f'[渐进T{tier}] 词条均非有效 : {[n for n, _ in normalized]}, 丢弃')
                 return False
-            self.log_info(f'[渐进T{tier}] 存在有效词条(不限分) ✅ 继续')
+            self.log_info(f'[渐进T{tier}] 存在有效词条(不限分) OK 继续')
             return True
 
         # tier 3-5: 先算总分再判定
@@ -941,7 +942,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.fail_reason = f'T{tier}得分不足_{score:.2f}<{threshold}'
             self.log_info(f'[渐进T{tier}] {score:.2f} < {threshold}, 停止强化')
             return False
-        self.log_info(f'[渐进T{tier}] {score:.2f} >= {threshold} ✅ 继续')
+        self.log_info(f'[渐进T{tier}] {score:.2f} >= {threshold} OK 继续')
         return True
 
     # 频整器(官方公示): 锁 L 条消耗 (L-1) 个, 但锁 1~2 条都按 1 个计(用户口径); 每个按 30 元估算。

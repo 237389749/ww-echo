@@ -162,9 +162,9 @@ class PlanTab(QWidget):
         self.set_b_combo.setMinimumWidth(170)
         self.set_a_combo.setToolTip("套装 A(3+2 时是 3 件那套)")
         self.set_b_combo.setToolTip("套装 B(3+2 时 2 件那套; 与 A 不能相同)")
-        self.cost4_combo.setToolTip("4C(COST 4)那只声骸属于 A 还是 B")
+        self.cost4_combo.setToolTip("4C(COST 4)那只声骸属于 A 还是 B —— 3+2 时**必选**")
         self.mode_combo.addItems(["5", "3+2"])
-        self.cost4_combo.addItems(["A", "B"])
+        self.cost4_combo.addItems(["请选择", "A", "B"])
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)   # 控件都建好后再接信号
         for w in (self.mode_combo, self.set_a_combo, self.set_b_combo, self.cost4_combo):
             self.mode_card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)
@@ -509,12 +509,16 @@ class PlanTab(QWidget):
         self._items = items
         s = summarize(items)
         n_max = sum(1 for i in items if is_max_level(i))
+        no_cost = s.get("no_cost") or 0
         self.inv_label.setText(f"{s['total']} 只 / {s['names']} 个名字(满级 {n_max}) | "
                                f"套装 {len(s['by_set'])} 个")
         self._info(True, "已导入库存", f"{s['total']} 只(COST {s['by_cost']})"
                                        + (f", 含「{next(iter(s['by_set']))}」等 {len(s['by_set'])} 套"
-                                          if s['by_set'] else ""))
-        self.status.setText(f"库存 {s['total']} 只(已按 5★ 处理); 选好套装后点「开始穷举」")
+                                          if s['by_set'] else "")
+                                       + (f"；⚠ {no_cost} 只缺 COST 会被跳过(重新评估可补全)"
+                                          if no_cost else ""))
+        self.status.setText(f"库存 {s['total']} 只(已按 5★ 处理); 选好套装后点「开始穷举」"
+                            + (f" —— 注意 {no_cost} 只缺 COST 未入池" if no_cost else ""))
 
     def _collect_inputs(self):
         bare = {k: spin.value() for k, spin in self._bare_spins.items() if spin.value()}
@@ -528,7 +532,8 @@ class PlanTab(QWidget):
                            mode=self.mode_combo.currentText(),
                            set_a=self.set_a_combo.currentText(),
                            set_b=self.set_b_combo.currentText(),
-                           cost4_owner=self.cost4_combo.currentText(),
+                           cost4_owner=(self.cost4_combo.currentText()
+                                        if self.cost4_combo.currentText() in ("A", "B") else ""),
                            crit_mode=dict((t, k) for t, k in CRIT_MODES)[self.crit_combo.currentText()],
                            max_level_only=self.max_level_check.isChecked(),
                            allowed_bonus=self._allowed_bonus(sets),
@@ -586,7 +591,7 @@ class PlanTab(QWidget):
             self.set_a_combo.setCurrentText(str(plan["set_a"]))
         if plan.get("set_b"):
             self.set_b_combo.setCurrentText(str(plan["set_b"]))
-        if plan.get("cost4_owner"):
+        if plan.get("cost4_owner") in ("A", "B"):
             self.cost4_combo.setCurrentText(str(plan["cost4_owner"]))
         if prof.get("max_level_only") is not None:
             self.max_level_check.setChecked(bool(prof["max_level_only"]))
@@ -611,7 +616,9 @@ class PlanTab(QWidget):
             crit={"target": self.crit_target_spin.value(), "slope": self.crit_slope_spin.value(),
                   "floor": self.crit_floor_spin.value()},
             plan={"mode": self.mode_combo.currentText(), "set_a": self.set_a_combo.currentText(),
-                  "set_b": self.set_b_combo.currentText(), "cost4_owner": self.cost4_combo.currentText()},
+                  "set_b": self.set_b_combo.currentText(),
+                  "cost4_owner": (self.cost4_combo.currentText()
+                                  if self.cost4_combo.currentText() in ("A", "B") else "")},
             max_level_only=self.max_level_check.isChecked())
         upsert_profile(name, prof)
         self._refresh_profiles()

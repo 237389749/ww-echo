@@ -197,7 +197,7 @@ def main() -> int:
 
     print(f'\n入报告 {len(results)} 只 | 跳过 0级 {n_zero} / 重复(滚动重叠) {n_dup}')
     print('判定分布:', verdict_stat)
-    print(f'主属性数值可疑: {len(bad_val)} 条' + ('（命中都是 OCR 误读或网格缺变体, 逐条如下）' if bad_val else ' ✓'))
+    print(f'主属性数值可疑: {len(bad_val)} 条' + ('（命中都是 OCR 误读或网格缺变体, 逐条如下）' if bad_val else ' OK'))
     for ln in bad_val[:10]:
         print('   ', ln)
     print('套装来源:', src_stat)

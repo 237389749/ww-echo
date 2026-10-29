@@ -201,9 +201,11 @@ class TestPoolAndValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             candidate_pool([], PlanRequest(mode="5", set_a=""))
         with self.assertRaises(ValueError):
-            candidate_pool([], req(mode="3+2", set_a=A, set_b=""))
+            candidate_pool([], req(mode="3+2", set_a=A, set_b="", cost4_owner="A"))
         with self.assertRaises(ValueError):
-            candidate_pool([], req(mode="3+2", set_a=A, set_b=A))
+            candidate_pool([], req(mode="3+2", set_a=A, set_b=A, cost4_owner="A"))
+        with self.assertRaises(ValueError):      # 3+2 必须显式指定 4C 归属(默认是空)
+            candidate_pool([], req(mode="3+2", set_a=A, set_b=B))
         with self.assertRaises(ValueError):
             candidate_pool([], req(mode="4+1", set_a=A))
 
@@ -252,17 +254,17 @@ class TestMode32(unittest.TestCase):
 
     def test_exact_three_and_two(self):
         pool = ([it(f"a{i}", 1, A) for i in range(4)] + [it(f"b{i}", 1, B) for i in range(2)])
-        res = plan(pool, req(mode="3+2", set_a=A, set_b=B, top_k=100))
+        res = plan(pool, req(mode="3+2", set_a=A, set_b=B, cost4_owner="A", top_k=100))
         self.assertEqual(res.evaluated, 4)                       # C(4,3) × C(2,2)
         for c in res.combos:
             self.assertEqual(c.set_counts, {A: 3, B: 2})
 
     def test_cost_cap_applies(self):
         pool = ([it("a4", 4, A), it("a3", 3, A), it("a1", 1, A)] + [it("b4", 4, B), it("b1", 1, B)])
-        res = plan(pool, req(mode="3+2", set_a=A, set_b=B, top_k=100))
+        res = plan(pool, req(mode="3+2", set_a=A, set_b=B, cost4_owner="A", top_k=100))
         self.assertEqual(res.evaluated, 0)                       # 4+3+1 + 4+1 = 13 → 无解
         pool2 = ([it("a4", 4, A), it("a3", 3, A), it("a1", 1, A)] + [it("b1", 1, B), it("b2", 1, B)])
-        res2 = plan(pool2, req(mode="3+2", set_a=A, set_b=B, top_k=100))
+        res2 = plan(pool2, req(mode="3+2", set_a=A, set_b=B, cost4_owner="A", top_k=100))
         self.assertEqual(res2.evaluated, 1)                      # 4+3+1 + 1+1 = 10 → 1 组
         self.assertEqual(res2.combos[0].total_cost, 10)
 

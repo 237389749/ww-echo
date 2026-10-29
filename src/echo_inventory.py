@@ -334,16 +334,30 @@ def load_inventory(path: str = "", use_icons: bool = True) -> list[EchoItem]:
         frames = {os.path.basename(p).replace("_full.png", ""): p
                   for p in glob.glob(os.path.join(path, "*_full.png"))} if use_icons else {}
         if os.path.exists(report):
-            return _load_report(report, frames)
+            return _finish(_load_report(report, frames))
         jsons = sorted(glob.glob(os.path.join(path, "*.json")))
         if jsons:
-            return _load_json(jsons[-1])
+            return _finish(_load_json(jsons[-1]))
         raise FileNotFoundError(f"目录里既没有 image_report.md 也没有评估 JSON: {path}")
     if path.lower().endswith(".json"):
-        return _load_json(path)
+        return _finish(_load_json(path))
     if not os.path.exists(path):
         raise FileNotFoundError(path)
-    return _load_report(path, {})
+    return _finish(_load_report(path, {}))
+
+
+def _finish(items: list[EchoItem]) -> list[EchoItem]:
+    """导入收尾: 对"COST 缺失(cost=0)"的件报一次 warning —— 它们会被组合穷举静默过滤。
+
+    触发场景: 旧报告没有 `cost` 字段, 且第 2 行主属性也反推不出 COST(等级未知/撞值)。
+    用户看到的只是"候选 0 只 / 组合 0 组", 所以必须在导入时说清。
+    """
+    n = sum(1 for i in items if i.cost not in (1, 3, 4))
+    if n:
+        logger.warning(
+            f"{n}/{len(items)} 只声骸没有 COST(旧报告未记录, 且第 2 行也反推不出) —— "
+            f"组合穷举会跳过它们; 请重新评估一次以补全 cost 字段")
+    return items
 
 
 def drop_exact_duplicates(items: list[EchoItem]) -> list[EchoItem]:
@@ -391,7 +405,7 @@ def _load_json(json_path: str) -> list[EchoItem]:
 
 
 def summarize(items: list[EchoItem]) -> dict:
-    """库存概览(UI/CLI 展示用): 只数 / 名字数 / 按套装·COST 分布 / 有套装的只数。"""
+    """库存概览(UI/CLI 展示用): 只数 / 名字数 / 按套装·COST 分布 / 有套装的只数 / 缺 COST 只数。"""
     by_set: dict[str, int] = {}
     by_cost: dict[int, int] = {}
     for i in items:
@@ -399,4 +413,5 @@ def summarize(items: list[EchoItem]) -> dict:
         by_cost[i.cost] = by_cost.get(i.cost, 0) + 1
     return {"total": len(items), "names": len({i.name for i in items}),
             "by_set": dict(sorted(by_set.items(), key=lambda kv: -kv[1])),
-            "by_cost": dict(sorted(by_cost.items()))}
+            "by_cost": dict(sorted(by_cost.items())),
+            "no_cost": sum(1 for i in items if i.cost not in (1, 3, 4))}

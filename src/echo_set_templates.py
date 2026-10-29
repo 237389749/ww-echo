@@ -7,7 +7,7 @@ JSON 格式 (assets/echo_set_templates.json):
   "sets": {
     "套装名": {
       "词条名": 权重, ...,
-      "_core_first": ["词条名", ...]   // 可选: Lv5 首条必须命中的核心词条; 缺省=全部有效词条
+      "_core_first": ["词条名", ...]   // 可选: Lv5 首条必须命中的核心词条; 缺省=全部有效词条(权重>0)
     },
     ...
   }
@@ -190,7 +190,7 @@ def load_gamedata(force: bool = False) -> dict | None:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError) as e:
-        logger.warning(f"生成物不可用({e}), 声骸↔套装退回模板 _echoes: {path}")
+        logger.warning(f"生成物不可用({e}), 声骸与套装退回模板 _echoes: {path}")
         return None
     _gamedata_cache, _gamedata_mtime = data, mtime
     _echo_index = None            # 生成物变化 → 反向索引失效
@@ -375,7 +375,10 @@ def get_set_weights(set_name: str | None) -> dict[str, float] | None:
 def get_set_core_first(set_name: str | None) -> list[str] | None:
     """
     获取指定套装的 Lv5 首条核心词条集合(_core_first)。
-    缺省(未配置) = 全部有效词条; 通用模式返回 None。
+    缺省(未配置) = 该套装**权重 > 0** 的词条(即"有效词条"); 通用模式返回 None。
+
+    注: 以前的兜底是 `list(info["weights"].keys())`, 而模板的 weights 字典包含全部 13 个键
+    (未认的记 0) → Lv5/L10 的结构判定会放过该套装完全不认的词条(如凝夜白霜的 防御)。
     """
     if not set_name or set_name == "通用":
         return None
@@ -386,4 +389,4 @@ def get_set_core_first(set_name: str | None) -> list[str] | None:
     core = info.get("core_first")
     if core:
         return list(core)
-    return list(info["weights"].keys())
+    return [k for k, w in info["weights"].items() if w > 0]
