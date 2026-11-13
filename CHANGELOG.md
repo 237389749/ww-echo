@@ -1873,3 +1873,41 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 **文档同步**：`docs/COUPLING.md`（§0.4 新增、§1 矩阵含 shell、§2 SCC 1 个、§4 Qt 6→1、§5 加 shell 与抖动说明、
 §6 只剩 BOM、§7 工具假边、§8 186 项）、`CLAUDE.md`（结构/分层/186）、`handoff.md` 一.9 与基线行、
 `docs/SESSION_2026-11-13.md`、`docs/BASELINE.md`（B1 184 → **186**，素材齐全 188 → 190）、`README.md` 结构树。
+
+---
+
+**补记 30（2026-11-14：窗口模式分辨率适配 —— 修掉非 16:9 窗口的「纵向点偏半行」）**
+
+**背景**：用户要求**窗口模式**跑（鸣潮压力大），窗口比例 16:9 / 16:10 / 4:3 都有（1024x768 ~ 1920x1200）。
+真机实测（背包界面、1254x889、200% DPI）发现：**OCR 区全部命中，但点击坐标会被压**。
+
+**根因**：`supported_resolution.ratio` 不是"校验开关"，而是**坐标映射的参考比例**。
+设成 `'16:9'` 时 `BaseTask.out_of_ratio()` 为真 → `box_of_screen`/`click_relative` 调
+`adjust_coordinates`，按 `should_width = 16/9 × height` **等比缩放后再居中**。窗口不是 16:9 时画面并不存在
+这个"虚拟 16:9 区域"，于是坐标被等比缩小：1254x889 上同一相对点 `(0.358, 0.381)` 算成 **(449, 269)**，
+正确应为 **(448, 338)** —— **纵向偏上 69px ≈ 半行**，评估会点到上一行的声骸（4:3 偏得更多）。
+`TaskExecutor.check_frame_and_resolution()` 里那套比例校验**没有调用点**（旧文档说它"会中止"是错的）。
+
+**改动（`config.py` + `tests/test_run_modes.py`）**
+- 两种运行模式都设 `supported_resolution['ratio'] = None` → `out_of_ratio()` 恒 False → 坐标按帧宽高**线性**映射；
+  `min_size` 放宽到 `(800, 600)`（用户最小 1024x768）。
+- `apply_run_mode()` 统一在末尾置 `ratio=None`（local 不再写回 `'16:9'`）。
+- 新增守卫 `tests/test_run_modes.py`（2 项）：本地/云两种模式都必须 `ratio=None`、本地 `min_size ≤ 1024x768`、
+  云模式 `Pynput` + `BitBlt_RenderFull` + title 正则。
+- 注释写清"只有全屏+黑边才需要显式设回 16:9"，避免下次又把它当校验开关。
+
+**真机验证（背包界面，帧 1254x889 / 200% DPI）**
+- 归一化区沿用旧常量即命中：计数 `声骸202/3000` 0.98、网格多个 `+25`、详情
+  `共鸣回响·鸣式·虚造神型` / `COST` / `暴击伤害 44.0%` / `攻击 150` / `共鸣效率`。
+- 修复后 `out_of_ratio()=False`，`(0.358, 0.381)` → `(448, 338)`；旧值为 `(449, 269)`。
+- **DPI 不影响点击换算**：抓帧是物理像素，`task.width/height` 取抓帧尺寸，相对坐标 × 帧尺寸即像素。
+- **输入注入仍被 UIPI 拒**：游戏进程 `High/已提权`（重启后依旧，启动器自身提权） vs 我们 `Medium` →
+  `PostMessage (5, '拒绝访问。')`。**本地/云模式都需要以管理员运行工具**；这也意味着 P4 真机遍历要用户侧跑。
+
+**其它确认**：用户自定套装配置在 `assets/echo_set_templates.json`（git 干净、mtime 2026-11-13 14:09、
+最后改动提交 `54c9ee6`），本会话的 P0/P1/P2/第三阶段**没有动它**；37 套里定制项（听唤共效 0.5+首核、
+轻云 0.1 占位+低门槛、隐世回光 攻%1.0/共效1.2+首核、雪落共解 0.5 等）都在。
+
+**验证**：`unittest` **188 项 / OK (skipped=2)**；`compileall` 0；文档同步 `CLAUDE.md`（运行模式节重写、
+188 项）、`README.md`（分辨率说明）、`docs/BASELINE.md`（B1 188 / 素材齐全 192、显示器行）、
+`docs/COUPLING.md`（188 项）、`handoff.md`（基线）、`docs/SESSION_2026-11-13.md` §6.6。

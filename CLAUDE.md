@@ -228,12 +228,22 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **local**: `exe=Client-Win64-Shipping.exe`+`hwnd_class=UnrealWindow` 自动匹配本地客户端; PostMessage 可后台运行
   - **必须与游戏同级(UAC)**: 2026-11-14 实测 —— 游戏进程是 **High/已提权**时，Medium 权限的 Python
     `PostMessage` 一律返回 `(5, '拒绝访问。')`（UIPI），点/键都进不了游戏；要么**以管理员运行工具**，要么游戏降为普通权限。
-  - **窗口必须是 16:9**: 实测本地窗口 1254x889(1.411) 会被 `check_frame_and_resolution` 以
-    `supported_resolution.ratio='16:9'` **拒掉**；全屏/16:9 窗口，或把 `ratio` 设 `None`(云模式就是这样)。
   - 截图本身不受权限影响: `BitBlt_RenderFull` 在非管理员下也能抓到帧(实测 98% 非黑像素)。
+- **分辨率: 窗口模式不设参考比例(`supported_resolution.ratio=None`，本地/云都是)**
+  - `ratio` **不是校验开关而是坐标映射的参考比例**: 设成 `'16:9'` 时 `BaseTask.out_of_ratio()` 为真，
+    `box_of_screen`/`click_relative` 会按 `should_width = ratio × height` **等比缩放居中映射**；
+    非 16:9 窗口**纵向被压缩**（1254x889 实测: 相对 y=0.381 → 269px，应为 338px，**偏上 ~69px ≈ 半行**，
+    会点到上一行；4:3 更严重）。`ratio=None` 时按帧宽高**线性**映射（448,338 正确）。
+  - 所有 OCR 区/点击本来就是按帧宽高归一化的，实测 1.41(1254x889) / 1.6(1920x1200) / 1.78(1920x1080)
+    同一组常量都命中；1024x768 这类 4:3 窗口只要 `ratio=None` 就按线性映射走。
+  - **只有「全屏且画面带黑边」**才需要显式设回 `'16:9'`（那时内容才是居中的 16:9 区域）。
+  - `TaskExecutor.check_frame_and_resolution()` 里那套比例校验**当前没有调用点**（历史遗留），
+    真正决定坐标的是 `out_of_ratio()`。
+- **DPI**: 200% 缩放下窗口客户区逻辑 627x444、物理抓帧 1254x889；引擎 `task.width/height` 取的是抓帧尺寸
+  （1254x889），相对坐标 × 帧尺寸即像素 → 点击换算与 DPI 无关。
 - **cloud**(云游戏 = 浏览器/云客户端窗口, 如 Firefox):
   - `windows.title=re.compile('鸣潮')` → ww_engine `find_hwnd` 按正则自动锁定标题含"鸣潮"的窗口, **无需手动选窗**
-  - interaction=Pynput(前台真实键鼠), capture 锁定 `BitBlt_RenderFull`, `supported_resolution.ratio=None` 跳过 16:9 校验
+  - interaction=Pynput(前台真实键鼠), capture 锁定 `BitBlt_RenderFull`
   - 云游戏本地无 UnrealWindow 可后台投递 → **必须前台**, 任务运行中不要最小化游戏
 
 ## 引擎自持 — 不再有 site-packages 补丁
@@ -427,7 +437,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
 **阶段三十一(引擎自持)**: 在分支 **`engine/vendor`**（未合并 `main`，等 P4 真机验收），
 审核补记（OCR 主链路回归 + 台账修正）见 handoff.md / CHANGELOG 补记 22。
-改动后跑: `python -m unittest discover -s tests`(**186 项**; 需 Python 3.11+; 3.13/3.14 已实测)
+改动后跑: `python -m unittest discover -s tests`(**188 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。

@@ -13,7 +13,7 @@
 | Python | **3.11+**（推荐 3.12；**3.13 / 3.14 已实测**） | 引擎已 vendored 到 `ww_engine/`（源自 ok-script 1.0.160, MIT），不再要求 site-packages 的 ok-script。3.14 实测口径：Python **3.14.4** + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`）；3.13 于 2026-11-13 用全新 venv 复验（Python 3.13.16 + 同一套 requirements） |
 | 依赖 | `pip install -r requirements.txt` | `opencv-python==4.14.0.94` / `openvino==2026.0.0` / `onnxocr-ppocrv5==0.0.18` / `pywin32` / `psutil` / `pynput` / `pycaw` / `PySide6-Fluent-Widgets`；传递依赖未锁版本 |
 | 引擎 | `ww_engine/`（in-tree） | 不再有 site-packages 补丁；4 处 `[ww-echo patch]` 已合并进 vendored 代码 |
-| 显示器/分辨率 | 任何 16:9（离线工具不需要游戏） | 真机评估需要游戏在"背包声骸列表"界面 |
+| 显示器/分辨率 | **任意窗口比例**（1024x768 起；`supported_resolution.ratio=None` 时按帧宽高线性映射） | 真机评估需要游戏在"背包声骸列表"界面；只有"全屏+黑边"才需显式设 `ratio='16:9'` |
 
 自检：
 
@@ -25,7 +25,7 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 
 | # | 命令 | 期望输出 | 依赖 |
 |---|---|---|---|
-| B1 | `python -m unittest discover -s tests` | **186 项**（`Ran 186 tests` / `OK (skipped=2)`；无 `logs/eval_debug/` 时 `TestRealDataset` 整类跳过；素材齐全时为 **190 项 / skipped=1**） | 仅代码 |
+| B1 | `python -m unittest discover -s tests` | **188 项**（`Ran 188 tests` / `OK (skipped=2)`；无 `logs/eval_debug/` 时 `TestRealDataset` 整类跳过；素材齐全时为 **192 项 / skipped=1**） | 仅代码 |
 | B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
 | B3 | `python tools/eval_icon_match.py` | **217/219**（99.1%）；s1 中位 ≈0.894；名字候选一致 196/211 | 同上 |
 | B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **7 页** PNG，无异常 | 仅代码 |

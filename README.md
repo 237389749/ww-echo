@@ -101,7 +101,7 @@
 
 - **OS:** Windows
 - **Python:** 3.11+（推荐 3.12；**Windows + Python 3.13 / 3.14 已实测可用**，见 `docs/BASELINE.md`）
-- **Resolution:** 本地 16:9 (min 1600x900)；云游戏 16:9 / 16:10 均可
+- **Resolution:** 窗口模式任意比例（实测 1024x768 / 1254x889 / 16:10 / 16:9 都用同一套归一化坐标）；仅"全屏且带黑边"时需要把 `supported_resolution.ratio` 设回 `16:9`
 - **Game language:** 简体中文 / 繁體中文
 - **FPS:** Stable 60
 

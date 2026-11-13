@@ -49,9 +49,18 @@ config = {
         'min_height': 800,
     },
     'supported_resolution': {
-        'ratio': '16:9',
+        # 窗口模式**不限制宽高比**（本地/云游戏都是窗口化运行，客户区就是游戏画面）。
+        # 抓帧取窗口客户区，所有 OCR 区/点击都按**帧宽高线性缩放**，与 16:9 无关。
+        # 注意 `ratio` 不是"校验开关"，而是**坐标映射的参考比例**：设成 '16:9' 时
+        # `BaseTask.out_of_ratio()` 为真 → `box_of_screen`/`click_relative` 会把坐标
+        # 按 should_width = 16/9 × height **等比缩放**后居中映射（adjust_coordinates），
+        # 非 16:9 窗口因此**纵向被压缩**：1254x889 实测相对 y=0.381 → 269px（应为 338px，
+        # 偏上 ≈69px ≈ 半行；1.33 的 4:3 窗口偏得更多）→ 会点到上一行。
+        # 只有「全屏且画面带黑边」才需要显式设回 '16:9'；窗口化一律 None。
+        'ratio': None,
         'resize_to': [(2560, 1440), (1920, 1080), (1600, 900), (1280, 720)],
-        'min_size': (1280, 720)
+        # 仅作记录/未来校验用：当前没有调用点强制校验（真正的适配靠归一化坐标）
+        'min_size': (800, 600)
     },
     'screenshots_folder': "screenshots",
     'gui_title': 'OK-Echo',
@@ -83,9 +92,8 @@ def apply_run_mode(mode):
     'local' —— exe/hwnd_class 自动匹配本地游戏窗口, PostMessage 后台交互(默认)。
     'cloud' —— exe/hwnd_class 置空, 改按 title=re.compile('鸣潮') 正则自动锁定云游戏
                窗口(浏览器/云客户端, 画面需前台可见); interaction 切 Pynput 前台真实键鼠。
-               同时关闭 16:9 分辨率比例校验: 本地模式 ok-script 会把游戏窗口自动
-               resize 成 16:9, 云游戏的浏览器/云客户端窗口尺寸不受控(如 16:10 屏幕),
-               ratio=None 时 TaskExecutor 跳过比例校验且不会触发坐标缩放换算。
+    两种模式都**不设 supported_resolution.ratio**(窗口模式): 见上方说明 —— 设比值会让
+    `out_of_ratio()` 按参考比例居中缩放坐标, 非该比例的窗口会点偏。只有全屏+黑边才需要显式设回。
     """
     win = config['windows']
     if mode == MODE_CLOUD:
@@ -99,7 +107,6 @@ def apply_run_mode(mode):
         win['capture_method'] = ['BitBlt_RenderFull']
         # 云游戏不自动启动游戏 exe
         win['start_exe'] = False
-        config['supported_resolution']['ratio'] = None
     else:
         win['exe'] = _LOCAL_EXE
         win['hwnd_class'] = _LOCAL_HWND_CLASS
@@ -107,5 +114,5 @@ def apply_run_mode(mode):
         win['interaction'] = _LOCAL_INTERACTION
         win['capture_method'] = ['WGC', 'BitBlt_RenderFull']
         win['start_exe'] = False
-        config['supported_resolution']['ratio'] = '16:9'
+    config['supported_resolution']['ratio'] = None
     return win
