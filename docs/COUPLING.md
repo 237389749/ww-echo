@@ -45,6 +45,9 @@ P1 之后 `src.echo_inventory`（以及 CLI `tools.echo_plan`）不再经过 tas
 
 等价性证据：`python tools/analysis/p1_equiv_check.py`（默认对比 P1 前提交 `3e698cf`）——
 四个函数在 152 个边界样本上**逐例 0 差异**（含 `details` 明细字符串）。
+**无 Qt 环境验收**：用 `sys.meta_path` 屏蔽 `PySide6` / `qfluentwidgets` / `ww_engine` / `shiboken6` 后，
+`import src.echo_inventory` 与 `import tools.echo_plan` 都成功，且 `sys.modules` 里这些前缀**一个都没有**
+（`echo_score`/`dedup_key` 也照常算分）—— P1 的验收条款“CLI 不再需要 Qt”成立。
 
 ## 1. 分层与矩阵（P1 后）
 

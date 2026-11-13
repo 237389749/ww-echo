@@ -1766,6 +1766,9 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 - import 耗时（单进程 5 次中位）：`src.echo_inventory` 0.85 → **0.177 s**、`tools.echo_plan` 0.85 → **0.208 s**，
   且 `import tools.echo_plan` 后 `sys.modules` 里没有 `PySide6`/`qfluentwidgets`/`ww_engine`；`echo_combos` 0.062、
   `echo_icon_match` 0.174（只剩 cv2/numpy）、`ww_engine` ≈0.8~0.9（P2 才动）。
+- **无 Qt 环境验收**：用 `sys.meta_path` 把 `PySide6`/`qfluentwidgets`/`ww_engine`/`shiboken6` 全部屏蔽后，
+  `import src.echo_inventory` 与 `import tools.echo_plan` **都成功**，`sys.modules` 里这些前缀为空，
+  `echo_score`/`dedup_key` 照常算分 —— “CLI 不再需要 Qt”这条验收不是靠耗时推断的。
 - 离屏 `OK(config)` + 任务实例冒烟：`icon/group_icon=None`、评分/去重封装正常；`tools/ui_shot.py` 7 页；
   `echo_plan --list-profiles` 退出码 0。
 
