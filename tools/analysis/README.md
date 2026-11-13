@@ -22,6 +22,7 @@
 | `b2_replay_old_core_first.py` | 换回旧 `_core_first` 兜底（全部键）重跑 B2 | CHANGELOG 补记 21 证据②：这条修正对 109 只数据**零影响** |
 | `calculator_reconcile.py` | 参考工程 `data/echo-data.json` + `apps/ocr/EchoOCRTask.py` + 本项目权重/档位 → Markdown（档位校验、满档权重比例、A/B 完成度、锁成本、强化盈亏平衡） | `docs/CALCULATOR_RECONCILIATION.md` 全部数字；CHANGELOG 补记 23 |
 | `import_coupling.py` | 全仓 `.py` 的 import 图（stdlib，不导入项目）→ 分层矩阵 / 跨层违规 / UI 对 engine 内部模块 / Qt 依赖 / SCC / 可选 import 耗时 | `docs/COUPLING.md` 全部数字；CHANGELOG 补记 25 |
+| `p1_equiv_check.py [--old 提交]` | `git show <提交>:src/task/EnhanceEchoTask.py`（默认 `3e698cf`）vs 当前 `src/echo_parse|echo_scoring` → 4 个纯函数逐例对比（152 例） | `docs/COUPLING.md` §0.2「纯函数抽取不改口径」；CHANGELOG 补记 27 |
 
 > 后两个会覆盖 `eval_report.html`，跑完用当前代码重跑 `tools/offline_eval_report.py` 复原。
 

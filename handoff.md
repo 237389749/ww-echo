@@ -120,7 +120,7 @@
 **待拍板**：① P1 把「建议强化」与「建议重铸」的概率门拆开（或改期望调谐器对比），需真实 B2 量化影响；
 ② P2 主属性进评分（先做展示）。
 
-## 一.9、底层耦合体检（2026-11-13）
+## 一.9、底层耦合体检（2026-11-13；P0 + P1 已落地）
 
 静态扫全仓 import（`tools/analysis/import_coupling.py`），结论见 `docs/COUPLING.md`：
 
@@ -129,13 +129,18 @@
   文件/UI handler，**不 import engine**）、删除 `src/globals.py` + `config['my_app']`、
   删除 `process_feature` 空实现、`MODE_*` 移到 `src/run_modes.py`、UI 改走 engine 根 API
   （`og`/`communicate`/`basic_options`，`Alert` 改公共 notification）。
-  P0 后 **domain→engine / UI→entry / entry→task / UI→engine 内部全部为 0**。
-- **当前只剩 P1**：`src.echo_inventory → src.task.EnhanceEchoTask`（借 `parse_number`/`_normalize_stat`/
-  `compute_weighted_score`/`dedup_key`），把 `tools.echo_plan` 拖进 Qt（import ≈0.85 s）。
-- **import 成本（P0 前→后）**：`echo_set_templates` 0.95→**0.05 s**、`echo_icon_match` 1.07→**0.20 s**、
-  `echo_combos` 1.05→**0.073 s**；`echo_inventory`/`echo_plan` 仍 ≈0.85 s（P1 链）；`ww_engine` ≈0.9~1.0 s（P2 懒加载）。
-- **下一步**：P1 抽纯函数到 `src/echo_parse|echo_scoring` + task adapter 少碰 engine 内部 → P2 `ww_engine.__init__`
-  懒加载 + 去核心 `FluentIcon`。**不要**为了 `og`/Rust 重写 engine/UI（`og` 是服务定位，不是 import 环）。
+- **P1 已落地（`5a0ee55`）**：`parse_number`/`normalize_stat`/`dedup_key` → `src/echo_parse.py`，
+  `compute_weighted_score` → `src/echo_scoring.py`；`EnhanceEchoTask` 保留同名**薄封装**（调用面不变，
+  等价性 `tools/analysis/p1_equiv_check.py` 152 例 0 差异）；`src.echo_inventory` 改走 domain 并删掉
+  “借 task 实例算分”的桩；task adapter 改 engine 根 API（`get_bounding_box`/`clear_folder`）并把任务图标置 `None`
+  → **不再 import Qt**。
+- **结果**：P0 后 domain→engine / UI→entry / entry→task / UI→engine 内部归零；**P1 后 domain→task_adapter 也归零**，
+  `import_coupling.py` 违规表为空。
+- **import 成本（P0 前→P0 后→P1 后）**：`echo_set_templates` 0.95→0.05→**0.038 s**、`echo_icon_match` 1.07→0.20→**0.174 s**、
+  `echo_combos` 1.05→0.073→**0.062 s**、`echo_inventory` 0.94→0.85→**0.177 s**、`echo_plan` 0.99→0.85→**0.208 s**
+  （且 `import tools.echo_plan` 不再拉起 PySide6/qfluentwidgets/ww_engine）；`ww_engine` ≈0.8~0.9 s（只剩 P2）。
+- **下一步**：只剩 P2 —— `ww_engine.__init__` 懒加载 + 去核心 `FluentIcon`（目标 `import ww_engine` <0.5 s）。
+  **不要**为了 `og`/Rust 重写 engine/UI（`og` 是服务定位，不是 import 环）。
 
 ## 二、阶段二十九做了什么（组合穷举）
 

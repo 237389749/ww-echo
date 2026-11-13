@@ -1736,3 +1736,47 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 
 **未做**：BOM 清理（3 个文件）、`echo_inventory→EnhanceEchoTask` 的纯函数抽取（P1）、`ww_engine` 根包懒加载与
 核心 `FluentIcon`（P2）。
+
+---
+
+**补记 27（2026-11-13：耦合 P1 落地 —— 纯函数抽到 domain，CLI 不再背 Qt）**
+
+**动机**：补记 25/26 的最后一条 P1 —— `src.echo_inventory`（domain）反向 `from src.task.EnhanceEchoTask import`
+四个纯函数，顺带把 `tools.echo_plan` 拖进 PySide6/qfluentwidgets（import ≈0.85 s）。
+
+**改动（`5a0ee55`）**
+- 新增 **`src/echo_parse.py`**：`parse_number` / `normalize_stat`（task 侧原名 `_normalize_stat`）/ `dedup_key`，
+  连同 `_TIERS_ORDER`、`_STAT_CHARS`、`_NAME_PUNCT_RE`、`_strip_stat_chars`、`_lcs_len` 一起下移。
+- 新增 **`src/echo_scoring.py`**：`compute_weighted_score`（档位÷期望×10×权重；口径与明细字符串逐行未动）。
+- `EnhanceEchoTask` 保留**同名薄封装**（`_normalize_stat` / `dedup_key` 静态方法、`compute_weighted_score` 实例方法）
+  并在模块级再导出 `parse_number` → 线上评估 / `tools/offline_eval_report.py` / 测试的调用面不变；
+  `set_name=None → config['当前套装']`（任务运行时默认值）留在 adapter。旧实现（含文件末尾那个 `def parse_number`）删除。
+- `src/echo_inventory`：改从 `src.echo_parse|echo_scoring` import，删掉“借 task 实例算分”的 `_SCORE_TASK = EnhanceEchoTask.__new__(...)` 桩。
+- task adapter 少碰 engine 内部：`ww_engine.feature.Box.get_bounding_box` / `ww_engine.util.file.clear_folder` → 根 API
+  （`clear_folder` 补进 `ww_engine.__all__`）；`FluentIcon.ADD` → `None`（本项目自建 UI 不渲染任务图标，全仓无消费者），
+  于是 **task_adapter 不再直接 import Qt**。
+
+**验证**
+- `unittest discover` → **182 项 / OK (skipped=2)**；`compileall` 退出码 0；`pyflakes` 只剩 3 条**与 HEAD 完全相同**的既存告警
+  （`_tier_threshold` 里未用的 `base`、两处无占位符 f-string）。
+- **等价性**（新增 `tools/analysis/p1_equiv_check.py`，默认对比 P1 前提交 `3e698cf`）：**152 例 0 差异**
+  （`parse_number` 8 / `normalize_stat` 88 / `dedup_key` 6 / `compute_weighted_score` 50，含 `details` 明细字符串）。
+- `import_coupling.py --check` → 0 违规：**domain→task_adapter = 0**（最后一条硬违规清零），跨层违规表为空；
+  task_adapter 从 Qt 依赖表中消失。
+- import 耗时（单进程 5 次中位）：`src.echo_inventory` 0.85 → **0.177 s**、`tools.echo_plan` 0.85 → **0.208 s**，
+  且 `import tools.echo_plan` 后 `sys.modules` 里没有 `PySide6`/`qfluentwidgets`/`ww_engine`；`echo_combos` 0.062、
+  `echo_icon_match` 0.174（只剩 cv2/numpy）、`ww_engine` ≈0.8~0.9（P2 才动）。
+- 离屏 `OK(config)` + 任务实例冒烟：`icon/group_icon=None`、评分/去重封装正常；`tools/ui_shot.py` 7 页；
+  `echo_plan --list-profiles` 退出码 0。
+
+**测试改动**
+- `tests/test_judge_rules._judge` 现在**同时** patch `src.task.EnhanceEchoTask.get_set_weights` 与
+  `src.echo_scoring.get_set_weights`：评分实现已搬家，只 patch 旧位置会让“测试套”退回通用权重（`test_below_base_is_not_hold`
+  会误判为 hold）。
+
+**已知遗留**
+- `src/echo_set_templates._lcs_len` 与 `src/echo_parse._lcs_len` 各一份（声骸名容错 vs 词条名容错）：
+  合并要动 `echo_set_templates` 的匹配逻辑，收益小，本轮刻意不碰。
+- 3 个 BOM 文件仍未清（纯格式）。
+- 文档同步：`docs/COUPLING.md`（P0+P1 矩阵/耗时/Qt 表）、`CLAUDE.md` 分层节、`handoff.md` 一.9、
+  `docs/SESSION_2026-11-13.md`、`docs/BASELINE.md` 与 `tools/analysis/README.md` 的脚本索引。

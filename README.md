@@ -216,6 +216,8 @@ ww-echo/
 │   └── debug_tab.py / dev_tab.py / about_tab.py
 ├── src/
 │   ├── echo_stats.py               # 词条档位 + 评分工具
+│   ├── echo_parse.py               # 纯解析: 数值/词条名容错归一/去重签名(不依赖 Qt/engine)
+│   ├── echo_scoring.py             # 纯评分: 档位÷期望×10×权重(报告/库存/穷举同一口径)
 │   ├── echo_set_templates.py       # JSON 模板加载 & 校验 + 声骸名容错匹配(生成物优先)
 │   ├── echo_panel.py               # 面板聚合 + 伤害公式(组合穷举的计算层, calculator 口径)
 │   ├── echo_combos.py              # 组合穷举(互异/ΣCOST≤12/套装只数/4C 归属) + Top-K 排名

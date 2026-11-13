@@ -25,6 +25,8 @@ ui/plan_tab.py            「组合穷举」页: 输入装配(缩放属性/模�
 src/echo_panel.py         组合穷举**计算层**: 面板聚合(calculator 口径 基础值×(1+百分比)+固定值) + 加成区拆分 + 伤害
 src/echo_combos.py        组合穷举: 5 只互异(按名) + ΣCOST≤12 + 套装只数 + 4C 归属 + Top-K(协作取消)
 src/echo_inventory.py     库存导入: logs/eval_debug 素材(image_report.md + `<tag>_full.png` 图标定套装) 或评估 JSON → EchoItem
+src/echo_parse.py         纯解析(domain): parse_number / normalize_stat(OCR 词条名容错) / dedup_key(去重签名)
+src/echo_scoring.py       纯评分(domain): compute_weighted_score(档位÷期望×10×权重) — 报告/库存/组合穷举同一口径
 src/echo_stats.py         词条档位表 _TIERS + 官方档位概率 + snap_to_tier/get_mean(概率期望)/tier_percentile(分位)/is_stat_match
 src/echo_set_templates.py 37 套装 JSON 模板(词条/权重/声骸清单) + 声骸名容错匹配(生成物优先: 官方 229 个显示名)
 src/wuwa_data.py          官方配置表读取层: BinData(目录/zip, 两种序列化) + Textmaps + 管理方案 FlatBuffers 解码
@@ -47,7 +49,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 > **交接文档**：阶段二十四~二十九 的完成情况、数据面认知、下一棒(真机走查 / 与 calculator 对账)见仓库根 `handoff.md`。
 
-## 分层与耦合(2026-11-13 体检 + P0)
+## 分层与耦合(2026-11-13 体检 + P0 + P1)
 
 - **边界**: `engine`(ww_engine, 对项目代码 **0 出边**) → `domain`(src 非 task) → `task_adapter`(src.task) → `ui` → `entry`(config/mainui);
   `tools/tests` 允许跨层。完整矩阵/违规/import 耗时见 `docs/COUPLING.md`, 复现
@@ -56,12 +58,18 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   `src/logging_utils.get_logger`, 复用 engine 文件/UI handler); 删 `src/globals.py`+`config['my_app']`;
   删 `process_feature` 空实现; `MODE_*` 移到 `src/run_modes.py`; UI 改走 engine 根 API
   (`og`/`communicate`/`basic_options`), 调试页 `Alert` 改公共 notification。
-- **当前只剩 P1**: `src.echo_inventory → src.task.EnhanceEchoTask`(借 `parse_number`/`_normalize_stat`/
-  `compute_weighted_score`/`dedup_key`), 把 `tools.echo_plan` 拖进 Qt(import ≈0.85 s)。
-- **成本(P0 后)**: 纯 domain 0.04~0.07 s; `echo_icon_match` 0.20 s(只剩 cv2/numpy); `echo_inventory`/`echo_plan`
-  0.85 s(全是 P1 链); `ww_engine` 0.9~1.0 s(根包, P2 懒加载才动)。
-- **下一步**: P1 抽纯函数到 `src/echo_parse|echo_scoring` + task adapter 少碰 engine 内部 → P2 `ww_engine.__init__`
-  懒加载 + 去核心 `FluentIcon`。**不要**为了 `og` 或 Rust 去重写 engine/UI。
+- **P1 已落地**: `parse_number`/`normalize_stat`/`dedup_key` → `src/echo_parse.py`,
+  `compute_weighted_score` → `src/echo_scoring.py`; `EnhanceEchoTask` 只留**同名薄封装**
+  (`set_name=None → config['当前套装']` 这类运行时默认值仍留 adapter), 调用面不变
+  (等价性: `python tools/analysis/p1_equiv_check.py` 对比 P1 前提交 `3e698cf`, 152 例 0 差异)。
+  `echo_inventory` 改走 domain → **domain→task_adapter = 0**; task adapter 改 engine 根 API
+  (`get_bounding_box`/`clear_folder`) 且任务 `icon/group_icon=None` → **不再 import Qt**。
+- **违规表为空**: engine→项目 0、domain→engine/task 0、UI→entry 0、entry→task 0、UI→engine 内部 0。
+- **成本(P1 后, 单进程 5 次中位)**: 纯 domain 0.03~0.07 s; `echo_icon_match` 0.174 s(只剩 cv2/numpy);
+  `echo_inventory` **0.177 s**、`echo_plan` **0.208 s**(且不再拉起 PySide6/qfluentwidgets/ww_engine);
+  `ww_engine` ≈0.8~0.9 s(根包, 只剩 P2)。
+- **下一步**: 只剩 P2 —— `ww_engine.__init__` 懒加载(目标 `import ww_engine` <0.5 s) + 去核心 `FluentIcon`。
+  **不要**为了 `og` 或 Rust 去重写 engine/UI。
 
 ## 界面(Fluent, 阶段二十六)
 
