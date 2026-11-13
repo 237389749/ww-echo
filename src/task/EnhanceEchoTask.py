@@ -9,11 +9,12 @@ from qfluentwidgets import FluentIcon
 from ok import FindFeature, Logger
 from ok.feature.Box import get_bounding_box
 from ok.util.file import clear_folder
-from src.echo_stats import snap_to_tier, get_mean, is_stat_match, tier_percentile, DEFAULT_WEIGHTS  # noqa
+from src.echo_stats import (snap_to_tier, get_mean, is_stat_match, tier_percentile,
+                            tier_index, DEFAULT_WEIGHTS)  # noqa
 from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights,
-                                    get_set_core_first, get_set_by_echo, get_sets_by_echo,
-                                    normalize_echo_name, load_gamedata)
+                                    get_set_core_first, get_set_low_first, get_set_by_echo,
+                                    get_sets_by_echo, normalize_echo_name, load_gamedata)
 from src.echo_icon_match import match_icon, MIN_MARGIN, MIN_SCORE
 from src.task.BaseEchoTask import BaseEchoTask
 
@@ -295,7 +296,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '第一条必须为有效词条': '如果开启，第一个副词条必须在有效词条列表中且符合数值要求，否则直接丢弃',
             '有效词条': '定义哪些属性被视为有效',
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
-            '强化策略': '传统: 满级后一次判断\n渐进式: Lv5/10 有首核即过 → Lv15+ 走两线判定(达标线 A = 10×本只出现有效词条权重和; 基准线 B = 通用 6.5/11.5/17.5), 不及格即停',
+            '强化策略': '传统: 满级后一次判断\n渐进式: Lv5/10 首条在首核内即过(低权重套装可配 `_low_first` 要求前 N 档) → Lv15+ 走两线判定(达标线 A = 10×本只出现有效词条权重和; 基准线 B = 通用 6.5/11.5/17.5), 不及格即停',
             '当前套装': '在"套装配置"tab中管理词条和权重',
             '启用评分模式': '条分=档位值÷期望值×10×权重(期望=官方公示概率期望; 平均档=10分, 满档≈13.1~14.0): 暴击1.0/爆伤0.7/攻%等0.5/共效0.6/专伤0.4/固定三系0.25\n无效词条=0分',
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
@@ -897,7 +898,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     def check_echo_progressive(self, properties, values):
         """渐进式强化判断 —— 判定统一走 `judge_echo`(与评估同源), 这里只负责取数与丢弃动作:
-          Lv5/Lv10(1~2 条) → 结构判定: 存在首核词条即过, 不限分
+          Lv5/Lv10(1~2 条) → 结构判定: **首条**在首核内即过(不限分); 套装配置了 `_low_first`
+                              时, 低权重首条还须位于前 N 档
           Lv15/Lv20(3~4 条) → 总分 ≥ **B(满级)**, 或 前瞻概率 ≥ ENCHANT_MIN_PROB(0.60) 且 总分 ≥ 达标线 A
           Lv25(5 条) → A ≥ B 且 总分 ≥ A 才算达标, 否则丢弃
         未满级一律与 B(满级) 比(不是当前级的 B(tier)); 通用模式 B(满级) = 17.5, 套装模式按该套装权重算。
@@ -919,14 +921,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         # 3. 套装(权重来源; 判定两线见 judge_echo)
         set_name = self.config.get('当前套装', '通用')
 
-        # 4. 渐进式判断(与评估共用 judge_echo: Lv5/10 结构判定, Lv15+ 锚线)
+        # 4. 渐进式判断(与评估共用 judge_echo: Lv5/10 首条结构判定, Lv15+ 锚线)
         if tier <= 2:
-            (verdict, _), _, _ = self.judge_echo(set_name, tier, 0.0, normalized)
-            if verdict == 'fail':
-                self.fail_reason = '无有效词条'
-                self.log_info(f'[渐进T{tier}] 词条均非有效 : {[n for n, _ in normalized]}, 丢弃')
+            ok, reason = self._struct_first_ok(set_name, normalized)
+            if not ok:
+                self.fail_reason = reason or '首条不合格'
+                self.log_info(f'[渐进T{tier}] 首条不合格({reason}) : {[n for n, _ in normalized]}, 丢弃')
                 return False
-            self.log_info(f'[渐进T{tier}] 存在有效词条(不限分) OK 继续')
+            self.log_info(f'[渐进T{tier}] 首条通过(不限分) OK 继续')
             return True
 
         # tier 3-5: 先算总分再判定
@@ -1160,10 +1162,44 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 rec["main_values_check"] = bad
         return rec
 
+    @staticmethod
+    def _struct_first_ok(set_name, stats) -> tuple[bool, str]:
+        """Lv5/Lv10 结构判定 —— **只看首条词条**(stats[0]), 返回 (是否通过, 原因)。
+
+        规则(2026-11 用户口径, 语义 1 + 可选低权重门槛):
+          ① 首条必须是该套装的"有效词条"(权重 > 0; 通用模式同样);
+          ② 若该套装配置了 `_low_first`(`{"below": 权重上限, "top": 前 N 档}`)
+             且首条权重 ≤ below → 首条必须落在该词条档位表的**前 top 档**(降序);
+             否则即使它同时是核心词条也不过(低权重低档位不值得继续投入);
+          ③ 未触发 ② 时, 首条必须在 `_core_first` 内(缺省 = 全部有效词条)。
+
+        为什么只认首条: UI 一直把它叫"首条核心词条"; 旧实现用 `any(...)` 让第二条兜底,
+        使得"首条废、第二条好"的件在 Lv10 也能过。**低权重门槛按套装可选**:
+        只有像轻云出月这样带 0.1 占位键的套装才配置, 其余套装行为不变。
+        """
+        if not stats:
+            return False, '无词条'
+        name, value = stats[0]
+        weights = DEFAULT_WEIGHTS if (not set_name or set_name == '通用') else (get_set_weights(set_name) or {})
+        w = weights.get(name, 0.0)
+        low = get_set_low_first(set_name)
+        if low and 0 < w <= low['below'] + 1e-9:
+            rank = tier_index(name, value)
+            if rank is not None and rank < low['top']:
+                return True, ''
+            return False, f'低权重首条档位不足_{name}={value}(需前{low["top"]}档)'
+        if w <= 0:
+            return False, f'首条无效_{name}'
+        if set_name == '通用' or name in (get_set_core_first(set_name) or []):
+            return True, ''
+        return False, f'首条非核心_{name}'
+
     def judge_echo(self, set_name, tier, score, stats):
         """公共判定(评估与渐进强化共用): 返回 ((verdict, verdict_cn), threshold, reforge)。
-        Lv5/Lv10 (1-2 词条): 结构判定——存在"首条核心词条"(_core_first, 缺省=全部有效词条;
-          通用=weight>0)即过, 不限分; 文案与 Lv15/Lv20 统一为「建议强化/不建议强化」
+        Lv5/Lv10 (1-2 词条): 结构判定——**只看首条**(stats[0]), 见 `_struct_first_ok`:
+          首条在 `_core_first` 内(缺省=全部有效词条; 通用=weight>0)即过, 不限分;
+          若该套装配置了 `_low_first` 且首条是低权重词条, 还要求它位于前 N 档。
+          文案与 Lv15/Lv20 统一为「建议强化/不建议强化」。
         满级: (aim ≥ base 且 score ≥ aim) → pass达标; score ≥ base → hold保留;
               score < base 时再看"花频整器能不能把它**刷成达标**"(reforge_plan: 存在
               **蒙特卡洛达标概率 ≥ REFORGE_MIN_PROB(0.60)** 的锁定方案, 取成本最低者)
@@ -1177,11 +1213,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
           reforge_plan(穷举锁定组合 + 蒙特卡洛, 单次约 0.2 秒) —— 直接带出来给报告用, 不让调用方重算。
         """
         if tier <= 2:
-            if set_name == '通用':
-                ok = any(DEFAULT_WEIGHTS.get(n, 0.0) > 0 for n, _ in stats)
-            else:
-                core = get_set_core_first(set_name) or []
-                ok = any(n in core for n, _ in stats)
+            ok, _ = self._struct_first_ok(set_name, stats)
             return (('pending', '建议强化') if ok else ('fail', '不建议强化')), 0.0, None
         aim = _tier_threshold(set_name, tier, stats)      # 达标线 = 10 × 出现有效词条权重之和
         base = _legacy_threshold(set_name, tier)          # 基准门槛 = 套装有效键最低 tier-1 条之和 ×10

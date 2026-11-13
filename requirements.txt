@@ -1,4 +1,4 @@
-# Python >=3.11（ok-script 1.0.160 起放宽；本机实测 3.14）
+# Python >=3.11（ok-script 1.0.160 起放宽；本机实测 3.13 / 3.14）
 # 注意：ok-script <=1.0.159 在 PyPI 上钉了 Requires-Python ==3.12.* —— 升到 1.0.160 是"去掉 3.12 限制"的关键；
 #       两者代码逐字节一致，装完记得跑 tools/patches/apply_patches.py 重打 4 处补丁。
 # opencv 4.14 起 numpy 约束为 `numpy>=2`（无 <2.3 上限）→ 3.13/3.14 才有 cpXXX 轮子可装；

@@ -1,4 +1,4 @@
-# 交接（stage 29 之后：声骸组合穷举 + 伤害排名已落地）
+# 交接（stage 30 之后：ok-ww 残留剥离 + 首条低权重门槛）
 
 > 给下一个会话：先读 `CLAUDE.md`（项目手册，含「组合穷举」一节）与本文；功能规格原文在 `panel_plan.md`
 > （末尾有「实施状态」，列了与原文的差异与定案口径）。
@@ -15,19 +15,41 @@
 | — | `7d20e1d` | 交接文档 `handoff.md` + CLAUDE.md 指针 |
 | **二十九** | `219357d` / `ea53b5d` | **声骸组合穷举 + 伤害排名**：`src/echo_panel.py` / `src/echo_combos.py` / `src/echo_inventory.py` / `tools/echo_plan.py` / `ui/plan_tab.py` + 单测；评估结束顺手写 `<报告>.json`；修 JSON 途径「攻击%↔固定攻击」误判 |
 | — | 本次 | **首份真机评估报告(135 只)体检 + COST 漏读修复**：实时 `read_cost_badge()`(角标区 3× 放大重读) + 离线 `infer_cost()`(第 2 行反推)，当时 130 项单测 |
+| **三十** | 本次 | **ok-ww 农场残留剥离**（月卡/技能热键/模板库 257→5/MouseReset/WWScene/登录窗口类/自动启动/blur/ok-ww 链接）+ **Lv5/Lv10 只认首条 + 可选 `_low_first` 低权重门槛**（轻云出月 0.1 / 前 2 档） |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **172 项**（当前 HEAD；素材类用例在缺数据集时 skip。需 Python 3.11+ + ok-script==1.0.160；
-  3.14 已实测通过，见 `docs/BASELINE.md`。换环境/缺 `ok` 会 17 个模块 ImportError，此时不要拿"通过数"当基线）
+- `python -m unittest discover -s tests` → **177 项**（无素材；素材齐全 181 项 / skipped=1。需 Python 3.11+ + ok-script==1.0.160；
+  3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。换环境/缺 `ok` 会 17 个模块 ImportError，此时不要拿"通过数"当基线）
 - `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`
   （六档文案：达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17）、
   **主属性数值可疑 0 条**、套装来源 `{icon:108, name:1}`
   ⚠ 旧的 `39/38/1/7/12/12` 是**「听唤语义之愿」权重调整前**的 `eval_report.html` 口径（与 `_core_first` 无关，
   后者对这份数据零影响）；逐套装只有听唤那一行变。复现/核对方式见 `eval_rules.md` §8 开头、CHANGELOG 补记 21。
+  **⚠ 2026-11 的 Lv5/Lv10 首条改动可能改变「建议强化/不建议强化」两行**；当前仓库无 `logs/eval_debug/`，需在素材机重跑后更新 B2。
 - `python tools/eval_icon_match.py` → 217/219（99.1%）
-- `python tools/ui_shot.py [--dark]` → 离屏渲染 **8 页**（改 UI 后必跑；深色兜底见下）
+- `python tools/ui_shot.py [--dark]` → 离屏渲染 **7 页**（改 UI 后必跑；深色兜底见下）
 - `python tools/echo_plan.py --list` → 库存概览（109 只 / 47 个名字 / COST `{1:55, 3:35, 4:19}`）
 - `python tools/patches/check_patches.py` → ok-script 4 处补丁在位（升级后先跑它）
+
+## 一.5、阶段三十做了什么（2026-11-13）
+
+**ok-ww 农场残留剥离**（用户口径："服务于声骸强化/评分用不上的都可以删；云游戏和本地两种模式都要能跑"）：
+- `assets/coco_annotations.json` 257 → **5** 个特征（`echo_enhance_confirm` / `echo_dropped` / `echo_not_dropped` /
+  `echo_locked` / `echo_not_locked`），`assets/images/` 43 → **3** 张；角色/战斗/地图/BOSS/登录/庭院/月卡/声骸吸收融合模板全删。
+- `config.py` 删：月卡配置、`Game Hotkey`（8 个战斗键）、`monthly_card` 特征注册、`blur_area`、登录窗口类 `top_hwnd_class`、
+  自动启动游戏（`calculate_pc_exe_path`/`start_exe` 恒 False）、`links`/`about`/launcher 日志、`scene`、`trigger_tasks`。
+- 删 `ui/hotkey_tab.py`（8 页 → 7 页）、`src/task/MouseResetTask.py`、`src/scene/`；`BaseEchoTask` 去掉 `key_config`/`game_lang`。
+- 云/本地两模式保留：`apply_run_mode` 的 exe/hwnd_class/title/Pynput/BitBlt/ratio 全部未动，只把 `start_exe` 固定为 False。
+- **代码层面本来就没有自动刷图/刷声骸任务**（阶段一已删 `combat/`、`char/`、YOLO），这次清的是它的模板资产、配置与 UI 入口。
+
+**Lv5/Lv10 首条判定**（用户口径：语义 1 + 可选低权重门槛）：
+- `judge_echo` tier ≤ 2 改为**只看 `stats[0]`**：首条在 `_core_first` 内即过（旧实现 `any(...)` 允许第二条兜底）。
+- 新增按套装可选的 `_low_first`：`{"below": 权重上限, "top": 前 N 档}`；首条权重 ≤ below 时必须位于该词条档位表前 N 档。
+  预置给 `轻云出月`（0.1 / 前 2 档，四个专伤占位键必须 11.6 或 10.9）；其余套装不配置即不受影响。
+  「套装配置」页可勾选启用并调阈值/档位名次；保存时保留 `_icon`/`_echoes`/`_low_first`。
+- 新增单测：`test_judge_rules` 5 例（只认首条/低权重门槛/阈值可调/未配置不影响/轻云真实模板闭环）+ `test_echo_set_templates` 4 例（解析/默认关/非法配置/合法配置）。
+- **B2 分布需在素材机重跑**：首条改动会影响 tier ≤ 2 的未满级件，当前仓库无 `logs/eval_debug/`，未重跑。
+
 
 ## 二、阶段二十九做了什么（组合穷举）
 

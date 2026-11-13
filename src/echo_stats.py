@@ -131,6 +131,19 @@ def snap_to_tier(stat_name: str, raw_value: float) -> float | None:
     return min(tiers, key=lambda t: abs(t - raw_value))
 
 
+def tier_index(stat_name: str, raw_value: float) -> int | None:
+    """该数值在档位表中的**名次**(0 = 最高档, 越大越差); 词条未知返回 None。
+
+    用于"低权重首条必须前 N 档"这类按档位名次的判定(`_low_first`), 与
+    `snap_to_tier` 共用同一张降序档位表, 不另建一套阈值。
+    """
+    tiers = _TIERS.get(stat_name)
+    if not tiers:
+        return None
+    tv = min(tiers, key=lambda t: abs(t - raw_value))
+    return tiers.index(tv)
+
+
 def tier_percentile(stat_name: str, raw_value: float) -> float | None:
     """该档位值在词条分布中的**分位**(0~100, 即"排在前 X%") = 概率表里 >= 该档的概率之和。
 

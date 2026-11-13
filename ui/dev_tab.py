@@ -117,7 +117,8 @@ class DevTab(QWidget):
         card.setTitle("模板匹配特征")
         body = _card_body(card)
         caption = CaptionLabel()
-        caption.setText("来源 assets/coco_annotations.json(ok-script 特征库), 图片在 assets/images/")
+        caption.setText("来源 assets/coco_annotations.json(ok-script 特征库, 仅保留声骸强化/评估用到的 5 个特征), "
+                        "图片在 assets/images/")
         caption.setWordWrap(True)
         body.addWidget(caption)
 

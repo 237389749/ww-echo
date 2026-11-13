@@ -288,7 +288,7 @@ def sync_templates(data: dict, path: str) -> list[str]:
     """把生成物同步进 `echo_set_templates.json`（**策略层**）。
 
     只补/更新 `_echoes` 与 `_icon`；缺失的套装用 `DEFAULT_WEIGHTS` 播种
-    （与旧 `tools/parse_wutherin_echoes.py` 同口径）；**绝不改已有权重与 `_core_first`**。
+    （与旧 `tools/parse_wutherin_echoes.py` 同口径）；**绝不改已有权重、`_core_first`、`_low_first`**。
     """
     from src.echo_stats import DEFAULT_WEIGHTS
     with open(path, encoding="utf-8") as f:

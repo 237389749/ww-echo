@@ -50,9 +50,7 @@ class StubGlobalConfig:
 
     def get_config(self, key):
         k = str(getattr(key, "name", key))
-        return self._cfgs.setdefault(
-            k, StubCfg({"Check Monthly Card": True, "Monthly Card Time": 4,
-                        "Mute Game while in Background": False}))
+        return self._cfgs.setdefault(k, StubCfg({"Mute Game while in Background": False}))
 
 
 class StubDeviceManager:

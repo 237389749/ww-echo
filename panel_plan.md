@@ -105,7 +105,7 @@ UI 只做**输入装配 + 展示**；面板聚合/穷举/排序全在 `src/echo_
 | 2 | `src/echo_combos.py` | 15 项：互异 / ΣCOST≤12 / 3+2 只数 / 4C 归属 / **同名重复不计套装数** / Top-K / 取消 |
 | 2.5 | `src/echo_inventory.py` | 12 项：主属性固定 vs 百分比 / REPORT 与 JSON 两条路径 / 真实 109 只冒烟 |
 | 3 | `tools/echo_plan.py` | 109 只真实数据 3+2：候选 22 只、**3330 组 0.075 s** |
-| 3.5 | `.scratch/plan_page_shot.py` | 浅/深两版"已导入+已排名"走查图（`tools/ui_shot.py` 覆盖空状态，8 页） |
+| 3.5 | `.scratch/plan_page_shot.py` | 浅/深两版"已导入+已排名"走查图（`tools/ui_shot.py` 覆盖空状态，7 页） |
 | — | `ui/plan_tab.py` | 导航第 2 页「组合穷举」；输入装配 + 后台线程 + 排名表 + 明细 + CSV |
 
 **实现时定的口径（与本文档原文的差异，均已按用户契约/实测数据定案）**

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QHeaderView, QTableWidg
 
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, FluentIcon as FIF, InfoBar,
                             InfoBarPosition, MessageBox, PushButton, PushSettingCard, SettingCard,
-                            SettingCardGroup, TableWidget, TitleLabel)
+                            SettingCardGroup, SpinBox, TableWidget, TitleLabel)
 
 from src.echo_set_templates import STAT_ORDER
 from src.echo_stats import DEFAULT_WEIGHTS
@@ -39,7 +39,8 @@ class SetConfigTab(QWidget):
         title = TitleLabel()
         title.setText("套装配置")
         sub = CaptionLabel()
-        sub.setText("每个套装独立配置有效词条与权重; 勾选=有效(自动带出通用默认权重), 「首核」= Lv5 首条必须命中的核心词条。")
+        sub.setText("每个套装独立配置有效词条与权重; 勾选=有效(自动带出通用默认权重), "
+                    "「首核」= Lv5/Lv10 首条必须命中的核心词条; 低权重门槛按套装可选。")
         layout.addWidget(title)
         layout.addWidget(sub)
 
@@ -81,7 +82,7 @@ class SetConfigTab(QWidget):
         self.table.setColumnWidth(2, 130)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
         self.table.setColumnWidth(3, 60)
-        self.table.setToolTip("首核 = Lv5 首条必须命中的核心词条; 全部勾选(=缺省)表示所有有效词条都可作首条")
+        self.table.setToolTip("首核 = Lv5/Lv10 首条必须命中的核心词条; 全部勾选(=缺省)表示所有有效词条都可作首条")
         self.table.verticalHeader().setVisible(False)
         self.table.setBorderVisible(True)
         self.table.setBorderRadius(8)
@@ -110,6 +111,32 @@ class SetConfigTab(QWidget):
 
         layout.addWidget(self.table, 1)
 
+        # ── 首条判定(可选, 按套装): 低权重首条门槛 ──
+        g_first = SettingCardGroup("首条判定 (Lv5 / Lv10)", self)
+        self.low_first_card = SettingCard(
+            FIF.FILTER, "低权重首条门槛",
+            "首条权重 ≤ 阈值时, 必须达到该词条的前 N 档(默认关; 典型只给轻云出月这类占位键套装启用)", self)
+        self.low_first_enable = CheckBox("启用")
+        self.low_first_enable.stateChanged.connect(self._on_low_first_enabled)
+        self.low_first_below = DoubleSpinBox()
+        self.low_first_below.setRange(0.0, 1.0)
+        self.low_first_below.setSingleStep(0.05)
+        self.low_first_below.setDecimals(2)
+        self.low_first_below.setValue(0.10)
+        self.low_first_below.setFixedWidth(95)
+        self.low_first_top = SpinBox()
+        self.low_first_top.setRange(1, 8)
+        self.low_first_top.setValue(2)
+        self.low_first_top.setFixedWidth(80)
+        for w in (self.low_first_enable, CaptionLabel("权重 ≤"), self.low_first_below,
+                  CaptionLabel("前"), self.low_first_top, CaptionLabel("档")):
+            self.low_first_card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)
+            self.low_first_card.hBoxLayout.addSpacing(6)
+        self.low_first_card.hBoxLayout.addSpacing(10)
+        g_first.addSettingCard(self.low_first_card)
+        self._on_low_first_enabled()
+        layout.addWidget(g_first)
+
         # ── 底部: 规则说明(可折叠) + JSON 路径 ──
         self.rules_toggle = PushButton(FIF.INFO, "权重与两条线怎么用")
         self.rules_toggle.clicked.connect(self._toggle_rules)
@@ -124,7 +151,9 @@ class SetConfigTab(QWidget):
                 "(B 只看该套装自己的非零权重: 通用模式才是 6.5/11.5/17.5, 套装模式常见 17.5~20.5; 用低权重「占位键」压 B 是刻意取向)",
                 "满级: A≥B 且 总分≥A → 达标; 总分≥B → 保留; 未过线但「锁 N 刷 M 后达标概率≥60%」 → 建议重铸; 否则不合格",
                 "未满级: 总分≥B(满级) 或 (前瞻概率≥60% 且 总分≥A) → 建议强化; 否则不建议强化",
-                "「首核」只影响 Lv5/Lv10 的结构判定(有首核词条即过, 不限分); 全部勾选表示缺省=所有有效词条。",
+                "「首核」只影响 Lv5/Lv10 的结构判定: 只看首条是否在首核内(不限分)。",
+                "「低权重首条门槛」(可选): 首条权重 ≤ 阈值时, 必须刷到该词条档位表的前 N 档才继续 —— "
+                "只给带 0.1 占位键的套装(如轻云出月)启用。",
                 f"存档文件: {TEMPLATE_PATH}(改完记得点「保存当前套装」)"):
             lbl = CaptionLabel()
             lbl.setText(text)
@@ -192,7 +221,27 @@ class SetConfigTab(QWidget):
             else:
                 cb_core.setChecked(name in core)
             cb_core.blockSignals(False)
+        self._load_low_first(stats.get('_low_first') if isinstance(stats, dict) else None)
         self._loading = False
+
+    def _load_low_first(self, low):
+        """低权重首条门槛 → 控件(未配置 = 关闭, 阈值/档位回到默认 0.10 / 2)。"""
+        enabled = isinstance(low, dict)
+        self.low_first_enable.blockSignals(True)
+        self.low_first_enable.setChecked(enabled)
+        self.low_first_enable.blockSignals(False)
+        self.low_first_below.blockSignals(True)
+        self.low_first_below.setValue(float(low.get('below', 0.10)) if enabled else 0.10)
+        self.low_first_below.blockSignals(False)
+        self.low_first_top.blockSignals(True)
+        self.low_first_top.setValue(int(low.get('top', 2)) if enabled else 2)
+        self.low_first_top.blockSignals(False)
+        self._on_low_first_enabled()
+
+    def _on_low_first_enabled(self, *_):
+        on = self.low_first_enable.isChecked()
+        self.low_first_below.setEnabled(on)
+        self.low_first_top.setEnabled(on)
 
     # ── UI → 数据 ──
     def _on_check(self, row, state):
@@ -240,10 +289,17 @@ class SetConfigTab(QWidget):
                 if self.table.cellWidget(row, 3).isChecked() and ALL_STATS[row] in stats]
         if core and len(core) < len(stats):
             stats['_core_first'] = core
-        # 透传声骸清单 _echoes(4c/3c/1c), 防止 UI 保存覆盖时丢失
+        # 低权重首条门槛: 仅在勾选「启用」时写入; 否则不写字段(默认关闭)
+        if self.low_first_enable.isChecked():
+            stats['_low_first'] = {'below': round(self.low_first_below.value(), 2),
+                                   'top': int(self.low_first_top.value())}
+        # 透传声骸清单 _echoes 与图标名 _icon, 防止 UI 保存覆盖时丢失
         cur = self._read().get("sets", {}).get(self.set_combo.currentText(), {})
-        if isinstance(cur, dict) and isinstance(cur.get('_echoes'), dict):
-            stats['_echoes'] = cur['_echoes']
+        if isinstance(cur, dict):
+            if isinstance(cur.get('_echoes'), dict):
+                stats['_echoes'] = cur['_echoes']
+            if cur.get('_icon'):
+                stats['_icon'] = cur['_icon']
         return stats
 
     def _save(self):
@@ -266,10 +322,12 @@ class SetConfigTab(QWidget):
             self._log(f"自动修正 {fixed} 处不一致 (勾选与权重)")
 
         data = self._read()
-        data["sets"][name] = self._collect()
+        new_stats = self._collect()
+        data["sets"][name] = new_stats
         self._write(data)
         self.saved.emit()
-        self._info(True, "已保存", f"{name}: {len(self._collect())} 个有效词条", self)
+        n_valid = sum(1 for k in new_stats if not k.startswith('_'))
+        self._info(True, "已保存", f"{name}: {n_valid} 个有效词条", self)
 
     def _log(self, msg):
         """简单的控制台日志。"""

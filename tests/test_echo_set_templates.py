@@ -143,5 +143,31 @@ class TestCoreFirstFallback(unittest.TestCase):
         self.assertIsNone(T.get_set_core_first("通用"))
 
 
+class TestLowFirst(unittest.TestCase):
+    """低权重首条门槛 `_low_first`: **按套装可选** —— 只有轻云出月这类带 0.1 占位键的套装需要。"""
+
+    def test_light_cloud_has_gate(self):
+        self.assertEqual(T.get_set_low_first("轻云出月"), {"below": 0.1, "top": 2})
+
+    def test_other_sets_default_off(self):
+        self.assertIsNone(T.get_set_low_first("凝夜白霜"))
+        self.assertIsNone(T.get_set_low_first("通用"))
+        self.assertIsNone(T.get_set_low_first("不存在的套装"))
+
+    def test_invalid_config_is_ignored(self):
+        cleaned = T._validate_and_filter({
+            "测试套": {"暴击": 1.0, "_low_first": {"below": "x", "top": 2}},
+            "测试套2": {"暴击": 1.0, "_low_first": {"below": 0.1, "top": 0}},
+        })
+        self.assertIsNone(cleaned["测试套"]["low_first"])
+        self.assertIsNone(cleaned["测试套2"]["low_first"])
+
+    def test_valid_config_is_parsed(self):
+        cleaned = T._validate_and_filter({
+            "测试套": {"暴击": 1.0, "_low_first": {"below": 0.25, "top": 3}},
+        })
+        self.assertEqual(cleaned["测试套"]["low_first"], {"below": 0.25, "top": 3})
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -108,7 +108,7 @@ class TestJudgeFiveGrades(unittest.TestCase):
         self.assertNotEqual(v, 'hold')
 
     def test_tier_le_2_is_structural(self):
-        """Lv5/Lv10 → 结构判定(有首核即"待强化"), 且文案与其余档统一为"不合格"。"""
+        """Lv5/Lv10 → 结构判定(首条在首核内即"建议强化"), 且文案与其余档统一为"不建议强化"。"""
         t = _task()
         with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET), \
              patch('src.task.EnhanceEchoTask.get_set_core_first', return_value=['暴击']):
@@ -116,6 +116,64 @@ class TestJudgeFiveGrades(unittest.TestCase):
             (v2, cn2), _, _ = t.judge_echo(SET_NAME, 2, 0.0, [('生命', 320), ('防御', 20)])
         self.assertEqual((v1, cn1), ('pending', '建议强化'))
         self.assertEqual((v2, cn2), ('fail', '不建议强化'))
+
+    def test_tier_le_2_only_checks_first_entry(self):
+        """语义 1: 只看 stats[0] —— 首条无效时, 第二条是核心词条也不兜底(旧 any 语义会过)。"""
+        t = _task()
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET), \
+             patch('src.task.EnhanceEchoTask.get_set_core_first', return_value=['暴击']):
+            (v, cn), _, _ = t.judge_echo(SET_NAME, 2, 12.0, [('生命', 320), ('暴击', 8.7)])
+        self.assertEqual((v, cn), ('fail', '不建议强化'))
+
+    def test_low_first_gate_requires_top_tiers(self):
+        """低权重首条: 权重 ≤ below 时, 必须落在该词条档位表的前 top 档。"""
+        weights = dict(SET, **{'普攻伤害加成': 0.1})
+        t = _task()
+        low = {'below': 0.1, 'top': 2}
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=weights), \
+             patch('src.task.EnhanceEchoTask.get_set_core_first', return_value=['暴击']), \
+             patch('src.task.EnhanceEchoTask.get_set_low_first', return_value=low):
+            top = t.judge_echo(SET_NAME, 1, 0.0, [('普攻伤害加成', 11.6)])[0][0]
+            mid = t.judge_echo(SET_NAME, 1, 0.0, [('普攻伤害加成', 10.9)])[0][0]
+            low_tier = t.judge_echo(SET_NAME, 1, 0.0, [('普攻伤害加成', 10.1)])[0][0]
+        self.assertEqual((top, mid, low_tier), ('pending', 'pending', 'fail'))
+
+    def test_low_first_gate_threshold_is_adjustable(self):
+        """阈值可调: below=0.25 时, 0.25 的小攻击也受"前 2 档"约束; below=0.10 时它走首核。"""
+        t = _task()
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET), \
+             patch('src.task.EnhanceEchoTask.get_set_core_first', return_value=['攻击']):
+            with patch('src.task.EnhanceEchoTask.get_set_low_first', return_value={'below': 0.25, 'top': 2}):
+                gated_low = t.judge_echo(SET_NAME, 1, 0.0, [('攻击', 40)])[0][0]
+                gated_top = t.judge_echo(SET_NAME, 1, 0.0, [('攻击', 60)])[0][0]
+            with patch('src.task.EnhanceEchoTask.get_set_low_first', return_value={'below': 0.10, 'top': 2}):
+                ungated_low = t.judge_echo(SET_NAME, 1, 0.0, [('攻击', 40)])[0][0]
+        self.assertEqual((gated_low, gated_top, ungated_low), ('fail', 'pending', 'pending'))
+
+    def test_low_first_absent_keeps_old_behavior(self):
+        """未配置 _low_first 的套装不受影响: 低权重核心词条仍按"首核"直接过。"""
+        t = _task()
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET), \
+             patch('src.task.EnhanceEchoTask.get_set_core_first', return_value=['攻击']), \
+             patch('src.task.EnhanceEchoTask.get_set_low_first', return_value=None):
+            (v, _), _, _ = t.judge_echo(SET_NAME, 1, 0.0, [('攻击', 30)])
+        self.assertEqual(v, 'pending')
+
+
+class TestLowFirstRealTemplate(unittest.TestCase):
+    """轻云出月的真实模板: `_low_first = {below: 0.1, top: 2}`（不 mock 模板，防配置被改坏）。"""
+
+    def test_light_cloud_gate(self):
+        from src.echo_set_templates import get_set_low_first
+        if get_set_low_first('轻云出月') is None:
+            self.skipTest('轻云出月未配置 _low_first')
+        t = _task()
+        # 0.1 占位键: 前 2 档(11.6/10.9)过; 第 3 档(10.1)不过
+        v_top = t.judge_echo('轻云出月', 1, 0.0, [('普攻伤害加成', 11.6)])[0][0]
+        v_low = t.judge_echo('轻云出月', 1, 0.0, [('普攻伤害加成', 10.1)])[0][0]
+        # 0.25 的小攻击在首核内, 且 0.25 > below → 不受门槛约束(任意档位)
+        v_core = t.judge_echo('轻云出月', 1, 0.0, [('攻击', 30)])[0][0]
+        self.assertEqual((v_top, v_low, v_core), ('pending', 'fail', 'pending'))
 
 
 class TestReforgePlan(unittest.TestCase):

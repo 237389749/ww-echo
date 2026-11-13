@@ -1454,3 +1454,56 @@ Qt 日志与报告 HTML 不受此限。
 **文档同步**: `docs/BASELINE.md`(B2 期望值 + 3.14 实测记录 + 环境版本 + B1 172 项)、`eval_rules.md` §8(六档表 + 逐套装 + 归因段)、
 `handoff.md`(基线行)、`CLAUDE.md`(真实数据验收的分布 + "CLI 输出要 GBK 安全"这条坑)。`tests/test_doc_claims.py` 不涉及分布数字, 无需改动;
 新增的 `tests/test_gbk_output.py` 是这一类的守卫。
+
+## 阶段三十: 剥离 ok-ww 农场残留 + Lv5/Lv10 首条低权重门槛 (2026-11-13)
+
+**动机**: 用户要求把"服务于声骸强化/评分用不上"的 ok-ww 残留全部删掉（自动刷图/月卡/刷声骸等），
+因为自动刷图已开始出现小规模短期封号；同时补一条轻云出月这类"多词条/低权重占位键"套装的首条规则。
+**结论先说**: 代码层面**本来就没有**自动刷图/刷声骸任务（阶段一已删 `combat/`、`char/`、YOLO、15+ 战斗任务），
+这次清掉的是它们的**模板资产、配置项与 UI 入口**；强化/评估本身仍是模拟键鼠，**不因剥离而变成"安全"**，
+README 已加"安全边界"说明。
+
+### 一、ok-ww 残留剥离（云/本地两模式均保留）
+
+- **模板库**: `assets/coco_annotations.json` 257 → **5** 个特征
+  （`echo_enhance_confirm` / `echo_dropped` / `echo_not_dropped` / `echo_locked` / `echo_not_locked`）；
+  `assets/images/` 43 → **3** 张（`1.png` / `33.png` / `34.png`）。删除的角色/战斗/地图/BOSS/登录/庭院/月卡/
+  声骸吸收融合模板**代码从未引用**，属 ok-ww 的农场能力资产。
+- **`config.py`**: 删月卡 `Monthly Card Config`、游戏内技能键 `Game Hotkey`（8 个战斗键）、
+  `vcenter/hcenter_features=['monthly_card']`、`blur_area`、登录窗口类 `top_hwnd_class`、
+  自动启动游戏（`calculate_pc_exe_path` + `start_exe` 恒 False）、`links`/`about`/launcher 日志、`scene`、`trigger_tasks`。
+- **UI**: 删 `ui/hotkey_tab.py`（导航 8 → 7 页）与设备设置里的月卡开关/小时；`BaseEchoTask` 去掉 `key_config`/`game_lang`。
+- **任务/场景**: 删 `src/task/MouseResetTask.py`（ok-ww 防鼠标漂移 TriggerTask，本项目不需要）与 `src/scene/`（空占位）。
+- **两种运行模式**: `apply_run_mode` 的 local（exe/hwnd_class/PostMessage/WGC）与 cloud（title 正则/Pynput/BitBlt/ratio=None）
+  全部未动；只把 `start_exe` 固定 False（不自动拉起游戏），启动前需手动进入背包声骸列表。
+- **验证**: `apply_run_mode` 两模式逐键打印正确；`FeatureSet.read_from_json` 在 1920x1080 下读出 5 个特征、无异常；
+  `tools/ui_shot.py` 7 页正常；`python -m unittest discover -s tests` **177 项 / OK (skipped=2)**（无素材）。
+
+### 二、Lv5/Lv10 首条判定（语义 1 + 可选低权重门槛）
+
+- **只认首条**: `judge_echo` tier ≤ 2 改为只看 `stats[0]` —— 首条在 `_core_first` 内即过；
+  旧实现 `any(n in core ...)` 允许第二条兜底（UI 文案一直写的是"首条必须命中"，代码与文案不一致）。
+- **低权重门槛（按套装可选、默认关）**: 模板新增 `_low_first: {"below": 权重上限, "top": 前 N 档}`；
+  首条权重 ≤ below 时，必须落在该词条档位表的前 N 档才过。**预置给轻云出月**（`below=0.1, top=2`：
+  四个 0.1 专伤占位键必须 11.6 / 10.9 才算数）；其余套装不配置即完全不受影响。
+- **可调**: 「套装配置」页新增「低权重首条门槛」卡片（启用勾选 + 阈值 + 档位名次）；保存时保留 `_icon`/`_echoes`/`_low_first`
+  （顺带修了旧 `_collect` 会丢 `_icon` 的问题）。
+- **数学位置**: 只影响 Lv5/Lv10 结构判定，不改 A/B 两线、不改评分、不改满级判定。
+- **新增单测 9 项**: `test_judge_rules`（只认首条 / 低权重前 N 档 / 阈值可调 / 未配置保持旧行为 / 轻云真实模板闭环）+
+  `test_echo_set_templates`（轻云配置 / 其余默认关 / 非法配置忽略 / 合法配置解析）。
+- **⚠ 基线影响**: 首条改动会影响 tier ≤ 2 的未满级件 → B2 的「建议强化/不建议强化」可能变化；
+  当前仓库没有 `logs/eval_debug/`，未重跑。`eval_rules.md` §8 / `docs/BASELINE.md` B2 已标注"需在素材机重跑后更新"。
+
+### 三、依赖版本限定复核（用户问"有没有解决"）
+
+- **已解决**: ok-script 1.0.160 的 `Requires-Python >=3.11`（1.0.159 是 `==3.12.*`）；opencv 4.14 的 `numpy>=2`
+  与 openvino 2026.0.0 的 `numpy<2.5` 兼容。
+- **2026-11-13 实测**: 全新 Python **3.13.16** venv `pip install -r requirements.txt` 一次成功
+  （ok-script 1.0.160 / opencv 4.14.0.94 / numpy 2.4.6 / openvino 2026.0.0 / onnxocr 0.0.18 / PySide6 6.12 / qfluentwidgets 1.11.3）；
+  4 处补丁 `check_patches.py` 8 处标记在位。
+- **仍存在的风险（不是安装阻塞）**: ① ok-script 仍钉在 1.0.160（最新 3.0.4，升级要重做补丁与 API 适配）；
+  ② `PySide6`/`PySide6-Fluent-Widgets` 等传递依赖**未锁版本**，未来大版本可能破坏 UI；③ `docs/BASELINE.md` 的
+  B1 计数在"有无 `logs/eval_debug/`"两种环境下不同（177 / 181），已在文档写清。
+
+**文档同步**: README（安全边界/7 页/低权重规则/资产数量）、CLAUDE.md（7 页/MouseReset 删除/`_low_first`/177 项）、
+eval_rules.md（§2 首条规则/§7 占位键/§8 B2 待重跑）、docs/BASELINE.md（B1/B2/B4 + 3.13 实测）、handoff.md、panel_plan.md。

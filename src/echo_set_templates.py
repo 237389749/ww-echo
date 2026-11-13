@@ -7,7 +7,8 @@ JSON 格式 (assets/echo_set_templates.json):
   "sets": {
     "套装名": {
       "词条名": 权重, ...,
-      "_core_first": ["词条名", ...]   // 可选: Lv5 首条必须命中的核心词条; 缺省=全部有效词条(权重>0)
+      "_core_first": ["词条名", ...],   // 可选: Lv5/Lv10 首条必须命中的核心词条; 缺省=全部有效词条(权重>0)
+      "_low_first": {"below": 0.10, "top": 2}  // 可选: 低权重首条例外(见下)
     },
     ...
   }
@@ -16,7 +17,11 @@ JSON 格式 (assets/echo_set_templates.json):
 每个套装的权重字典同时定义:
 1. 预期有效词条列表 (字典的键)
 2. 各词条的独立权重 (字典的值, 渐进式评分时使用)
-3. _core_first(可选): 首条核心词条集合——Lv5/10 结构判定只认这些词条; 强化与评估配置通用
+3. _core_first(可选): 首条核心词条集合——Lv5/10 结构判定只看**首条**(stats[0])是否在其中;
+   强化与评估配置通用。缺省 = 该套装全部权重>0 的词条。
+4. _low_first(可选): **低权重首条门槛**——首条权重 ≤ below 时, 必须落在该词条档位表的
+   前 top 档(降序)才算过; 否则丢弃。仅少数"带 0.1 占位键"的套装(如轻云出月)需要,
+   其余套装不配该项即完全不受影响。below 的单位与权重相同, top 为 1 起的名次。
 """
 
 import json
@@ -40,8 +45,10 @@ STAT_ORDER: tuple[str, ...] = (
 )
 VALID_STAT_NAMES: frozenset[str] = frozenset(STAT_ORDER)
 
-# 套装模板特殊键: Lv5 首条核心词条集合(可选, 缺省=全部有效词条)
+# 套装模板特殊键: Lv5/Lv10 首条核心词条集合(可选, 缺省=全部有效词条)
 _CORE_FIRST = '_core_first'
+# 套装模板特殊键: 低权重首条门槛 {"below": 权重上限, "top": 要求前 N 档}(可选, 默认关闭)
+_LOW_FIRST = '_low_first'
 # 套装模板特殊键: 该套装包含的声骸清单 {"4c": [名...], "3c": [...], "1c": [...]}
 _ECHOES = '_echoes'
 _COST_KEYS = ('4c', '3c', '1c')
@@ -87,6 +94,7 @@ def _get_template_path() -> str:
 def _validate_and_filter(sets: dict) -> dict[str, dict]:
     """校验并过滤套装模板: 去除非白名单词条, 去重, 报告无效条目。
     返回 {套装名: {'weights': {词条:权重}, 'core_first': [词条,...]|None,
+                    'low_first': {'below': float, 'top': int}|None,
                     'echoes': {'4c': [...], '3c': [...], '1c': [...]}}}。"""
     cleaned: dict[str, dict] = {}
     total_dropped = 0
@@ -98,11 +106,26 @@ def _validate_and_filter(sets: dict) -> dict[str, dict]:
 
         valid_stats: dict[str, float] = {}
         core_first = None
+        low_first = None
         icon = ''
         echoes = {k: [] for k in _COST_KEYS}
         for stat_name, weight in stats.items():
             if stat_name == _CORE_FIRST:
                 core_first = [s for s in weight if s in VALID_STAT_NAMES]
+                continue
+            if stat_name == _LOW_FIRST:
+                try:
+                    below = float(weight['below'])
+                    top = int(weight['top'])
+                except (TypeError, KeyError, ValueError):
+                    logger.warning(f"[模板校验] 套装 '{set_name}' 的 _low_first 格式错误(需 "
+                                   f"{{'below': 数值, 'top': 整数}}): {weight!r}, 已忽略")
+                    continue
+                if below < 0 or top < 1:
+                    logger.warning(f"[模板校验] 套装 '{set_name}' 的 _low_first 取值越界"
+                                   f"(below={below}, top={top}), 已忽略")
+                    continue
+                low_first = {'below': below, 'top': top}
                 continue
             if stat_name == _ECHOES:
                 if isinstance(weight, dict):
@@ -127,7 +150,7 @@ def _validate_and_filter(sets: dict) -> dict[str, dict]:
             valid_stats[stat_name] = float(weight)
 
         cleaned[set_name] = {'weights': valid_stats, 'core_first': core_first,
-                             'echoes': echoes, 'icon': icon}
+                             'low_first': low_first, 'echoes': echoes, 'icon': icon}
 
     if total_dropped:
         logger.warning(
@@ -374,7 +397,7 @@ def get_set_weights(set_name: str | None) -> dict[str, float] | None:
 
 def get_set_core_first(set_name: str | None) -> list[str] | None:
     """
-    获取指定套装的 Lv5 首条核心词条集合(_core_first)。
+    获取指定套装的 Lv5/Lv10 首条核心词条集合(_core_first)。
     缺省(未配置) = 该套装**权重 > 0** 的词条(即"有效词条"); 通用模式返回 None。
 
     注: 以前的兜底是 `list(info["weights"].keys())`, 而模板的 weights 字典包含全部 13 个键
@@ -390,3 +413,19 @@ def get_set_core_first(set_name: str | None) -> list[str] | None:
     if core:
         return list(core)
     return [k for k, w in info["weights"].items() if w > 0]
+
+
+def get_set_low_first(set_name: str | None) -> dict | None:
+    """低权重首条门槛 `{"below": 权重上限, "top": 要求前 N 档}`; 未配置/通用模式返回 None。
+
+    这是**按套装可选的**特殊规则: 只有像轻云出月这样带 0.1 占位键的套装才需要
+    （首条是低权重词条时, 必须刷到高档位才值得继续）。默认不启用, 不影响其余套装。
+    """
+    if not set_name or set_name == "通用":
+        return None
+    templates = load_templates()
+    info = templates.get(set_name)
+    if not info:
+        return None
+    low = info.get("low_first")
+    return dict(low) if isinstance(low, dict) else None

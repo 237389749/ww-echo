@@ -10,7 +10,7 @@
 | 项 | 值 | 说明 |
 |---|---|---|
 | OS | Windows 10/11 | 抓屏/键鼠依赖 Win32 |
-| Python | **3.11+**（推荐 3.12；3.14 已实测） | ok-script 1.0.160 起 `Requires-Python>=3.11`；**1.0.159 钉死 3.12.\***，所以旧 pin 在新解释器上装不上。3.14 实测口径：Python **3.14.4** + ok-script 1.0.160 + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`） |
+| Python | **3.11+**（推荐 3.12；**3.13 / 3.14 已实测**） | ok-script 1.0.160 起 `Requires-Python>=3.11`；**1.0.159 钉死 3.12.\***，所以旧 pin 在新解释器上装不上。3.14 实测口径：Python **3.14.4** + ok-script 1.0.160 + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`）；3.13 于 2026-11-13 用全新 venv 复验（Python 3.13.16 + 同一套 requirements） |
 | 依赖 | `pip install -r requirements.txt` | `ok-script==1.0.160` / `opencv-python==4.14.0.94`（numpy 约束无 `<2.3` 上限）/ `openvino==2026.0.0` 等 5 个顶层包（传递依赖未锁版本） |
 | ok-script 补丁 | 4 处，见 `tools/patches/` | **pip 安装/升级会丢失**，装完先跑 `python tools/patches/apply_patches.py`，再用 `check_patches.py` 自检 |
 | 显示器/分辨率 | 任何 16:9（离线工具不需要游戏） | 真机评估需要游戏在"背包声骸列表"界面 |
@@ -26,10 +26,10 @@ python tools/patches/check_patches.py              # 4 处补丁是否在位（�
 
 | # | 命令 | 期望输出 | 依赖 |
 |---|---|---|---|
-| B1 | `python -m unittest discover -s tests` | **172 项**（`Ran 172 tests` / `OK (skipped=1)`；素材类用例在缺数据集时 skip） | 仅代码 |
-| B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物（不是 `_core_first` 造成的），复现方式见 `eval_rules.md` §8 开头 | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
+| B1 | `python -m unittest discover -s tests` | **177 项**（`Ran 177 tests` / `OK (skipped=2)`；无 `logs/eval_debug/` 时 `TestRealDataset` 整类跳过；素材齐全时为 **181 项 / skipped=1**） | 仅代码 |
+| B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
 | B3 | `python tools/eval_icon_match.py` | **217/219**（99.1%）；s1 中位 ≈0.894；名字候选一致 196/211 | 同上 |
-| B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **8 页** PNG，无异常 | 仅代码 |
+| B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **7 页** PNG，无异常 | 仅代码 |
 | B5 | `python tools/echo_plan.py --list` | 库存 **109 只 / 47 个名字**；COST `{1:55, 3:35, 4:19}`（满级数按输出核对） | 同 B2 |
 | B6 | `python tools/echo_plan.py --list-profiles` | **4 个**预设：爱弥斯 / 绯雪 / 西格莉卡 / 仇远 | 仅 `assets/char_profiles.json` |
 
@@ -41,6 +41,10 @@ python tools/patches/check_patches.py              # 4 处补丁是否在位（�
 > **实测记录**：2026-10-29 晚在 Python 3.14.4（`..\.venv314`）上 **B1~B6 六条全跑过**：
 > B1 `Ran 172 / OK (skipped=1)`、B2 见上表、B3 `217/219 (99.1%)`、B4 8 页、B5 `109 只 / 47 名 / {1:55,3:35,4:19}`、B6 4 个预设。
 > 这些数字在此之前只有 3.12 的旧记录（"3.14 已实测"当时只做了静态核对 + `py_compile`）。
+> **2026-11-13 补充（本机 Python 3.13.16 新 venv）**：`pip install -r requirements.txt` 一次成功
+> （ok-script 1.0.160 / opencv 4.14.0.94 / numpy 2.4.6 / openvino 2026.0.0 / onnxocr 0.0.18 / PySide6 6.12 / qfluentwidgets 1.11.3），
+> B1 `Ran 177 / OK (skipped=2)`（无素材，`TestRealDataset` 整类跳过）、B4 7 页、补丁 `check_patches.py` 8 处标记在位。
+> 说明：3.12 的 `Requires-Python` 限制已由 ok-script 1.0.160 解除，Python 3.13 也能装。
 
 离线快速重放（不需要素材，只看当前权重下的判定）：
 

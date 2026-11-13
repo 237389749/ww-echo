@@ -7,7 +7,7 @@
 - 反馈用 `InfoBar`(保存成功/需重启), 危险动作(重启)用 `MessageBox` 确认。
 
 行为与旧版保持一致: 运行模式写 QSettings("OK-Echo") 的 `run_mode`; 窗口/截图/交互直连 `og.device_manager`;
-**新增**: 主题切换、重启按钮; 并修掉旧版"后台静音 / 检查月卡 只读不写(等于装饰控件)"的问题 —— 现在改动即保存。
+后台静音写回 ok-script 的 basic_options。月卡/游戏内技能键等 ok-ww 农场相关设置已移除。
 """
 import os
 import subprocess
@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from qfluentwidgets import (CaptionLabel, ComboBox, FluentIcon as FIF, InfoBar, InfoBarPosition,
                             MessageBox, PushButton, PushSettingCard, SettingCard, SettingCardGroup,
-                            SingleDirectionScrollArea, SpinBox, StrongBodyLabel, SwitchSettingCard,
+                            SingleDirectionScrollArea, StrongBodyLabel, SwitchSettingCard,
                             TitleLabel, Theme)
 
 from ok import og, Logger
@@ -126,7 +126,7 @@ class SettingsTab(QWidget):
         self._add_widget(self.interaction_card, self.interaction_combo)
 
         self.hotkey_card = SettingCard(
-            FIF.GAME, "启动 / 停止热键", "全局热键; 游戏内技能键在「热键设置」页配置", self.view)
+            FIF.GAME, "启动 / 停止热键", "由 ok-script 全局控制(游戏内技能键不参与本工具)", self.view)
         self.hotkey_label = StrongBodyLabel(); self.hotkey_label.setText("F9")
         self._add_widget(self.hotkey_card, self.hotkey_label)
         g.addSettingCards([self.capture_card, self.interaction_card, self.hotkey_card])
@@ -138,16 +138,7 @@ class SettingsTab(QWidget):
             FIF.MEGAPHONE, "后台静音", "任务运行时把游戏窗口静音(即 ok-script 的 Mute Game while in Background)",
             None, self.view)
         self.mute_card.checkedChanged.connect(self._save_mute)
-        self.monthly_card = SwitchSettingCard(
-            FIF.CERTIFICATE, "检查月卡", "启动任务前检查月卡弹窗, 避免打断", None, self.view)
-        self.monthly_card.checkedChanged.connect(self._save_monthly)
-        self.monthly_hour_card = SettingCard(
-            FIF.HISTORY, "月卡时间", "月卡弹窗出现的本机小时(0-23)", self.view)
-        self.monthly_hour = SpinBox()
-        self.monthly_hour.setRange(0, 23)
-        self.monthly_hour.valueChanged.connect(self._save_monthly)
-        self._add_widget(self.monthly_hour_card, self.monthly_hour)
-        g.addSettingCards([self.mute_card, self.monthly_card, self.monthly_hour_card])
+        g.addSettingCard(self.mute_card)
         return g
 
     def _group_appearance(self) -> SettingCardGroup:
@@ -218,16 +209,6 @@ class SettingsTab(QWidget):
     def _load_config(self):
         """读取引擎配置 → 控件。**阻断信号**: 否则 setValue 会立刻触发"保存"回写(无意义且有副作用)。"""
         try:
-            mc = self._global_config().get_config('Monthly Card Config')
-            for w in (self.monthly_card, self.monthly_hour):
-                w.blockSignals(True)
-            self.monthly_card.setValue(bool(mc.get('Check Monthly Card', False)))
-            self.monthly_hour.setValue(int(mc.get('Monthly Card Time', 4)))
-            for w in (self.monthly_card, self.monthly_hour):
-                w.blockSignals(False)
-        except Exception:
-            logger.debug("读取月卡配置失败", exc_info=True)
-        try:
             from ok.util.GlobalConfig import basic_options
             basic = self._global_config().get_config(basic_options)
             self.mute_card.blockSignals(True)
@@ -235,17 +216,6 @@ class SettingsTab(QWidget):
             self.mute_card.blockSignals(False)
         except Exception:
             logger.debug("读取静音配置失败", exc_info=True)
-
-    def _save_monthly(self, *_):
-        """旧版这两个控件只读不写(等于装饰); 现在改动即写回引擎配置。"""
-        try:
-            cfg = self._global_config().get_config('Monthly Card Config')
-            cfg['Check Monthly Card'] = self.monthly_card.isChecked()
-            cfg['Monthly Card Time'] = self.monthly_hour.value()
-            cfg.save_file()
-        except Exception as e:                                   # noqa: BLE001
-            InfoBar.error("保存失败", f"月卡设置: {e}", duration=4000,
-                          position=InfoBarPosition.TOP_RIGHT, parent=self)
 
     def _save_mute(self, checked: bool):
         try:

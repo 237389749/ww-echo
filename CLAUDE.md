@@ -19,7 +19,7 @@
 mainui.py                 唯一入口(PySide6); 启动先按 QSettings run_mode 调 apply_run_mode 再 OK(config)
                           (阶段二十四删除了 main.py/main_debug.py/run.py — 见下"阶段二十四要点")
 config.py                 全套 ok-script 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
-ui/                       Fluent 左导航 8 页(运行/组合穷举/设备设置/热键设置/套装配置/调试工具/开发者 + 底部关于);
+ui/                       Fluent 左导航 7 页(运行/组合穷举/设备设置/套装配置/调试工具/开发者 + 底部关于);
                           main_window=FluentWindow 外壳(尺寸记忆/主题/快捷键); 设备设置含运行模式开关(重启生效)
 ui/plan_tab.py            「组合穷举」页: 输入装配(缩放属性/模式/套装/4C 归属/裸面板+补正) + 后台线程穷举 + 排名表/CSV
 src/echo_panel.py         组合穷举**计算层**: 面板聚合(calculator 口径 基础值×(1+百分比)+固定值) + 加成区拆分 + 伤害
@@ -31,7 +31,7 @@ src/wuwa_data.py          官方配置表读取层: BinData(目录/zip, 两种�
 src/echo_icon_match.py    详情面板套装图标识别(灰度 ZNCC 模板匹配) — 名字消歧硬信号
 src/echo_score_sim.py     整只声骸分位: 按官方概率模拟"随机满级声骸"分数分布 → "击败 X%"
 src/task/EnhanceEchoTask.py  强化(run) + 评估(evaluate_only v2 遍历, 核心)
-src/task/BaseEchoTask.py  轻量基类(click 覆写/语言检测)
+src/task/BaseEchoTask.py  轻量基类(click 覆写; key_config/game_lang 等 ok-ww 残留已删)
 assets/echo_icons/        37 个套装图标(76x76, 文件名=套装名) — **全部来自客户端官方贴图**(见「官方静态数据层」)
 assets/echo_set_templates.json 套装配置存档
 assets/echo_probability.json   官方声骸副词条概率表(词条类型等概率 + 各档位概率, 见阶段十六)
@@ -40,7 +40,7 @@ docs/BASELINE.md          基线清单: 提交号 + 解释器/ok-script 版本 +
 tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 / 声骸名容错匹配 / 生成物与判据 / 文档数字自检
 tools/eval_icon_match.py  图标识别离线回归(用 logs/eval_debug 数据集, 无需开游戏)
 tools/echo_plan.py        声骸组合穷举 + 伤害排名的命令行入口(离线; `--list` 看库存)
-tools/ui_shot.py          离屏渲染 8 个页面出 PNG(桩件替代引擎, 改 UI 后的自检工具)
+tools/ui_shot.py          离屏渲染 7 个页面出 PNG(桩件替代引擎, 改 UI 后的自检工具)
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
 tools/patches/            ok-script 补丁的逐处规格 + `check_patches.py`(升级后自检)
 tools/analysis/           复现脚本入库区(约定: 文件头写"输入→输出→支撑哪条结论"; B2 分布/换权重重放在此)
@@ -50,7 +50,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 ## 界面(Fluent, 阶段二十六)
 
-- **外壳**: `ui/main_window.FluentWindow` + 左侧 `NavigationInterface`(运行/设备设置/热键设置/套装配置/调试工具/开发者 +
+- **外壳**: `ui/main_window.FluentWindow` + 左侧 `NavigationInterface`(运行/组合穷举/设备设置/套装配置/调试工具/开发者 +
   底部关于); 默认 1120x760、最小 940x620、**记住上次窗口几何与所在页面**(QSettings("OK-Echo","MainWindow"))。
 - **分组卡片**: 每页用 `SettingCardGroup` + `SettingCard`(图标+标题+一句话说明+控件右对齐)。控件放卡右侧的写法是
   Gallery 惯例: `card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)` + `addSpacing(16)`。
@@ -70,7 +70,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   用调色板画底 → 滚动页在深色下会"浅底 + 浅字"(看着发白)。所有滚动容器统一走 `ui/widgets.make_scroll_transparent`
   (viewport 透明 + `enableTransparentBackground`)。另外**不要在 `apply_theme` 里手动 unpolish/polish 整棵树**:
   库自身会全局重绘, 手动那套在构造期/离屏下会崩。
-- **自检工具**: `python tools/ui_shot.py [--dark] [--out 目录]` 离屏渲染 8 页 PNG(桩件替代引擎, 不需要游戏/显示器)。
+- **自检工具**: `python tools/ui_shot.py [--dark] [--out 目录]` 离屏渲染 7 页 PNG(桩件替代引擎, 不需要游戏/显示器)。
   改 UI 后先跑它看图 + `python -m unittest discover -s tests`, 再上真机。
   **`--dark` 的一个环境坑(已兜)**: 它原本靠"启动前把主题写进 QSettings, 让 `_init_theme` 读回"进深色; 受限沙箱/无注册表
   写权限时 `QSettings` 写不进去(读回 None) → **静默出浅色图**。现在 `show()` 后再显式 `apply_theme("DARK", remember=False)`
@@ -257,7 +257,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 | 文件 | 作用 |
 |---|---|
 | `src/wuwa_data.py` | `BinData`(目录/zip 自适应, 兼容 `[{Key,Value}]` 与 `{k:v}` 两种序列化) + `load_textmaps` + `parse_plan_bin`(管理方案 FlatBuffers 解码) + `read_version` |
-| `tools/gen_echo_data.py` | 生成器 → `assets/gamedata/echo_data.json`(37 套 / 229 声骸 / `plan` / `props` / `main_prop_names`); `--sync-templates` 把 `_echoes`/`_icon` 同步进策略文件(**不动权重/`_core_first`**) |
+| `tools/gen_echo_data.py` | 生成器 → `assets/gamedata/echo_data.json`(37 套 / 229 声骸 / `plan` / `props` / `main_prop_names`); `--sync-templates` 把 `_echoes`/`_icon` 同步进策略文件(**不动权重/`_core_first`/`_low_first`**) |
 | `assets/gamedata/echo_data.json` | 生成物: `sets{icon_asset,icon_file,fetter_ids,effects,echoes,plan}` + `echoes{cost,sets,base}` + `props` + `main_prop_names` |
 | `tests/test_gamedata.py` / `test_main_prop_check.py` / `test_echo_stats_consistency.py` | 生成物结构自洽 + 3.7 回归锚点 + COST/方案判定 + 档位↔概率一致性断言 |
 
@@ -328,7 +328,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 - **"某个套装值不值得练"是用户策略, 不做字段/系数**: 判定口径刻意保持"单套装视角"(只看该套装权重下的分数);
   用户若想排除不关心的套装, 用评估报告的「套装」下拉筛选(已实现)即可
 - 实测依据: `tools/offline_eval_report.py` 跑 `logs/eval_debug/20260911_110817`(109 只)
-- 评估/渐进判定(`judge_echo` 公共, **六档**): **Lv5/Lv10 = 结构判定**——存在"首条核心词条"(`_core_first`, 缺省=该套装**权重>0**的词条)即过, 不限分(文案「建议强化/不建议强化」)。**完整判据/数学依据见 `eval_rules.md`(改判定前必读)**。Lv15+ 两条线: **达标线 A = 10 × 出现有效词条权重之和**; **基准线 B = 该套装有效键最低 (tier-1) 条之和×10**。
+- 评估/渐进判定(`judge_echo` 公共, **六档**): **Lv5/Lv10 = 结构判定**——**只看首条**(`stats[0]`): 首条在"首核"(`_core_first`, 缺省=该套装**权重>0**的词条)内即过, 不限分; 若该套装配置了 `_low_first`, 低权重首条(权重 ≤ below)还须位于该词条档位表的**前 N 档**才过 —— 该门槛**按套装可选、默认关**, 预置给轻云出月(0.1 / 前 2 档), 其余套装不受影响; 文案「建议强化/不建议强化」。**完整判据/数学依据见 `eval_rules.md`(改判定前必读)**。Lv15+ 两条线: **达标线 A = 10 × 出现有效词条权重之和**; **基准线 B = 该套装有效键最低 (tier-1) 条之和×10**。
   **B 只看该套装自己的非零权重**: 通用模式(套装未映射, 用代表集 1.0/0.7/0.6/0.5/0.4/0.25)才是 **6.5 / 11.5 / 17.5**; 套装模式常见 **17.5~20.5**(凝夜白霜 20.5、隐世回光 19.0)、13 键新套 11.5 —— 不存在"未定制套装 = 通用线"这回事。
   **未满级(Lv15/Lv20)一律与 B(满级) 比**, 不是当前级的 B(tier)。
   **达标 = score ≥ B 且 A ≥ B 且 score ≥ A**(三条同时); **A < B 说明出现有效词条太少、求和项不足以支撑达标 → 该只最高只能到"保留"**。数学: k(=出现有效词条数) ≥ tier-1 时 A ≥ B 恒成立; k < tier-1 时 A 可能 < B(实测 34% 样本 k < tier-1, 其中 25 只真的更低)。
@@ -340,7 +340,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
   满级: `A ≥ B 且 score ≥ A` → **达标**; `score ≥ B` → **保留**; 否则 `reforge_plan` 有方案(穷举"锁 L 条 + 刷 5−L 条", 要求**蒙特卡洛达标概率 ≥ `REFORGE_MIN_PROB`=0.60**、成本取最低) → **建议重铸**; 否则 **不合格**。
   未满级: `score ≥ B(满级)` → **建议强化**; 否则 `enchant_prospect` 前瞻(继续开到满级能过 B(满级) 的概率) ≥ `ENCHANT_MIN_PROB`=0.60 **且** `score ≥ A(现有)` → **建议强化**; 否则 **不建议强化**。
   **强化流程不豁免**(不达标/不建议强化仍丢弃), 保留/建议重铸/建议强化仅报告标注。**为什么用概率而非期望**: 期望只是均值(≈五成把握)且分布右偏, 而胚子可无限刷 → 不为低概率花资源(用户原则)。
-- **套装模板校验**: `_core_first`(可选, 首条核心词条) + **键数<5 → 评估/强化启动硬拒**(强化后必有 5 词条)
+- **套装模板校验**: `_core_first`(可选, 首条核心词条) + `_low_first`(可选, 低权重首条门槛) + **键数<5 → 评估/强化启动硬拒**(强化后必有 5 词条)
 - 报告(`_build_eval_html`): 名称独立列 + **套装列**(`set`, 来源 `set_src` 放单元格 `title`: 套装图标判定/声骸名兜底/默认(通用); 旧报告缺字段显示 `—`) + **「COST/主属性」列**(COST 角标 + 两条主属性 + 官方管理方案判定 `✔`/`✘`/`·`; 行上带 `data-cost`/`data-plan` 便于后续加筛选) + **评估规则折叠卡片**(`_build_rules_html`, `<details>`: 评分公式/达标线/**六档判定**/套装判定来源/官方主属性方案 + **本次报告涉及套装的权重表**, 让每行分数可追溯) + 得分区间/判定多选/名称包含/**套装下拉**(选项=本次出现的套装+全部, 带条目数)筛选(原生 JS 全靠 `data-*`, **不依赖列索引**, 加列不影响筛选) + **主指标「完成度」**(= 得分 ÷ 该套装 Top-5 权重词条全满档分; **同套装内跨件可比, 跨套装不可比**)与**按完成度排序**(默认/升/降; `data-comp` 驱动) + 未满级件附「继续到满级过保留线 ≈X%」(`prospect` 前瞻) + 词条按档位 ratio 单色相连续渐变着色(`hue=210`, 亮度 92%→46%, **越深越高档**; 白底细描边)
 - **已知缺陷(原版 ok-ww 同款)**: 强化 `run()` 无"切下一只"推进, 依赖丢弃后游戏自动前移; 评估遍历在网格布局/字体变化时坐标常量需复核
 
@@ -357,7 +357,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 - **debug 数据集默认关**: `EnhanceEchoTask.SAVE_DEBUG_DATASET = False`; 需要 `logs/eval_debug/` 素材
   (两个 tools 的数据源)时改 `True`
 - **唯一入口 `mainui.py`**: `main.py`/`main_debug.py`/`run.py` 已删; `ChangeEchoTask` 已删(自建 UI 无入口);
-  `MouseResetTask` **保留**(TriggerTask, 默认 `_enabled=True` 且自建 UI 无开关)
+  `MouseResetTask` 已在 2026-11 的 ok-ww 残留剥离中删除(TriggerTask 不再注册)。
 
 ## 接力状态 / 下一棒(2026-09-15)
 
@@ -369,8 +369,9 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 **工作区 / 推送(2026-10-08 更新)**: 阶段二十四~二十九 均已提交并 `push origin main`
 (`37829ac` 阶段二十四 · `54c124f` 阶段二十五 官方静态数据层+官方图标 · `5d32374`/`abf5468` 阶段二十六 界面重构 ·
 `d51f6e3` 阶段二十七 主属性数值校验 · `7246757` 阶段二十八 套装效果 `pieces` · 阶段二十九 组合穷举+伤害排名)。
-改动后跑: `python -m unittest discover -s tests`(**172 项**; 需 Python 3.11+ 与 ok-script==1.0.160; 3.14 已实测, 缺 ok 会 17 个模块 ImportError)
-+ `python tools/ui_shot.py`(界面自检, 8 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
+**阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
+改动后跑: `python -m unittest discover -s tests`(**177 项**; 需 Python 3.11+ 与 ok-script==1.0.160; 3.13/3.14 已实测, 缺 ok 会 17 个模块 ImportError)
++ `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存) + `python tools/patches/check_patches.py`(ok-script 补丁在位)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。
 
@@ -392,7 +393,7 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 
 - **判定体系: 已实现(阶段十四~二十三)** —— 六档(达标/保留/建议重铸/建议强化/不建议强化/0级) + 两处概率门
   (`REFORGE_MIN_PROB` / `ENCHANT_MIN_PROB` = 0.60) + 完成度主指标; 规则细节见 `eval_rules.md`
-- 首条核心 + 键数硬拒: **已实现** —— `_core_first`(缺省=全部有效词条) + 套装键数<5 评估/强化启动硬拒
+- 首条核心 + 键数硬拒: **已实现** —— `_core_first`(只看首条; 缺省=全部有效词条) + `_low_first`(可选低权重门槛) + 套装键数<5 评估/强化启动硬拒
 - 声骸名容错匹配 / 套装图标识别: **已实现(阶段十一/十二)** —— 离线回归 99.1% 高置信、名字口径 92.9% 一致;
   失效案例由图标兜底
 - **开放项**: `eval_rules.md` §6「已评估、决定不改的项」(E1~E7, 避免重复讨论) + §7「未验证 / 风险」

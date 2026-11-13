@@ -2,20 +2,15 @@
 声骸任务轻量基类 — 仅保留 EnhanceEchoTask 实际使用的方法。
 
   - click() 重写: 为 OCR 检测框设置合适的点击持续时间
-  - game_lang: 从窗口标题检测游戏语言
+
+注: ok-ww 的 `key_config`(游戏内技能键) 与 `game_lang`(按窗口标题猜语言) 已随
+自动战斗/刷图能力一起移除 —— 本工具只模拟背包/详情面板里的点击与 esc/z/c。
 """
 
-from ok import BaseTask, Logger
-
-logger = Logger.get_logger(__name__)
+from ok import BaseTask
 
 
 class BaseEchoTask(BaseTask):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.key_config = self.get_global_config('Game Hotkey')
-        self.scene = None
 
     def click(self, x=-1, y=-1, move_back=False, name=None, interval=-1,
               move=False, down_time=0.01, after_sleep=0, key="left"):
@@ -30,13 +25,3 @@ class BaseEchoTask(BaseTask):
         return super().click(x, y, move_back, name, interval,
                              move=move, down_time=down_time,
                              after_sleep=after_sleep, key=key)
-
-    @property
-    def game_lang(self):
-        if '鸣潮' in self.hwnd_title or self.is_browser():
-            return 'zh_CN'
-        elif 'Wuthering' in self.hwnd_title:
-            return 'en_US'
-        elif '鳴潮' in self.hwnd_title:
-            return 'zh_TW'
-        return 'unknown_lang'
