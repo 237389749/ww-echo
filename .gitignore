@@ -6,6 +6,7 @@ screenshots/
 configs/
 eval_screenshots/
 eval_report.html
+eval_report.json
 *.egg-info/
 dist/
 build/

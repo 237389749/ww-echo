@@ -7,6 +7,7 @@ import cv2
 
 from ww_engine import FindFeature, Logger, clear_folder, get_bounding_box
 from src import echo_parse, echo_scoring
+from src import echo_grid
 from src.echo_parse import parse_number  # noqa: F401  (旧调用面: from src.task.EnhanceEchoTask import parse_number)
 from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
                             tier_index, DEFAULT_WEIGHTS)  # noqa
@@ -297,6 +298,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         count_box = (0.02, 0.02, 0.25, 0.09)
 
         seen_sigs = set()          # 已处理声骸的去重签名(名字+全行档位值, 防滚动重叠漏拦)
+        seen_stat_sigs = set()     # 只按属性行(不含名字)的去重签名: OCR 名字抖动(无常凶驾/无常冈驾)时防重复记录
         last_sig = None            # 上一次成功处理的详情全量签名(判点选未切换)
         no_new_screen = 0          # 连续滚动后无新格的次数 → 到底
         empty_scan = 0             # 网格区连续扫描为空的次数 → 真到底(0级角标 +0 也能被识别, 空=列表底)
@@ -305,7 +307,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         total_limit = None         # 左上 "声骸N/3000" 的上限
         count_text = ''            # 最近一次左上计数区的原始 OCR 文本(页面锚点用)
         anchor_ok = False          # 左上「声骸N/3000」锚点是否识别到(仅用于错误提示, 不单独中断)
-        col_centers = []           # 6列基准 x(像素), 用于行内缺列补全防漏点
+        grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -389,53 +391,31 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
             row_tol = max(20.0, fh * 0.03)   # 行聚类容差(~1200帧→36px)
             col_gap = max(50.0, fw * 0.046)  # 列间距阈值(~1920帧→88px)
-            texts = self.ocr(*grid_box)
+            # 小窗口(如 1254x889)下 +25 只有 10~14px 高: 单次裁剪 OCR 只检出 5~14/30,
+            # 还会把 +25 拆成 + 与 25 → 单次结果聚行聚列必然残缺(实测漏第一行/第一列、点到隔壁)。
+            # 这里两路 OCR 取并集(裁剪区 + 全帧, 召回互补), 再合并拆框并按等间距补全缺列/缺行。
+            texts = list(self.ocr(*grid_box))
             dbg_ocr('grid', texts)
-            marks = []
-            for b in texts:
-                name = getattr(b, 'name', '') or ''
-                if '+' in name and re.search(r'\d', name):
-                    marks.append((b.x + b.width // 2, b.y + b.height // 2))
+            try:
+                texts += list(self.ocr(0, 0, 1, 1))
+            except Exception as e:
+                self.log_debug(f'全帧 OCR 失败(只用裁剪结果): {e}')
+            # 扫描 ROI: 比点击区略宽(容下首/末列角标), 右侧不越过详情面板(挡掉面板自己的 +25)
+            sx0, sx1 = max(0.0, 0.075 * fw), 0.655 * fw
+            sy0, sy1 = 0.10 * fh, 0.90 * fh
+            marks = echo_grid.merge_badge_marks(texts, roi=(sx0, sy0, sx1, sy1))
             if not marks:
                 return []
-            # 聚行
-            marks.sort(key=lambda m: m[1])
-            rows = []
-            for mx, my in marks:
-                for r in rows:
-                    if abs(r['y'] - my) <= row_tol:
-                        r['y'] = (r['y'] * len(r['cells']) + my) // (len(r['cells']) + 1)
-                        r['cells'].append((mx, my))
-                        break
-                else:
-                    rows.append({'y': my, 'cells': [(mx, my)]})
-            rows.sort(key=lambda r: r['y'])
-
-            # 列基准: 跨行合并 mark x, 间距>col_gap 视为新列(上限 6 列)
-            all_x = sorted(mx for r in rows for mx, _ in r['cells'])
-            cols = []
-            for x in all_x:
-                if cols and x - cols[-1] <= col_gap:
-                    cols[-1] = (cols[-1] + x) / 2
-                else:
-                    cols.append(float(x))
-            if len(cols) >= 6:
-                col_centers[:] = cols[:6]
-            base = col_centers if len(col_centers) == 6 else cols
-
-            out = []
-            for r in rows:
-                row_xs = [mx for mx, _ in r['cells']]
-                row_cols = sorted({min(range(len(base)), key=lambda i: abs(base[i] - mx)) for mx in row_xs})
-                for ci in row_cols:
-                    out.append((base[ci], r['y']))
-                # 列基准齐而本行覆盖列数 <6(该行有格被 OCR 漏识别) → 补全缺列坐标
-                if len(base) == 6 and len(row_cols) < 6:
-                    for ci in range(6):
-                        if ci not in row_cols:
-                            out.append((base[ci], r['y']))
-            out.sort(key=lambda p: (p[1], p[0]))
-            return [(mx / fw, my / fh) for mx, my in out]
+            cells = echo_grid.cells_from_marks(
+                marks, (sx0, sy0, sx1, sy1),
+                row_tol=row_tol, col_gap=col_gap,
+                row_pitch_hint=grid_pitch['row'], col_pitch_hint=grid_pitch['col'])
+            xs = sorted({int(round(x)) for x, _ in cells})
+            ys = sorted({int(round(y)) for _, y in cells})
+            grid_pitch['col'] = echo_grid.axis_pitch(xs) or grid_pitch['col']
+            grid_pitch['row'] = echo_grid.axis_pitch(ys) or grid_pitch['row']
+            self.log_debug(f'网格扫描: 角标 {len(marks)} 个 → {len(xs)} 列 × {len(ys)} 行')
+            return [(mx / fw, my / fh) for mx, my in cells]
 
         def scroll_grid(notches=15):
             """光标移到滚动热区并下滑"""
@@ -510,6 +490,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             if dbg_dir:
                 self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
             self.log_info(f'背包声骸总数/位置: {total_limit}' if total_limit else '未识别到数量, 用滚动检测兜底')
+            # 先读一次当前详情面板作为基线: 第一次点击若没生效(点在空白/边框),
+            # 面板还是上一次选中的声骸 → 会被误记成本屏第一只(实测报告 #1 变成了之前手选的那只)
+            try:
+                _, _, last_sig, _ = read_detail()
+            except Exception as e:
+                self.log_debug(f'读初始详情失败(忽略): {e}')
 
             while not stop_all:
                 # 每屏动态重读上限: "声骸N/3000" 的 N 若是滚动位置, 向下滚会单调增大,
@@ -530,26 +516,32 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         break
                     scroll_grid()
                     self.sleep(0.6)
-                    last_sig = None
                     continue
                 empty_scan = 0
 
                 processed_any = False
                 empty_hits = 0       # 连续点空/未切换/已处理的格数, 防止空转
                 for nx, ny in cells:
-                    # 点格子 → 右侧详情
-                    self.click(nx, ny, after_sleep=0.8)
-                    dbg_shot(f'click_{nx:.2f}_{ny:.2f}')
-                    echo_name, paired_all, sig, cost = read_detail()
-                    if not paired_all:
-                        # 详情可能未刷新 → 再点一次重读
-                        self.click(nx, ny, after_sleep=0.8)
+                    # 点格子 → 右侧详情。角标中心在格子右下角，空白格/边框点不中时详情不会变：
+                    # 第一次没切换就**往格子中心偏一点**重试一次（往左上 = 格子内部）；
+                    # 仍不切换则跳过（不再无限点同一格）。
+                    click_points = ((nx, ny), (max(0.02, nx - 0.02), max(0.02, ny - 0.035)))
+                    for attempt, (cx, cy) in enumerate(click_points):
+                        self.click(cx, cy, after_sleep=0.8)
+                        dbg_shot(f'click_{cx:.2f}_{cy:.2f}')
                         echo_name, paired_all, sig, cost = read_detail()
+                        if paired_all and sig != last_sig:
+                            break
+                        if attempt == 0:
+                            self.log_debug(f'点选未切换 → 向格子中心偏移重试: ({nx:.3f},{ny:.3f})')
+                    # 属性行签名(不含名字): 名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)时防重复记录
+                    stat_key = '|'.join(f'{n}={round(parse_number(v), 1)}' for n, v in paired_all)
                     key = self.dedup_key(echo_name, paired_all) if paired_all else ''
                     if (not paired_all
                             or (last_sig is not None and sig == last_sig)
-                            or (key and key in seen_sigs)):
-                        # 空格/点选未切换(行尾补全的空白格/OCR 漏识重复)/已处理过的声骸(滚动重叠)
+                            or (key and key in seen_sigs)
+                            or (stat_key and stat_key in seen_stat_sigs)):
+                        # 空格/点选未切换(行尾补全的空白格)/已处理过的声骸(滚动重叠/名字抖动)
                         # → 跳过本格继续, 避免提前滚动漏掉本行后面真实格; 空转过多再滚屏
                         empty_hits += 1
                         if empty_hits >= 8:
@@ -559,6 +551,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                     processed_any = True
                     empty_hits = 0
+                    if stat_key:
+                        seen_stat_sigs.add(stat_key)
 
                     # 词条筛选: 详情属性区已按 y 排序(_pair_props), 前 2 行固定为主属性(攻击/生命/防御等)——
                     # 按相对行序排除, 分辨率无关; 即使主属性固定值恰好命中词条档位
@@ -620,7 +614,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 本屏无新声骸(空格/未切换占满) → 滚动一屏
                     scroll_grid()
                     self.sleep(1.2)
-                    last_sig = None   # 换屏后不再沿用上一屏的签名(新屏首格总是先读)
                     no_new_screen += 1
                     if no_new_screen >= 3:
                         self.log_info('连续滚动无进展, 评估结束', notify=True)
@@ -629,7 +622,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     no_new_screen = 0
                     scroll_grid()   # 处理完本屏 → 滚下一屏
                     self.sleep(1.2)
-                    last_sig = None   # 换屏后不再沿用上一屏的签名(新屏首格总是先读)
 
             # 汇总 JSON(顶层 set = 本次评估的 config 套装; 逐条的 set/set_src 见 resolve_set_name)
             output_set = self.config.get('当前套装', '通用')

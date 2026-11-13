@@ -76,17 +76,32 @@ class PostMessageInteraction(BaseInteraction):
         return long_pos
 
     def scroll(self, x, y, scroll_amount):
+        """滚轮：WM_MOUSEWHEEL 的 lParam 是**屏幕坐标**(与其它鼠标消息的客户区坐标不同)，
+        并且一次只该发一格(WHEEL_DELTA)；这里按目标窗口做 ClientToScreen 后逐格发送。
+
+        2026-11-14 修：旧实现把客户区坐标直接塞进 WM_MOUSEWHEEL → 本地窗口模式下游戏收不到/忽略滚轮，
+        评估列表一直不滚(每屏重复扫同一批声骸、报告出现重复行)。云模式用 Pynput 时没暴露这个问题。
+        """
         self.try_activate()
-        # Calculate the wParam
         # Positive scroll_amount indicates scroll up, negative is scroll down
         logger.debug(f'scroll {x}, {y}, {scroll_amount}')
         if x > 0 and y > 0:
-            long_position = self.update_mouse_pos(x, y)
+            local = self.update_mouse_pos(x, y)          # 同时把光标逻辑位置移过去
+            local_x, local_y = win32api.LOWORD(local), win32api.HIWORD(local)
+            target = self.hwnd
+            try:
+                abs_x, abs_y = win32gui.ClientToScreen(target, (int(local_x), int(local_y)))
+            except Exception:
+                abs_x, abs_y = int(local_x), int(local_y)
+            screen_position = win32api.MAKELONG(abs_x, abs_y)
+            self.post(win32con.WM_MOUSEMOVE, 0, local)
         else:
-            long_position = 0
-        wParam = win32api.MAKELONG(0, win32con.WHEEL_DELTA * scroll_amount)
-        # Send the WM_MOUSEWHEEL message
-        self.post(win32con.WM_MOUSEWHEEL, wParam, long_position)
+            screen_position = 0
+        delta = win32con.WHEEL_DELTA if scroll_amount > 0 else -win32con.WHEEL_DELTA
+        wParam = win32api.MAKELONG(0, delta & 0xFFFF)
+        for _ in range(max(1, abs(int(scroll_amount)))):
+            self.post(win32con.WM_MOUSEWHEEL, wParam, screen_position)
+            time.sleep(0.02)
 
     def post(self, message, wParam=0, lParam=0, hwnd=None):
         if hwnd is None:

@@ -1911,3 +1911,29 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 **验证**：`unittest` **188 项 / OK (skipped=2)**；`compileall` 0；文档同步 `CLAUDE.md`（运行模式节重写、
 188 项）、`README.md`（分辨率说明）、`docs/BASELINE.md`（B1 188 / 素材齐全 192、显示器行）、
 `docs/COUPLING.md`（188 项）、`handoff.md`（基线）、`docs/SESSION_2026-11-13.md` §6.6。
+
+---
+
+**补记 31（2026-11-14：本地窗口模式评估复跑暴露的三个 bug —— 网格 OCR 召回 / 滚轮坐标空间 / 陈旧首格）**
+
+**现场**：管理员运行、背包 1254x889 复跑，约 2 分钟仅 13 条；`#5/#11/#12` 属性完全相同（同一只记 3 次）、
+`#7/#13` 相同；`#1` 是用户手选的「海维夏」而非网格第一只；日志末尾「连续滚动无进展」，中间 36s/34s 空转。
+
+**根因与修复**
+1. **网格 OCR 召回不足**：`+25` 在此窗口只有 10~14px 高，单次 OCR 只检出 5~14/30，且常拆成 `+` 与 `25`。
+   旧 `scan_grid` 只按单次结果聚行聚列 → 漏第一行/第一列、点到隔壁。修复：新增 `src/echo_grid.py`
+   （`merge_badge_marks` 合并拆框/去重/ROI、`cluster_axis`/`infer_axis_centers` 按等间距补列补行、`cells_from_marks`），
+   `scan_grid` 改为**两路 OCR 并集**（裁剪 + 全帧）后推断；跨屏沿用行列间距。实测同帧：裁剪 9 / 全帧 13 / 并集 18 → **6 列 × 5 行 = 30 格**。
+2. **本地 PostMessage 滚轮坐标空间错误**：`WM_MOUSEWHEEL` 的 lParam 是**屏幕坐标**，旧实现给的是客户区坐标 →
+   游戏忽略滚轮，列表不滚（每屏重复扫同一批 → 重复行 + 空转数十秒）。修复：`post_message.py::scroll` 先 `ClientToScreen`，
+   再逐格 `WHEEL_DELTA` 发送（并补一次 `WM_MOUSEMOVE`）。云模式 Pynput 不受影响。
+3. **陈旧首格**：第一次点击未生效时 `read_detail` 返回上一次选中的面板（用户手选的那只）→ 记成 `#1`。
+   修复：进循环前先读一次详情做基线；每格点击后签名未变则**向格子中心偏移重试一次**，仍不变跳过。
+   另外名字 OCR 抖动（无常凶驾/无常冈驾/无常区鹭）会绕过 `dedup_key` → 增加 `seen_stat_sigs`（仅属性行签名）防重复。
+
+**验证**：新增 `tests/test_grid_scan.py` 8 项（拆框合并/ROI 过滤/6×5 还原/单行沿用间距/bounds），
+`unittest` **196 项 OK (skipped=2)**；同一帧标注图 `logs/grid_scan_fixed.png`（第一格 = 左上第一张）。
+**待复跑**：滚轮修复需管理员真机跑一次确认（本机 UIPI 无法由开发侧发送输入）。
+
+**文档同步**：`CLAUDE.md` 评估遍历节（新增三条「勿回退」）、`docs/SESSION_2026-11-13.md` §6.7、本节；
+测试基线 188 → **196**（素材齐全 192 → 200）。
