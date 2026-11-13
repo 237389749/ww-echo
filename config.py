@@ -5,7 +5,9 @@ import re
 if 'PATH' not in os.environ:
     os.environ['PATH'] = ""
 
-from src.task.process_feature import process_feature
+from src.run_modes import MODE_CLOUD, MODE_LOCAL
+
+__all__ = ['config', 'apply_run_mode', 'MODE_LOCAL', 'MODE_CLOUD']
 
 version = "echo-dev"
 
@@ -21,7 +23,6 @@ config = {
             'use_npu': True,
         }
     },
-    'my_app': ['src.globals', 'Globals'],
     'start_timeout': 120,
     'wait_until_settle_time': 0,
     'template_matching': {
@@ -29,7 +30,6 @@ config = {
         'default_horizontal_variance': 0.002,
         'default_vertical_variance': 0.002,
         'default_threshold': 0.8,
-        'feature_processor': process_feature,
     },
     'windows': {
         'exe': 'Client-Win64-Shipping.exe',
@@ -67,8 +67,7 @@ config = {
 # 在 OK(config) 启动前调用 apply_run_mode(), 只改 windows 段相关键, 其余不动。
 # 两种模式都**不自动拉起游戏**(start_exe=False): 本工具只做背包内的声骸强化/评估,
 # 要求用户已把游戏开到背包声骸列表; 自动启动/自动战斗属 ok-ww 的农场能力, 已剥离。
-MODE_LOCAL = 'local'
-MODE_CLOUD = 'cloud'
+# MODE_LOCAL / MODE_CLOUD 来自 src/run_modes.py(UI 也直接用它, 避免 UI→config 反向依赖)。
 
 # 本地模式的静态默认值(与上方 windows 段一致), 切回 local 时用于还原。
 _LOCAL_EXE = 'Client-Win64-Shipping.exe'

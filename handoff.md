@@ -123,18 +123,17 @@
 
 静态扫全仓 import（`tools/analysis/import_coupling.py`），结论见 `docs/COUPLING.md`：
 
-- **engine 边界干净**：`ww_engine` 对 `src/ui/config` **0 条出边**；模块级循环只有 2 个 SCC，全在 engine/rotypes 内部，
-  涉及 `src/ui` 的循环 **0**。
-- **domain 有 4 条反向依赖**：`echo_icon_match`/`echo_set_templates`/死文件 `globals` 借 `ww_engine.Logger`
-  （拉整包 Qt）；`echo_inventory` → `EnhanceEchoTask`（借 4 个纯函数）。`tools.echo_plan` 因此 import ≈1.0 s，
-  纯 domain 只要 0.05 s。
-- **UI 绕开根 API** 5 处（`gui.Communicate`/`gui.util.Alert`/`util.GlobalConfig`）；`ui.settings_tab→config`
-  只借两个模式常量；`config→process_feature` 是空函数。这些是 P0/P2，不是运行时 bug。
-- **Qt 渗透**：engine 非 GUI 核心仍有 `util.config`/`util.GlobalConfig`/`task.task`（FluentIcon）与
-  `task.TaskExecutor`（QtCore.translate）；`src.task.EnhanceEchoTask` 也 import `FluentIcon`。
-- **建议顺序**：P0 去 Logger/死文件/空函数/常量 → P1 抽 `parse_number`/`_normalize_stat`/`dedup_key`/
-  `compute_weighted_score` 到 `src/echo_parse|echo_scoring`，让 CLI 脱离 Qt → P2 `ww_engine.__init__` 懒加载 +
-  去核心 FluentIcon。**不要**为了 `og`/Rust 重写 engine/UI（`og` 是服务定位，不是 import 环）。
+- **engine 边界干净**：`ww_engine` 对 `src/ui/config` **0 条出边**；涉及 `src/ui` 的模块循环 **0**。
+- **P0 已落地**：domain 改 stdlib `logging`（不再借 `ww_engine.Logger`）、删除 `src/globals.py` + `config['my_app']`、
+  删除 `process_feature` 空实现、`MODE_*` 移到 `src/run_modes.py`、UI 改走 engine 根 API
+  （`og`/`communicate`/`basic_options`，`Alert` 改公共 notification）。
+  P0 后 **domain→engine / UI→entry / entry→task / UI→engine 内部全部为 0**。
+- **当前只剩 P1**：`src.echo_inventory → src.task.EnhanceEchoTask`（借 `parse_number`/`_normalize_stat`/
+  `compute_weighted_score`/`dedup_key`），把 `tools.echo_plan` 拖进 Qt（import ≈0.85 s）。
+- **import 成本（P0 前→后）**：`echo_set_templates` 0.95→**0.04 s**、`echo_icon_match` 1.07→**0.20 s**、
+  `echo_combos` 1.05→**0.073 s**；`echo_inventory`/`echo_plan` 仍 ≈0.85 s（P1 链）；`ww_engine` ≈0.9~1.0 s（P2 懒加载）。
+- **下一步**：P1 抽纯函数到 `src/echo_parse|echo_scoring` + task adapter 少碰 engine 内部 → P2 `ww_engine.__init__`
+  懒加载 + 去核心 `FluentIcon`。**不要**为了 `og`/Rust 重写 engine/UI（`og` 是服务定位，不是 import 环）。
 
 ## 二、阶段二十九做了什么（组合穷举）
 

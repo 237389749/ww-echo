@@ -15,6 +15,8 @@ from PySide6.QtWidgets import QApplication, QTextEdit, QWidget
 from qfluentwidgets import (FluentWindow, FluentIcon as FIF, NavigationItemPosition, Theme,
                             setTheme, setThemeColor)
 
+from ww_engine import communicate
+
 from ui.run_tab import RunTab
 from ui.plan_tab import PlanTab
 from ui.set_config_tab import SetConfigTab
@@ -150,7 +152,6 @@ class MainWindow(FluentWindow):
         except Exception:
             pass
         try:
-            from ww_engine.gui.Communicate import communicate
             communicate.quit.emit()   # OK.quit(): exit_event.set() + app.quit()
         except Exception:
             pass

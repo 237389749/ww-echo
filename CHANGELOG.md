@@ -1707,3 +1707,31 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 
 **未做**：没有改任何 import/代码；`unittest` 仍 182 项 / OK (skipped=2)，`import_coupling.py --check` 通过
 （engine 反向依赖 0）。下一步按 P0 → P1 做，P2 留第二阶段。
+
+---
+
+**补记 26（2026-11-13：耦合 P0 落地 —— domain 不再为 engine 的 GUI 栈付费）**
+
+**改动**
+- `src.echo_set_templates.py` / `src.echo_icon_match.py`：`from ww_engine import Logger` → stdlib
+  `logging.getLogger(__name__)`；`mainui` 已把 `src` logger 接到 `log_bridge`，运行期日志仍进 UI。
+- 删除 `src/globals.py` 与 `config['my_app']`（新 `OK` 从不加载 `my_app`，只是占位）。
+- 删除 `src/task/process_feature.py` 与 `config['template_matching']['feature_processor']`（8 行空函数；
+  `FeatureSet(feature_processor=None)` 行为一致）。
+- 新增 `src/run_modes.py`（`MODE_LOCAL/MODE_CLOUD`）；`config` 再导出，`ui.settings_tab` 直接 import domain，
+  去掉 `ui→config` 的反向依赖；`mainui` 仍从 `config` 拿（entry 内部引用）。
+- UI 改走 engine 根 API：`ui.debug_tab`/`ui.main_window`/`ui.settings_tab` 统一
+  `from ww_engine import og, communicate, basic_options`；`debug_tab` 的 `gui.util.Alert` 改成公共
+  `communicate.notification.emit(...)`；`tools/ui_shot.py` 同步改根 API。
+
+**验证 / 结果**
+- `unittest discover` → **182 项 / OK (skipped=2)**；`ui_shot.py` → **7 页**；离屏 `MainWindow` + `OK(config)` + task 创建通过
+  （OCR 初始化线程需等 1~3 s 再 teardown，否则 Qt 信号会先被销毁）。`echo_plan --list-profiles` 退出码 0。
+- `import_coupling.py --check` → engine 反向依赖 **0**；P0 后跨层违规只剩
+  **`src.echo_inventory → src.task.EnhanceEchoTask`（P1）**；UI→engine 内部 / UI→entry / entry→task / domain→engine 均 **0**。
+- import 耗时（P0 前→后）：`echo_set_templates` **0.95→0.04 s**、`echo_icon_match` **1.07→0.20 s**、
+  `echo_combos` **1.05→0.073 s**；`echo_inventory`/`echo_plan` 仍 ≈0.85 s（P1 链）；`ww_engine` ≈0.9~1.0 s（P2 懒加载）。
+- 文档：`docs/COUPLING.md`（P0 状态 + 前后耗时）、`CLAUDE.md` 分层节、`handoff.md` 一.9、本补记。
+
+**未做**：BOM 清理（3 个文件）、`echo_inventory→EnhanceEchoTask` 的纯函数抽取（P1）、`ww_engine` 根包懒加载与
+核心 `FluentIcon`（P2）。

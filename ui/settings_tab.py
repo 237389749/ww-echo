@@ -21,10 +21,9 @@ from qfluentwidgets import (CaptionLabel, ComboBox, FluentIcon as FIF, InfoBar, 
                             SingleDirectionScrollArea, StrongBodyLabel, SwitchSettingCard,
                             TitleLabel, Theme)
 
-from ww_engine import og, Logger
-from ww_engine.gui.Communicate import communicate
+from ww_engine import og, Logger, communicate, basic_options
 
-from config import MODE_LOCAL, MODE_CLOUD
+from src.run_modes import MODE_LOCAL, MODE_CLOUD
 from ui.widgets import make_scroll_transparent
 
 logger = Logger.get_logger(__name__)
@@ -199,8 +198,10 @@ class SettingsTab(QWidget):
             InfoBar.error("重启失败", f"{e}（请手动关闭后重新运行）", duration=5000,
                           position=InfoBarPosition.TOP_RIGHT, parent=self)
             return
-        from ww_engine.gui.Communicate import communicate as _comm
-        _comm.quit.emit()
+        try:
+            communicate.quit.emit()
+        except Exception:
+            pass
 
     # ══════════════════ 配置读写 ══════════════════
     def _global_config(self):
@@ -209,7 +210,6 @@ class SettingsTab(QWidget):
     def _load_config(self):
         """读取引擎配置 → 控件。**阻断信号**: 否则 setValue 会立刻触发"保存"回写(无意义且有副作用)。"""
         try:
-            from ww_engine.util.GlobalConfig import basic_options
             basic = self._global_config().get_config(basic_options)
             self.mute_card.blockSignals(True)
             self.mute_card.setValue(bool(basic.get('Mute Game while in Background', False)))
@@ -219,7 +219,6 @@ class SettingsTab(QWidget):
 
     def _save_mute(self, checked: bool):
         try:
-            from ww_engine.util.GlobalConfig import basic_options
             cfg = self._global_config().get_config(basic_options)
             cfg['Mute Game while in Background'] = bool(checked)
             cfg.save_file()

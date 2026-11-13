@@ -47,19 +47,20 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 > **交接文档**：阶段二十四~二十九 的完成情况、数据面认知、下一棒(真机走查 / 与 calculator 对账)见仓库根 `handoff.md`。
 
-## 分层与耦合(2026-11-13 体检)
+## 分层与耦合(2026-11-13 体检 + P0)
 
 - **边界**: `engine`(ww_engine, 对项目代码 **0 出边**) → `domain`(src 非 task) → `task_adapter`(src.task) → `ui` → `entry`(config/mainui);
   `tools/tests` 允许跨层。完整矩阵/违规/import 耗时见 `docs/COUPLING.md`, 复现
   `python tools/analysis/import_coupling.py --check`(带 `--timing` 看耗时)。
-- **已知漏点**(未修): ① `echo_icon_match`/`echo_set_templates`/死文件 `globals` 借 `ww_engine.Logger` → 拉整包 Qt;
-  ② `echo_inventory` 借 `EnhanceEchoTask` 的 4 个纯函数(domain→adapter 反向), 把 `echo_plan` 拖进 Qt;
-  ③ UI 直接 import engine 内部(`gui.Communicate`/`gui.util.Alert`/`util.GlobalConfig`), 未走根 API;
-  ④ `ui.settings_tab→config` 只借两个模式常量; ⑤ `config→process_feature` 是个空函数。
-- **成本**: 纯 domain import ≈0.05 s; 借 `ww_engine` 的 domain/CLI ≈0.9~1.1 s(几乎全是 Qt/cv2/rotypes 的钱)。
-- **修复顺序**: P0 去 Logger/死文件/空函数/常量(低风险) → P1 把 `parse_number`/`_normalize_stat`/`dedup_key`/
-  `compute_weighted_score` 抽到 `src/echo_parse|echo_scoring`, 让 CLI 脱离 Qt → P2 `ww_engine.__init__` 懒加载 +
-  去掉核心 `FluentIcon`。**不要**为了 `og` 或 Rust 去重写 engine/UI。
+- **P0 已落地**: domain 不再借 `ww_engine.Logger`(改 stdlib logging); 删 `src/globals.py`+`config['my_app']`;
+  删 `process_feature` 空实现; `MODE_*` 移到 `src/run_modes.py`; UI 改走 engine 根 API
+  (`og`/`communicate`/`basic_options`), 调试页 `Alert` 改公共 notification。
+- **当前只剩 P1**: `src.echo_inventory → src.task.EnhanceEchoTask`(借 `parse_number`/`_normalize_stat`/
+  `compute_weighted_score`/`dedup_key`), 把 `tools.echo_plan` 拖进 Qt(import ≈0.85 s)。
+- **成本(P0 后)**: 纯 domain 0.04~0.07 s; `echo_icon_match` 0.20 s(只剩 cv2/numpy); `echo_inventory`/`echo_plan`
+  0.85 s(全是 P1 链); `ww_engine` 0.9~1.0 s(根包, P2 懒加载才动)。
+- **下一步**: P1 抽纯函数到 `src/echo_parse|echo_scoring` + task adapter 少碰 engine 内部 → P2 `ww_engine.__init__`
+  懒加载 + 去核心 `FluentIcon`。**不要**为了 `og` 或 Rust 去重写 engine/UI。
 
 ## 界面(Fluent, 阶段二十六)
 

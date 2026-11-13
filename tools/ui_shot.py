@@ -63,7 +63,7 @@ class StubDeviceManager:
               "interaction": "PostMessage"}
 
     def refresh(self):
-        from ww_engine.gui.Communicate import communicate
+        from ww_engine import communicate
         communicate.adb_devices.emit(True)
 
     def get_devices(self):

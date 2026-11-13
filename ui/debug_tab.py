@@ -15,8 +15,7 @@ from qfluentwidgets import (CaptionLabel, FluentIcon as FIF, HeaderCardWidget, I
                             InfoBarPosition, PushSettingCard, SegmentedWidget, SettingCardGroup,
                             SwitchSettingCard)
 
-from ww_engine import og
-from ww_engine.gui.Communicate import communicate
+from ww_engine import og, communicate
 
 
 def _card_body(card: HeaderCardWidget) -> QVBoxLayout:
@@ -175,8 +174,8 @@ class DebugTab(QWidget):
                                 f.write(f"{box.name}, {box}, {box.confidence}\n")
                     subprocess.Popen(f'explorer "{folder}"')
             except Exception as e:                               # noqa: BLE001
-                from ww_engine.gui.util.Alert import alert_error
-                alert_error(f"OCR 测试失败: {e}")
+                # 用公共 notification 信号，不再 import engine 的 gui.util.Alert
+                communicate.notification.emit(f"OCR 测试失败: {e}", None, True, False, None, None)
 
         threading.Thread(target=_run, daemon=True).start()
 
