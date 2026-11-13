@@ -226,6 +226,11 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - 切换写 QSettings("OK-Echo","OK-Echo") 的 `run_mode`, **重启生效**(mainui 在 OK() 初始化前 apply)
 - **local**: `exe=Client-Win64-Shipping.exe`+`hwnd_class=UnrealWindow` 自动匹配本地客户端; PostMessage 可后台运行
+  - **必须与游戏同级(UAC)**: 2026-11-14 实测 —— 游戏进程是 **High/已提权**时，Medium 权限的 Python
+    `PostMessage` 一律返回 `(5, '拒绝访问。')`（UIPI），点/键都进不了游戏；要么**以管理员运行工具**，要么游戏降为普通权限。
+  - **窗口必须是 16:9**: 实测本地窗口 1254x889(1.411) 会被 `check_frame_and_resolution` 以
+    `supported_resolution.ratio='16:9'` **拒掉**；全屏/16:9 窗口，或把 `ratio` 设 `None`(云模式就是这样)。
+  - 截图本身不受权限影响: `BitBlt_RenderFull` 在非管理员下也能抓到帧(实测 98% 非黑像素)。
 - **cloud**(云游戏 = 浏览器/云客户端窗口, 如 Firefox):
   - `windows.title=re.compile('鸣潮')` → ww_engine `find_hwnd` 按正则自动锁定标题含"鸣潮"的窗口, **无需手动选窗**
   - interaction=Pynput(前台真实键鼠), capture 锁定 `BitBlt_RenderFull`, `supported_resolution.ratio=None` 跳过 16:9 校验
