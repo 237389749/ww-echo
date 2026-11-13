@@ -8,8 +8,9 @@
 1. **文件头三段**：`输入`（哪份数据/产物）→ `输出`（打印什么/写哪个文件）→ `支撑结论`（对应文档的哪一句）。
 2. **路径只用相对仓库根**（`Path(__file__).resolve().parents[2]`），不要写死 `C:\Users\...`。
 3. **只读**：分析脚本不改 `assets/`、不改评估产物；要落盘就写到 `logs/analysis/`（已 gitignore）。
-4. 依赖：`src/echo_panel|combos|inventory|stats` 的脚本需要 `requirements.txt` 的环境（ok-script）；
-   纯算术/JSON 的脚本只需标准库。
+4. 依赖：`src/echo_panel|combos|inventory|stats` 的脚本需要 `requirements.txt` 的环境（ww_engine）；
+   纯算术/JSON 的脚本只需标准库。`calculator_reconcile.py` 另需参考工程目录（缺省
+   `ww-echo-policy-calculator-main/`，不在本仓库，缺失时打印 skip）。
 5. 结论写进文档时**同时**更新 `docs/BASELINE.md` 的「复现脚本索引」，并在 `tests/test_doc_claims.py` 里加断言（若可机检）。
 
 ## 已入库脚本
@@ -19,6 +20,7 @@
 | `b2_distribution.py` | `eval_report.html` → stdout 六档合计 + 逐套装六档表 | `eval_rules.md` §8 的两张表、`docs/BASELINE.md` B2 |
 | `b2_replay_old_weights.py <提交>` | 用该提交的某个套装权重重跑 B2（覆盖 `eval_report.html`） | CHANGELOG 补记 21 证据①：`726db9c~1` 的听唤权重复现旧分布 `39/38/1/7/24` |
 | `b2_replay_old_core_first.py` | 换回旧 `_core_first` 兜底（全部键）重跑 B2 | CHANGELOG 补记 21 证据②：这条修正对 109 只数据**零影响** |
+| `calculator_reconcile.py` | 参考工程 `data/echo-data.json` + `apps/ocr/EchoOCRTask.py` + 本项目权重/档位 → Markdown（档位校验、满档权重比例、A/B 完成度、锁成本、强化盈亏平衡） | `docs/CALCULATOR_RECONCILIATION.md` 全部数字；CHANGELOG 补记 23 |
 
 > 后两个会覆盖 `eval_report.html`，跑完用当前代码重跑 `tools/offline_eval_report.py` 复原。
 
