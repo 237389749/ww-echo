@@ -1636,3 +1636,38 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 5. **P3**：`reforge_plan` 增加 `expected_units = units/p_pass` 展示；重抽候选比较/联合模式需要新工作流。
 
 **未做**：参考求解器未运行（无 `echo_policy` 源）；无真实库存，B2 未重跑；主属性/权重/判定均未改。
+> 第 2/4/5 项已在**补记 24** 落地（共效定为 0.5，不是 0.4~0.45）。
+
+---
+
+**补记 24（2026-11-13：对账落地 —— 通用共效 0.5、OCR 低置信/锚点、期望频整器）**
+
+**① 通用共效 0.6 → 0.5（用户拍板）**
+- `src/echo_stats.py::DEFAULT_WEIGHTS["共鸣效率"]` 改 0.5；注释记下依据（参考 linear 爱弥斯 0.40、Wuwa
+  中位 0.35、仇远 0.70；我们原 0.60 偏高）。
+- **通用 B 仍固定 17.5**：`_GENERAL_WEIGHTS` 从"`DEFAULT_WEIGHTS` 去重自动推导"改为**固定策略档位**
+  `(1.0, 0.7, 0.6, 0.5, 0.4, 0.25)`。原因：0.5 与攻击%重合后去重档位只剩 5 个，最低 4 条会把 0.7 档算进来，
+  B(5) 自动从 17.5 抬到 18.5 —— 那是"顺手收紧保留线"，不是权重调整的本意。代码注释 + `test_doc_claims`
+  都写明了这个取舍；以后要改 B 需显式决定。
+- 影响面：通用/未映射套装的评分与判定；套装模板权重未动（它们有自己的共效值）。
+
+**② OCR 低置信重读 + 页面锚点（参考策略工坊的做法）**
+- 详情面板任一 OCR 框 `confidence < 0.85` → **整面板再读一次**，取"高置信(≥0.85)框更多、置信和更高"的一次再解析；
+  只有低置信触发，不会全量翻倍。新增 `EnhanceEchoTask.OCR_RETRY_CONF=0.85`。
+- 评估启动重试 3 次识别左上「声骸N/3000」作页面锚点；失败**不单独中断**（网格角标是更强信号），
+  但会写进"首屏空网格"的报错，便于区分"不在背包界面"与"OCR 抖动"。
+- debug 数据集会多记一份 `[detail_retry]` 文本，便于离线对比两次 OCR。
+
+**③ `reforge_plan` 增加期望消耗（展示用）**
+- 方案新增 `expected_units = units / p_pass` 与 `expected_cost = cost / p_pass`（几何近似，参考策略工坊的
+  "期望消耗"口径）；报告重铸行显示「期望 X 个频整器/件」。
+- **选法不变**：仍是"P≥0.60 里成本最低、并列取 P 最高"；在整数成本 1/2/3 + P≤1 下它已等价于期望成本最低。
+
+**验证 / 同步**
+- `python -m unittest discover -s tests` → **182 项 / OK (skipped=2)**（`test_doc_claims` 增加"共效=0.5、
+  通用 B 仍 17.5"断言；`test_judge_rules` 增加 `expected_units`/`expected_cost` 断言，未新增用例数）。
+- `python tools/analysis/calculator_reconcile.py --check` → 通过；报告 §3 的"我们"列已更新为 0.50。
+- 文档：`README`（权重表/共效说明/代表集）、`CLAUDE`（权重表/B 固定/OCR 重读/期望频整器）、`eval_rules`
+  （权重表/重铸期望展示）、`handoff`、`docs/CALCULATOR_RECONCILIATION.md`、`ui/run_tab.py` 说明文字。
+- **未验证**：OCR 重读/页面锚点只在逻辑上成立，尚未真机（无素材/无窗口）；需 P4 首次评估时观察
+  "检测到锚点/低置信重读"日志与耗时变化。

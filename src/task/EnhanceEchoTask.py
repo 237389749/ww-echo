@@ -85,10 +85,13 @@ def _lcs_len(a: str, b: str) -> int:
     return best
 
 
-# 通用模式(套装未映射)算基准线 B 用的**代表权重集** = DEFAULT_WEIGHTS 的**去重权重值**(降序)。
-# 它不是"手抄的第二份表": 改 DEFAULT_WEIGHTS 的权重档位会自动跟着变(以前要求两处手工同步)。
-# 当前去重值 = (1.0, 0.7, 0.6, 0.5, 0.4, 0.25) → 最低 tier-1 条之和×10 = (0.25+0.4+0.5+0.6)×10 = 17.5。
-_GENERAL_WEIGHTS = tuple(sorted({w for w in DEFAULT_WEIGHTS.values() if w > 0}, reverse=True))
+# 通用模式(套装未映射)算基准线 B 用的**固定代表档位**。
+# 为什么不再从 DEFAULT_WEIGHTS 去重自动推导: B 是"保留地板"的**用户口径阈值**, 评分权重是可调策略;
+#   2026-11-13 把通用共效 0.6→0.5 后, 去重档位从 6 个变成 5 个, 最低 4 条会多算进 0.7 档 →
+#   B(5) 会从 17.5 自动抬到 18.5, 等于顺手收紧了保留线, 这不是权重调整的本意。
+# 因此这里冻结为历史 6 档; 改评分权重时请明确决定 B 是否跟着变, 并同步本行 + 文档/测试。
+# 当前值 = (1.0, 0.7, 0.6, 0.5, 0.4, 0.25) → 最低 tier-1 条之和×10 = (0.25+0.4+0.5+0.6)×10 = 17.5。
+_GENERAL_WEIGHTS = (1.0, 0.7, 0.6, 0.5, 0.4, 0.25)
 
 # 评估遍历的 debug 数据集开关(**默认关**): 每格存 全屏 PNG + ROI 叠图 + 三个区域裁剪, 200 只约数百 MB~1GB。
 # 需要离线核对坐标/OCR/图标回归时改 True —— 它是 tools/eval_icon_match.py 与 tools/offline_eval_report.py 的数据源。
@@ -298,7 +301,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '成功后暂停': '强化出符合条件的声骸时自动暂停任务并弹出通知，方便手动确认',
             '强化策略': '传统: 满级后一次判断\n渐进式: Lv5/10 首条在首核内即过(低权重套装可配 `_low_first` 要求前 N 档) → Lv15+ 走两线判定(达标线 A = 10×本只出现有效词条权重和; 基准线 B = 通用 6.5/11.5/17.5), 不及格即停',
             '当前套装': '在"套装配置"tab中管理词条和权重',
-            '启用评分模式': '条分=档位值÷期望值×10×权重(期望=官方公示概率期望; 平均档=10分, 满档≈13.1~14.0): 暴击1.0/爆伤0.7/攻%等0.5/共效0.6/专伤0.4/固定三系0.25\n无效词条=0分',
+            '启用评分模式': '条分=档位值÷期望值×10×权重(期望=官方公示概率期望; 平均档=10分, 满档≈13.1~14.0): 暴击1.0/爆伤0.7/攻%等0.5/共效0.5/专伤0.4/固定三系0.25\n无效词条=0分',
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
         }
 
@@ -351,6 +354,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         stop_all = False           # 到底/达上限 → 正常收尾并输出报告
         handled = 0                # 已记录数量(与左上总数比对做步数上限)
         total_limit = None         # 左上 "声骸N/3000" 的上限
+        count_text = ''            # 最近一次左上计数区的原始 OCR 文本(页面锚点用)
+        anchor_ok = False          # 左上「声骸N/3000」锚点是否识别到(仅用于错误提示, 不单独中断)
         col_centers = []           # 6列基准 x(像素), 用于行内缺列补全防漏点
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
@@ -398,12 +403,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         def read_count():
             """OCR 左上 '声骸166/3000': 前者=背包声骸总数(或当前滚动位置), 后者=容量上限。
             返回**前者**作为步数上限(评估不得超过它); 失败返回 None。
-            放大 OCR 防小字/斜杠被拆: 全部文本按坐标拼接后再解析; 无斜杠时取第一段数字。"""
+            放大 OCR 防小字/斜杠被拆: 全部文本按坐标拼接后再解析; 无斜杠时取第一段数字。
+            同时更新 `count_text` 供页面锚点判断(左上计数区必须出现"声骸"/"背包"之类文字)。"""
+            nonlocal count_text
             try:
                 texts = self.ocr(*count_box, target_height=300)
                 dbg_ocr('count', texts)
                 ordered = sorted(texts, key=lambda b: (getattr(b, 'y', 0), getattr(b, 'x', 0)))
                 joined = ''.join(getattr(b, 'name', '') or '' for b in ordered)
+                count_text = joined
                 m = re.search(r'(\d+)\s*/\s*(\d+)', joined)
                 if m:
                     return int(m.group(1))
@@ -413,6 +421,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             except Exception:
                 pass
             return None
+
+        def ocr_conf(box):
+            try:
+                return float(getattr(box, 'confidence', 0) or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        def ocr_quality(texts):
+            """低置信重读的取舍: 先比"达到 0.85 的框数", 再比这些框的置信度和。"""
+            good = [ocr_conf(b) for b in (texts or []) if ocr_conf(b) >= self.OCR_RETRY_CONF]
+            return len(good), sum(good)
 
         def scan_grid():
             """OCR 网格区角标 → 聚行 → 按 6 列基准补全缺列(防 OCR 漏格), 返回完整网格点
@@ -489,6 +508,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             """
             texts = self.ocr(*detail_box)
             dbg_ocr('detail', texts)
+            # 低置信重读(参考策略工坊的"失败行重试"): 任一行 < 0.85 就再读一次整个详情面板,
+            # 两次都不改画面, 取"高置信框更多/置信和更高"的那次; 只有 0.5~1 次额外 OCR, 不翻倍。
+            if texts and any(ocr_conf(b) < self.OCR_RETRY_CONF for b in texts):
+                texts_retry = self.ocr(*detail_box)
+                dbg_ocr('detail_retry', texts_retry)
+                if ocr_quality(texts_retry) > ocr_quality(texts):
+                    texts = texts_retry
+                    self.log_debug('详情面板低置信重读: 采用第二次结果')
             cost = parse_cost(texts)
             if cost is None:
                 # 全屏 OCR 把数字框整个漏掉时(实测 27/135) → 只截角标区放大重读一次
@@ -518,7 +545,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             ok, msg = self._check_set_keys(self.config.get('当前套装', '通用'))
             if not ok:
                 raise Exception(msg)
-            total_limit = read_count()
+            total_limit = None
+            # 页面锚点: 背包声骸列表左上必有「声骸N/3000」。OCR 偶发抖动 → 重试 3 次;
+            # 仍没有也不立刻中断(网格角标是更强的信号), 只在首屏空网格的报错里带上锚点信息。
+            for _ in range(3):
+                total_limit = read_count()
+                if total_limit is not None or '声骸' in count_text or '背包' in count_text:
+                    anchor_ok = True
+                    break
+                self.sleep(0.5)
+            if anchor_ok:
+                self.log_debug(f'页面锚点: {count_text[:60]!r}')
+            else:
+                self.log_warning('未识别到右上/左上「声骸N/3000」页面锚点, 继续用网格角标检测')
             if dbg_dir:
                 self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
             self.log_info(f'背包声骸总数/位置: {total_limit}' if total_limit else '未识别到数量, 用滚动检测兜底')
@@ -536,7 +575,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     empty_scan += 1
                     if empty_scan >= 2:
                         if evaluated == 0 and not results:
-                            raise Exception('未在背包界面检测到声骸网格(角标), 请确认在背包声骸列表界面')
+                            hint = '' if anchor_ok else '; 页面锚点也未识别到「声骸N/3000」'
+                            raise Exception(f'未在背包界面检测到声骸网格(角标){hint}, 请确认在背包声骸列表界面')
                         self.log_info('到达背包底部(网格区无角标), 评估结束', notify=True)
                         break
                     scroll_grid()
@@ -955,6 +995,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                   # 花 30 元只买三成把握不值 —— 宁可去刷新胚子)
     ENCHANT_TRIALS = 3000         # 未满级前瞻的模拟次数
     ENCHANT_MIN_PROB = 0.60       # "继续开到满级能否过保留线"的最低概率(与重铸同口径)
+    OCR_RETRY_CONF = 0.85         # 详情面板任一 OCR 框低于此置信度时, 整面板重读一次再取较优结果
 
     def enchant_prospect(self, set_name, tier, stats):
         """未满级前瞻: 继续强化到满级后"总分 ≥ 保留线 B(满级)"的概率(0~1); 无法前瞻返回 None。
@@ -1082,11 +1123,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 p_pass = ok / self.REFORGE_TRIALS
                 if p_pass < self.REFORGE_MIN_PROB:
                     continue
+                units = max(1, limit - 1)          # 官方: 锁 1~2 条按 1 个计
+                cost = units * self.REFORGE_PRICE
                 plan = {
                     'lock': locked_names,
                     'refresh': need,
-                    'units': max(1, limit - 1),
-                    'cost': max(1, limit - 1) * self.REFORGE_PRICE,
+                    'units': units,
+                    'cost': cost,
+                    # 参考策略工坊的"期望消耗"口径: 这是"每次成本 / 本次达标概率"的几何近似,
+                    # 只用于报告对照(判定仍是 P >= REFORGE_MIN_PROB 的硬门, 不改选法)。
+                    'expected_units': round(units / p_pass, 2),
+                    'expected_cost': round(cost / p_pass, 1),
                     'p_pass': round(p_pass, 3),
                     'trials': self.REFORGE_TRIALS,
                     'e_feat': round(e_feat, 2),

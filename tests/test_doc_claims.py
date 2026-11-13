@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.echo_set_templates import (get_set_weights, load_gamedata,  # noqa: E402
                                     get_all_set_names)
 from src.echo_stats import DEFAULT_WEIGHTS, _TIERS, get_mean, snap_to_tier  # noqa: E402
+from src.task.EnhanceEchoTask import _legacy_threshold  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -93,9 +94,10 @@ class TestBaselineLines(unittest.TestCase):
     """README/CLAUDE/eval_rules 的 B 线口径：通用线 6.5/11.5/17.5, 套装模式按自身权重。"""
 
     def test_general_line(self):
-        gen = {w for w in DEFAULT_WEIGHTS.values() if w > 0}
+        """通用线 6.5/11.5/17.5 是**固定口径**（不随通用共效 0.6→0.5 漂移）。"""
+        self.assertEqual(DEFAULT_WEIGHTS["共鸣效率"], 0.5)   # 2026-11-13 对账后下调
         for tier, expect in ((3, 6.5), (4, 11.5), (5, 17.5)):
-            self.assertAlmostEqual(_b_line({f"k{i}": w for i, w in enumerate(sorted(gen))}, tier), expect)
+            self.assertAlmostEqual(_legacy_threshold("通用", tier), expect)
 
     def test_set_lines(self):
         cases = {"凝夜白霜": (20.5, 7.5), "隐世回光": (19.0, 4.0), "轻云出月": (4.0, 2.0)}

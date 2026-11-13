@@ -194,8 +194,13 @@ class TestReforgePlan(unittest.TestCase):
             self.skipTest('该样本无满足概率阈值的方案(阈值/权重调整后可能变化)')
         self.assertGreaterEqual(plan['p_pass'], EnhanceEchoTask.REFORGE_MIN_PROB)
         self.assertEqual(plan['cost'], max(1, len(plan['lock']) - 1) * EnhanceEchoTask.REFORGE_PRICE)
+        self.assertEqual(plan['units'], max(1, len(plan['lock']) - 1))
         self.assertEqual(plan['refresh'], 5 - len(plan['lock']))
         self.assertLessEqual(len(plan['lock']), EnhanceEchoTask.REFORGE_LOCK_MAX)
+        # 期望频整器 = units / p_pass(几何近似), 只做展示; p_pass 存的是 3 位小数, 用 delta 容错
+        self.assertGreaterEqual(plan['expected_units'], plan['units'])
+        self.assertAlmostEqual(plan['expected_units'] * plan['p_pass'], plan['units'], delta=0.02)
+        self.assertAlmostEqual(plan['expected_cost'] * plan['p_pass'], plan['cost'], delta=0.02 * EnhanceEchoTask.REFORGE_PRICE / plan['units'])
 
     def test_locking_low_weight_entries_is_rejected(self):
         """① 代数粗筛: "锁低权重词条 + 刷 4 条" 不可行(A_after 站不住) → 方案里不会锁权重 0 的词条。"""

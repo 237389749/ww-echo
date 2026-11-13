@@ -263,7 +263,7 @@ class RunTab(QWidget):
         self.score_info.setWordWrap(True)
         self.score_info.setText(
             "评分: 条分 = 档位值÷期望值 ×10×权重(期望 = 官方公示概率期望; 平均档 = 10 分, 满档 ≈ 13.1~14.0)\n"
-            "通用权重: 暴击1.0 爆伤0.7 攻击%/生命%/防御% 0.5 共效0.6 专伤0.4 小攻/小生命/小防御 0.25\n"
+            "通用权重: 暴击1.0 爆伤0.7 攻击%/生命%/防御% 0.5 共效0.5 专伤0.4 小攻/小生命/小防御 0.25\n"
             "暴击6.3%→8.40分, 10.5%→14.00分; 套装模式权重由套装模板决定, 无效词条=0分\n"
             "判定: 达标线 A = 10×本只出现有效词条的权重和; 基准线 B = 套装有效键最低 tier-1 条之和 ×10\n"
             "满级: A≥B 且 总分≥A → 达标; 总分≥B → 保留; 未过线但「锁 N 刷 M 后达标概率≥60%」→ 建议重铸; "
@@ -895,6 +895,7 @@ def _build_eval_html(data):
         rf_html = (f'<br><span style="color:#999;font-size:11px">锁 {"+".join(rf["lock"])}'
                    f' · 刷 {rf["refresh"]} 条 · ≈ {rf["cost"]} 元'
                    f' · <b>达标概率 {rf.get("p_pass", 0) * 100:.0f}%</b>'
+                   f' · 期望 {rf.get("expected_units", "—")} 个频整器/件'
                    f' · 期望 {rf["expected"]} 分 · r̄ {rf.get("rbar", "—")}'
                    f' · 届时达标线 {rf.get("a_after", "—")}</span>'
                    ) if rf else ''
