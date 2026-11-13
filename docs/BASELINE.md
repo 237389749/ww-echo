@@ -10,16 +10,15 @@
 | 项 | 值 | 说明 |
 |---|---|---|
 | OS | Windows 10/11 | 抓屏/键鼠依赖 Win32 |
-| Python | **3.11+**（推荐 3.12；**3.13 / 3.14 已实测**） | ok-script 1.0.160 起 `Requires-Python>=3.11`；**1.0.159 钉死 3.12.\***，所以旧 pin 在新解释器上装不上。3.14 实测口径：Python **3.14.4** + ok-script 1.0.160 + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`）；3.13 于 2026-11-13 用全新 venv 复验（Python 3.13.16 + 同一套 requirements） |
-| 依赖 | `pip install -r requirements.txt` | `ok-script==1.0.160` / `opencv-python==4.14.0.94`（numpy 约束无 `<2.3` 上限）/ `openvino==2026.0.0` 等 5 个顶层包（传递依赖未锁版本） |
-| ok-script 补丁 | 4 处，见 `tools/patches/` | **pip 安装/升级会丢失**，装完先跑 `python tools/patches/apply_patches.py`，再用 `check_patches.py` 自检 |
+| Python | **3.11+**（推荐 3.12；**3.13 / 3.14 已实测**） | 引擎已 vendored 到 `ww_engine/`（源自 ok-script 1.0.160, MIT），不再要求 site-packages 的 ok-script。3.14 实测口径：Python **3.14.4** + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`）；3.13 于 2026-11-13 用全新 venv 复验（Python 3.13.16 + 同一套 requirements） |
+| 依赖 | `pip install -r requirements.txt` | `opencv-python==4.14.0.94` / `openvino==2026.0.0` / `onnxocr-ppocrv5==0.0.18` / `pywin32` / `psutil` / `pynput` / `pycaw` / `PySide6-Fluent-Widgets`；传递依赖未锁版本 |
+| 引擎 | `ww_engine/`（in-tree） | 不再有 site-packages 补丁；4 处 `[ww-echo patch]` 已合并进 vendored 代码 |
 | 显示器/分辨率 | 任何 16:9（离线工具不需要游戏） | 真机评估需要游戏在"背包声骸列表"界面 |
 
 自检：
 
 ```powershell
-python -c "import ok, cv2, numpy; print('ok')"     # 任一失败 = 环境不对，下面的基线都不用看
-python tools/patches/check_patches.py              # 4 处补丁是否在位（退出码 0 = OK）
+python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境不对，下面的基线都不用看
 ```
 
 ## 1. 基线（每次改动后复跑）
@@ -42,9 +41,9 @@ python tools/patches/check_patches.py              # 4 处补丁是否在位（�
 > B1 `Ran 172 / OK (skipped=1)`、B2 见上表、B3 `217/219 (99.1%)`、B4 8 页、B5 `109 只 / 47 名 / {1:55,3:35,4:19}`、B6 4 个预设。
 > 这些数字在此之前只有 3.12 的旧记录（"3.14 已实测"当时只做了静态核对 + `py_compile`）。
 > **2026-11-13 补充（本机 Python 3.13.16 新 venv）**：`pip install -r requirements.txt` 一次成功
-> （ok-script 1.0.160 / opencv 4.14.0.94 / numpy 2.4.6 / openvino 2026.0.0 / onnxocr 0.0.18 / PySide6 6.12 / qfluentwidgets 1.11.3），
-> B1 `Ran 177 / OK (skipped=2)`（无素材，`TestRealDataset` 整类跳过）、B4 7 页、补丁 `check_patches.py` 8 处标记在位。
-> 说明：3.12 的 `Requires-Python` 限制已由 ok-script 1.0.160 解除，Python 3.13 也能装。
+> （opencv 4.14.0.94 / numpy 2.4.6 / openvino 2026.0.0 / onnxocr 0.0.18 / PySide6 6.12 / qfluentwidgets 1.11.3），
+> B1 `Ran 177 / OK (skipped=2)`（无素材，`TestRealDataset` 整类跳过）、B4 7 页、`ww_engine` 全模块导入 0 错误。
+> 说明：引擎自持后不再依赖 ok-script 的 `Requires-Python`，Python 3.13 直接可跑。
 
 离线快速重放（不需要素材，只看当前权重下的判定）：
 
@@ -87,11 +86,11 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `logs/eval_debug/20260911_110817/`（1097 个文件） | `.gitignore: logs/` | B2/B3/B5 无法跑；相关用例会 `skipTest` |
 | `eval_report_*.json` / `eval_report.html` | `.gitignore`（评估产物） | 无法复核 §8 的判定分布；`--from-json` 没输入 |
 | `.scratch/` 整个目录 | 在仓库**父目录**，`git ls-files` 为 0 | §2 的脚本全部缺失，文档里的 `.scratch/...` 路径悬空 |
-| ok-script 的 4 处补丁 | 只存在于本机 site-packages | 重装后需按 `tools/patches/` 重打，否则云模式/后台抓屏失效 |
+| `ww_engine/` 引擎源码 | 已入库，不再是 site-packages | 干净克隆直接可跑；不再需要重打补丁 |
 
 > 环境坑（本机写明的那个受限沙箱）：`tempfile.gettempdir()` 会落到**仓库根**（`%TEMP%` 探测不通过），
 > 于是每次跑 B1 都会在根目录留一个 `tmpXXXX/`（`tests/test_echo_inventory.py` 的 `mkdtemp`）—— **无害，别提交**；
 > 正常机器上它落在 `%TEMP%`。同理 `tools/ui_shot.py` 的默认输出是仓库内的 `.scratch/ui_shots/`（也不入库）。
 
 **想让它们可复现**：① 提交一份小型 fixture（如 20 只的评估 JSON + 2 张图标），把 B2/B5 的冒烟测试改成用它；
-② 把 `.scratch` 的脚本搬进 `tools/analysis/`；③ 补丁做成规格 + 校验脚本（已完成，见 `tools/patches/`）。
+② 把 `.scratch` 的脚本搬进 `tools/analysis/`；③ 补丁已随引擎 vendored 进 `ww_engine/`（阶段三十一，已完成）。

@@ -1,5 +1,5 @@
 """
-OK-Echo 主入口 — 自建 PySide6 界面, ok-script 做后台引擎。
+OK-Echo 主入口 — 自建 PySide6 界面, ww_engine 做后台引擎。
 """
 import sys
 import logging
@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, Signal, QSettings
 from PySide6.QtWidgets import QApplication
 
 from config import config, apply_run_mode, MODE_LOCAL, MODE_CLOUD
-from ok import OK, og
+from ww_engine import OK, og
 
 
 class LogBridge(logging.Handler, QObject):
@@ -28,18 +28,18 @@ def main():
     # 0. 应用运行模式(本地/云游戏) — 须在 OK 引擎初始化前生效
     run_mode = QSettings("OK-Echo", "OK-Echo").value("run_mode", MODE_LOCAL)
     apply_run_mode(MODE_CLOUD if run_mode == MODE_CLOUD else MODE_LOCAL)
-    logging.getLogger('ok').info(f"运行模式: {'云游戏(自动锁定鸣潮窗口/前台)' if run_mode == MODE_CLOUD else '本地客户端'}")
+    logging.getLogger('ww_engine').info(f"运行模式: {'云游戏(自动锁定鸣潮窗口/前台)' if run_mode == MODE_CLOUD else '本地客户端'}")
 
-    # 1. ok-script 后端初始化 (不创建旧 UI)
+    # 1. 引擎初始化 (不创建旧 UI)
     config['debug'] = False
     config['use_gui'] = True
     ok_engine = OK(config)
 
     # 2. 日志桥接
     log_bridge = LogBridge()
-    logging.getLogger('ok').addHandler(log_bridge)
+    logging.getLogger('ww_engine').addHandler(log_bridge)
     logging.getLogger('src').addHandler(log_bridge)
-    logging.getLogger('ok').setLevel(logging.INFO)
+    logging.getLogger('ww_engine').setLevel(logging.INFO)
     logging.getLogger('src').setLevel(logging.INFO)
 
     # 3. 自定义窗口

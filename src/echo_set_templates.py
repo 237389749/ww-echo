@@ -28,7 +28,7 @@ import json
 import os
 from pathlib import Path
 
-from ok import Logger
+from ww_engine import Logger
 
 logger = Logger.get_logger(__name__)
 

@@ -332,7 +332,7 @@ class SetConfigTab(QWidget):
     def _log(self, msg):
         """简单的控制台日志。"""
         try:
-            from ok import Logger
+            from ww_engine import Logger
             Logger.get_logger(__name__).info(msg)
         except Exception:
             pass

@@ -17,7 +17,7 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF,
                             PrimaryPushButton, PushButton, SettingCard, SettingCardGroup,
                             StrongBodyLabel, SubtitleLabel, SwitchButton, ToolTipFilter)
 
-from ok import og
+from ww_engine import og
 
 from src.echo_stats import DEFAULT_WEIGHTS
 from src.echo_set_templates import get_set_weights

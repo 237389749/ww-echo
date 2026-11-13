@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import (CaptionLabel, FluentIcon as FIF, HeaderCardWidget, HyperlinkLabel,
                             ImageLabel, SingleDirectionScrollArea, TitleLabel)
 
-from ok import og
+from ww_engine import og
 
 from ui.widgets import make_scroll_transparent
 
@@ -17,7 +17,7 @@ REPO = "https://github.com/237389749/ww-echo"
 LINKS = (
     ("本项目 ww-echo", REPO),
     ("上游 ok-wuthering-waves", "https://github.com/ok-oldking/ok-wuthering-waves"),
-    ("框架 ok-script", "https://github.com/ok-oldking/ok-script"),
+    ("引擎 ww_engine（源自 ok-script）", "https://github.com/ok-oldking/ok-script"),
     ("界面 qfluentwidgets", "https://github.com/zhiyiYo/PyQt-Fluent-Widgets"),
 )
 
@@ -80,7 +80,7 @@ class AboutTab(QWidget):
         name = TitleLabel()
         name.setText("声骸强化 / 评估")
         ver = CaptionLabel()
-        ver.setText(f"版本 {og.config.get('version', 'dev')} · 引擎 ok-script · 界面 qfluentwidgets")
+        ver.setText(f"版本 {og.config.get('version', 'dev')} · 引擎 ww_engine · 界面 qfluentwidgets")
         body.addWidget(name)
         body.addWidget(ver)
         return card

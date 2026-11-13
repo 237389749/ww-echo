@@ -2,7 +2,7 @@
 调试工具 — OCR 测试 / 截图 / 覆盖层 / 文件夹 + 共享运行日志(Fluent 分栏卡片)。
 
 页内用 `SegmentedWidget` 分四个子页; 底部保留运行日志(与「运行」页同一日志流的第二份视图)。
-按钮/开关全部 Fluent 化, 结果用 InfoBar 反馈(不再只靠 ok-script 的弹窗)。
+按钮/开关全部 Fluent 化, 结果用 InfoBar 反馈(不再只靠 ww_engine 的弹窗)。
 """
 import os
 import subprocess
@@ -15,8 +15,8 @@ from qfluentwidgets import (CaptionLabel, FluentIcon as FIF, HeaderCardWidget, I
                             InfoBarPosition, PushSettingCard, SegmentedWidget, SettingCardGroup,
                             SwitchSettingCard)
 
-from ok import og
-from ok.gui.Communicate import communicate
+from ww_engine import og
+from ww_engine.gui.Communicate import communicate
 
 
 def _card_body(card: HeaderCardWidget) -> QVBoxLayout:
@@ -175,7 +175,7 @@ class DebugTab(QWidget):
                                 f.write(f"{box.name}, {box}, {box.confidence}\n")
                     subprocess.Popen(f'explorer "{folder}"')
             except Exception as e:                               # noqa: BLE001
-                from ok.gui.util.Alert import alert_error
+                from ww_engine.gui.util.Alert import alert_error
                 alert_error(f"OCR 测试失败: {e}")
 
         threading.Thread(target=_run, daemon=True).start()

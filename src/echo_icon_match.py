@@ -21,7 +21,7 @@ import os
 
 import cv2
 import numpy as np
-from ok import Logger
+from ww_engine import Logger
 
 logger = Logger.get_logger(__name__)
 

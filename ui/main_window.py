@@ -142,7 +142,7 @@ class MainWindow(FluentWindow):
         # 注: 不手动 unpolish/polish 整棵树 —— qfluentwidgets 的 setTheme 会走全局重绘(Gallery 也是实时切换),
         # 手动 repolish 反而在离屏/构造期不稳(实测崩过)。运行中切换后的观感需真机确认一次。
 
-    # ── 关闭: 沿用 ok-script 标准退出通道, 避免进程残留 ──
+    # ── 关闭: 沿用 ww_engine 标准退出通道, 避免进程残留 ──
     def closeEvent(self, event: QCloseEvent):
         try:
             self._settings.setValue("geometry", self.saveGeometry())
@@ -150,7 +150,7 @@ class MainWindow(FluentWindow):
         except Exception:
             pass
         try:
-            from ok.gui.Communicate import communicate
+            from ww_engine.gui.Communicate import communicate
             communicate.quit.emit()   # OK.quit(): exit_event.set() + app.quit()
         except Exception:
             pass

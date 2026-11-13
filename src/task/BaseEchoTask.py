@@ -7,7 +7,7 @@
 自动战斗/刷图能力一起移除 —— 本工具只模拟背包/详情面板里的点击与 esc/z/c。
 """
 
-from ok import BaseTask
+from ww_engine import BaseTask
 
 
 class BaseEchoTask(BaseTask):

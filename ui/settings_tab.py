@@ -7,7 +7,7 @@
 - 反馈用 `InfoBar`(保存成功/需重启), 危险动作(重启)用 `MessageBox` 确认。
 
 行为与旧版保持一致: 运行模式写 QSettings("OK-Echo") 的 `run_mode`; 窗口/截图/交互直连 `og.device_manager`;
-后台静音写回 ok-script 的 basic_options。月卡/游戏内技能键等 ok-ww 农场相关设置已移除。
+后台静音写回 ww_engine 的 basic_options。月卡/游戏内技能键等 ok-ww 农场相关设置已移除。
 """
 import os
 import subprocess
@@ -21,8 +21,8 @@ from qfluentwidgets import (CaptionLabel, ComboBox, FluentIcon as FIF, InfoBar, 
                             SingleDirectionScrollArea, StrongBodyLabel, SwitchSettingCard,
                             TitleLabel, Theme)
 
-from ok import og, Logger
-from ok.gui.Communicate import communicate
+from ww_engine import og, Logger
+from ww_engine.gui.Communicate import communicate
 
 from config import MODE_LOCAL, MODE_CLOUD
 from ui.widgets import make_scroll_transparent
@@ -66,7 +66,7 @@ class SettingsTab(QWidget):
         vbox.addWidget(self._group_tools())
 
         ver = CaptionLabel()
-        ver.setText(f"OK-Echo v{og.config.get('version', 'dev')} · 引擎 ok-script · 界面 qfluentwidgets")
+        ver.setText(f"OK-Echo v{og.config.get('version', 'dev')} · 引擎 ww_engine · 界面 qfluentwidgets")
         vbox.addWidget(ver)
         vbox.addStretch(1)
 
@@ -126,7 +126,7 @@ class SettingsTab(QWidget):
         self._add_widget(self.interaction_card, self.interaction_combo)
 
         self.hotkey_card = SettingCard(
-            FIF.GAME, "启动 / 停止热键", "由 ok-script 全局控制(游戏内技能键不参与本工具)", self.view)
+            FIF.GAME, "启动 / 停止热键", "由 ww_engine 全局控制(游戏内技能键不参与本工具)", self.view)
         self.hotkey_label = StrongBodyLabel(); self.hotkey_label.setText("F9")
         self._add_widget(self.hotkey_card, self.hotkey_label)
         g.addSettingCards([self.capture_card, self.interaction_card, self.hotkey_card])
@@ -135,7 +135,7 @@ class SettingsTab(QWidget):
     def _group_misc(self) -> SettingCardGroup:
         g = SettingCardGroup("其它", self.view)
         self.mute_card = SwitchSettingCard(
-            FIF.MEGAPHONE, "后台静音", "任务运行时把游戏窗口静音(即 ok-script 的 Mute Game while in Background)",
+            FIF.MEGAPHONE, "后台静音", "任务运行时把游戏窗口静音(即 ww_engine 的 Mute Game while in Background)",
             None, self.view)
         self.mute_card.checkedChanged.connect(self._save_mute)
         g.addSettingCard(self.mute_card)
@@ -199,7 +199,7 @@ class SettingsTab(QWidget):
             InfoBar.error("重启失败", f"{e}（请手动关闭后重新运行）", duration=5000,
                           position=InfoBarPosition.TOP_RIGHT, parent=self)
             return
-        from ok.gui.Communicate import communicate as _comm
+        from ww_engine.gui.Communicate import communicate as _comm
         _comm.quit.emit()
 
     # ══════════════════ 配置读写 ══════════════════
@@ -209,7 +209,7 @@ class SettingsTab(QWidget):
     def _load_config(self):
         """读取引擎配置 → 控件。**阻断信号**: 否则 setValue 会立刻触发"保存"回写(无意义且有副作用)。"""
         try:
-            from ok.util.GlobalConfig import basic_options
+            from ww_engine.util.GlobalConfig import basic_options
             basic = self._global_config().get_config(basic_options)
             self.mute_card.blockSignals(True)
             self.mute_card.setValue(bool(basic.get('Mute Game while in Background', False)))
@@ -219,7 +219,7 @@ class SettingsTab(QWidget):
 
     def _save_mute(self, checked: bool):
         try:
-            from ok.util.GlobalConfig import basic_options
+            from ww_engine.util.GlobalConfig import basic_options
             cfg = self._global_config().get_config(basic_options)
             cfg['Mute Game while in Background'] = bool(checked)
             cfg.save_file()

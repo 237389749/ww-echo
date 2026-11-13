@@ -1,6 +1,7 @@
 # ww-echo
 
-基于图像识别的鸣潮声骸强化自动化工具。从 [ok-ww](https://github.com/ok-oldking/ok-wuthering-waves) 剥离声骸模块，基于 [ok-script](https://github.com/ok-oldking/ok-script) 的截图/OCR/键鼠能力，自建 PySide6 管理界面。
+基于图像识别的鸣潮声骸强化自动化工具。从 [ok-ww](https://github.com/ok-oldking/ok-wuthering-waves) 剥离声骸模块；
+引擎已自持到 `ww_engine/`（源自 [ok-script](https://github.com/ok-oldking/ok-script) 1.0.160 的 MIT 精简 vendor），界面为自建 PySide6。
 
 *An image-recognition-based Wuthering Waves echo enhancement tool with custom PySide6 UI.*
 
@@ -108,7 +109,6 @@
 
 ```bash
 pip install -r requirements.txt --upgrade
-python tools/patches/apply_patches.py   # ok-script 被安装/升级后 4 处补丁会丢失(云模式锁定窗口/后台抓屏依赖它们); 幂等, 可重复跑
 python mainui.py
 ```
 
@@ -206,7 +206,9 @@ python mainui.py
 ```
 ww-echo/
 ├── mainui.py                       # 主入口
-├── config.py                       # ok-script 配置
+├── config.py                       # ww_engine 配置
+├── ww_engine/                      # 自持引擎: 截图/窗口/键鼠/OCR/模板匹配/任务运行时
+│                                   # (源自 ok-script 1.0.160, MIT; 已删除 GUI/ADB/模拟器/更新等)
 ├── ui/                             # 自定义 PySide6 UI(FluentWindow 左导航 7 页)
 │   ├── main_window.py              # 外壳: 导航 / 尺寸与页面记忆 / 主题 / 快捷键
 │   ├── run_tab.py / plan_tab.py / set_config_tab.py / settings_tab.py
@@ -222,7 +224,7 @@ ww-echo/
 │   ├── echo_icon_match.py          # 套装图标识别(灰度 ZNCC 模板匹配)
 │   ├── echo_score_sim.py           # 整只声骸分位(按官方概率模拟"随机满级声骸"分数分布)
 │   ├── char_profiles.py            # 角色预设的读写/构造(assets/char_profiles.json)
-│   ├── globals.py                  # ok-script 全局对象占位(my_app 注册)
+│   ├── globals.py                  # 全局对象占位(my_app 注册)
 │   └── task/
 │       ├── EnhanceEchoTask.py      # 强化 + 评估(自动遍历 v2)
 │       ├── BaseEchoTask.py         # 任务基类
@@ -238,7 +240,6 @@ ww-echo/
 │   ├── gen_echo_data.py            # 官方配置表 → assets/gamedata/echo_data.json(声骸↔套装/主属性方案)
 │   ├── eval_icon_match.py          # 套装图标识别离线回归(用 eval_debug 数据集)
 │   ├── offline_eval_report.py      # 离线重放评估 → eval_report.html(不开游戏核对评分/报告)
-│   ├── patches/                    # ok-script 补丁规格 + check_patches.py(升级后自检)
 │   └── analysis/                   # 复现脚本(入库区; 约定见其 README)
 └── assets/
     ├── gamedata/echo_data.json     # 官方静态数据(生成物, 只读): 37 套 / 229 声骸 / 主属性方案
@@ -250,11 +251,13 @@ ww-echo/
 
 ## 依赖 | Dependencies
 
-- [ok-script](https://github.com/ok-oldking/ok-script) — 截图 + OCR + 模板匹配 + 键鼠模拟（仅用后端，GUI 自建）
+- `ww_engine/` — 自持引擎（源自 [ok-script](https://github.com/ok-oldking/ok-script) 1.0.160 的精简 vendor，MIT）：
+  截图 + 窗口 + 模板匹配 + 键鼠注入 + 任务运行时
 - `pynput` — 云游戏模式前台键鼠注入（点击层必需）
+- `PySide6-Fluent-Widgets` / `pywin32` / `numpy` / `opencv-python` / `onnxocr-ppocrv5` / `openvino` / `psutil` / `pycaw`
 
-> ⚠️ ok-script 装在 site-packages，本项目对它有 4 处行为补丁(4 个文件, 标注 `[ww-echo patch]`)；
-> 另在 `ui/run_tab.py` 有 1 处本项目内改动。升级 ok-script 后需重打 site-packages 补丁，清单见 `CLAUDE.md`。
+> 引擎已不再从 site-packages 加载，也不需要 `tools/patches/apply_patches.py`。
+> `ww_engine/` 的 MIT 版权与修改说明见 `THIRD_PARTY_NOTICES.md`（如文件不存在，见 `docs/ENGINE_VENDOR_PLAN.md`）。
 
 ---
 
@@ -283,6 +286,8 @@ ww-echo/
   新增 `evaluate_one`(评估与离线重放共用)、`STAT_ORDER`(词条表单一来源)、`_GENERAL_WEIGHTS` 自动推导；
   多入口收敛(删 `main.py`/`main_debug.py`/`run.py` 与 `ChangeEchoTask`，只留 `mainui.py`)；debug 数据集默认关
 - [x] **首条核心 + 键数硬拒**: 套装模板新增 `_core_first`(Lv5/10 首条核心词条, 缺省=全部有效词条, 评估/强化配置通用); 套装有效词条<5 → 评估/强化启动硬拒
+- [x] **引擎自持(阶段三十一)**: 把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 8.5k 行）；
+  不再依赖 site-packages，不再需要补丁脚本；删除 ok-ww 原生 GUI/ADB/模拟器/浏览器等 35k 行
 - [ ] **真机走查「强化 run()」**: 评估已在真机跑过(135 只, 2026-10-08 报告已体检; COST 漏读已修)，但**强化流程的"切下一只"推进**仍依赖游戏在丢弃后自动前移，需真机确认
 - [ ] **真机走查「组合穷举」页**: 导入库存 → 选套装/模式/4C 归属 → 填裸面板与补正 → 穷举 → 双击看明细 / 导出 CSV(离线自检已过)
 - [ ] **图标识别兜底到强化模式(可选)**: 若要"自动套装"强化可复用 `match_icon`
@@ -292,4 +297,4 @@ ww-echo/
 ## 致谢 | Credits
 
 - [ok-oldking/ok-wuthering-waves](https://github.com/ok-oldking/ok-wuthering-waves)
-- [ok-oldking/ok-script](https://github.com/ok-oldking/ok-script)
+- [ok-oldking/ok-script](https://github.com/ok-oldking/ok-script) — `ww_engine/` 的精简 vendor 来源（MIT，见 `THIRD_PARTY_NOTICES.md`）

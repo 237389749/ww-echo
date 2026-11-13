@@ -17,7 +17,7 @@ from qfluentwidgets import (CaptionLabel, FluentIcon as FIF, HeaderCardWidget, I
 
 RUN_CODE_HINT = (
     "出于安全考虑, 自建 UI 禁用了 exec() 执行任意代码。\n"
-    "需要调试请直接改源码后用 ok-script 原版 RunCodeTab, 或在「调试工具」页跑 OCR / 截图自检。"
+    "需要调试请直接改源码后重启, 或在「调试工具」页跑 OCR / 截图自检。"
 )
 
 
@@ -102,7 +102,7 @@ class DevTab(QWidget):
 
     def _run_code(self):
         self.output_area.setPlainText(
-            "Run Code 已禁用 (安全原因)。\n请使用 ok-script 原版 RunCodeTab 或直接修改源码。\n")
+            "Run Code 已禁用 (安全原因)。\n请直接修改源码后重启。\n")
         InfoBar.warning("已禁用", "自建 UI 不执行任意代码; 详见本页说明", duration=3000,
                         position=InfoBarPosition.TOP_RIGHT, parent=self)
 

@@ -1,7 +1,8 @@
 # 引擎自持规划：从 ok-script 精简 vendor（阶段三十一）
 
-> 状态：**规划已定，待实施**。目标提交基线：`54c9ee6`（阶段三十）。
-> 关联：`CLAUDE.md`（项目手册）、`handoff.md`（交接）、`docs/BASELINE.md`（验收基线）。
+> 状态：**P1/P2 已实施（2026-11-13，分支 `engine/vendor`）**；P4 真机验收待做。
+> 实际落地：`ww_engine/` **75 个 `.py` / 8,540 行**（保留 61 文件/12,111 行，删除 150 文件/35,267 行）。
+> 目标提交基线：`54c9ee6`（阶段三十）。关联：`CLAUDE.md`（项目手册）、`handoff.md`（交接）、`docs/BASELINE.md`（验收基线）。
 > 本文回答两个问题：① 哪些 ok-script 代码要保留/删掉/重写；② 迁移后如何证明行为没变。
 
 ---
@@ -301,9 +302,9 @@ log_info / log_debug / log_warning / log_error / find_confirm / find_echo_enhanc
 
 ---
 
-## 9. 待确认（实施前）
+## 9. 已确认的取舍（实施时采用）
 
-- [ ] 是否同意“保留 overlay + 静音”到第二阶段（否则 P1 就要改调试页/设备页 UI）。
-- [ ] 是否同意删除 `tools/patches/` 的安装步骤（改为历史说明）。
-- [ ] 是否接受 `ww_engine` 顶层包名（而不是 `engine/` 或继续 `ok`）。
-- [ ] 真机验收由谁执行/何时可执行（P4 是唯一不能在本机离线完成的步骤）。
+- [x] 第一阶段保留 overlay + 静音（`pycaw` 写入 requirements）；调试页/设备页不改。
+- [x] 删除 `tools/patches/` 与安装步骤；4 处补丁内联。
+- [x] 包名 `ww_engine`。
+- [ ] P4 真机验收由用户在素材机执行（本地/云游戏各一轮；清单见 §6）。

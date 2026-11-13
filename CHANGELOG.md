@@ -1507,3 +1507,49 @@ README 已加"安全边界"说明。
 
 **文档同步**: README（安全边界/7 页/低权重规则/资产数量）、CLAUDE.md（7 页/MouseReset 删除/`_low_first`/177 项）、
 eval_rules.md（§2 首条规则/§7 占位键/§8 B2 待重跑）、docs/BASELINE.md（B1/B2/B4 + 3.13 实测）、handoff.md、panel_plan.md。
+
+---
+
+## 阶段三十一: 引擎自持 — 精简 vendor ok-script (2026-11-13)
+
+**动机**: 用户选择方案 B（"vendor 一份精简的 ok-script，精简由你规划"）：不再依赖 site-packages 的
+`ok-script==1.0.160`，把需要的截图/键鼠/OCR/模板匹配/任务运行时收进仓库，避免升级/重装后补丁丢失，
+并去掉 ok-ww 原生 GUI/ADB/模拟器/浏览器等 35k 行无关代码。
+
+### 一、边界与统计（`docs/ENGINE_VENDOR_PLAN.md`）
+
+- 全量 211 文件 / 47,378 行 → **保留 61 文件 / 12,111 行**，**删除 150 文件 / 35,267 行（74.4%）**。
+- 删除大头：`ok/gui` 94 文件 / 25,489 行（含 `resources.py` 13,965 行）、`capture/adb` 3,252 行、
+  `alas` 1,043 行、`device` 其余 1,445 行、`util` 其余 2,935 行、`paperclip` 655 行。
+- 实际落地 `ww_engine/` **75 个 `.py` / 8,540 行**（保留 + 裁剪 + 重写外壳）。
+
+### 二、保留 / 裁剪 / 重写
+
+- **保留**：`feature/Box`/`Feature`/`FeatureSet`、`task/task.py` + `TaskExecutor` + `exceptions`、
+  `device/DeviceManager`（Windows-only 重写）+ BitBlt/WGC/Hwnd + PostMessage/Pynput/keys、
+  `util/config`/`GlobalConfig`/`logger`/`file`/`window`/`process`/`handler`/`collection`/`clazz`/`color`、
+  `rotypes/**`、`gui/Communicate`、`gui/util/Alert`、`gui/overlay/*`。
+- **裁剪**：`task/task.py` 删 clipboard/paperclip、快捷方式、`opencc` 分支保留为可选；
+  `TaskExecutor` 删 i18n/下载/blur/GPU 检测，OCR 只留 `onnxocr`；`DeviceManager` 删 ADB/模拟器/Browser/Nemu；
+  `StartController` 删自动启动 exe/GPU 检查/ADB/Browser；`TaskManager` 删自定义/导入/定时任务/文件监视。
+- **重写**：`ww_engine/__init__.py`（最小 `OK`/`og`/导出）、`ww_engine/app.py`（最小 `EngineApp`）、
+  `ScreenshotFolder`、`DeviceManager`、`StartController`、`TaskManager`。
+- **删除**：ok-script 原生 GUI/resources、ADB/模拟器/浏览器/Genshin/PyDirect/Foreground、
+  update/打包/Analytics/i18n、`paperclip`、`paddleocr`/`rapidocr`/`dgocr` 分支。
+- **补丁内联**：4 处 `[ww-echo patch]`（StartController 拉前台、HwndWindow 可见性、Pynput 前台动作、
+  `find_hwnd` 空 exe 过滤）直接写进 vendored 代码；删除 `tools/patches/` 与安装步骤。
+- **依赖**：`requirements.txt` 删除 `ok-script`，新增显式 `pycaw`；保留 `pywin32`/`PySide6-Fluent-Widgets`/
+  `numpy`/`opencv-python`/`onnxocr-ppocrv5`/`openvino`/`pynput`/`psutil`。新增 `THIRD_PARTY_NOTICES.md`（MIT）。
+
+### 三、验证
+
+- `python -m unittest discover -s tests` → **177 项 / OK (skipped=2)**（无素材）。
+- `python tools/ui_shot.py` → **7 页**；`MainWindow` + `OK(config)` 离屏集成通过。
+- `ww_engine` 全模块导入 **0 错误**；`OK(config)` 初始化 OCR（onnxocr + OpenVINO）约 **1.3 s**。
+- `grep "from ok|import ok"`（本项目 `.py`）→ **0 命中**。
+- **未验证（需真机）**：本地/云游戏实际截图、点击、评估、强化；P4 清单见 `docs/ENGINE_VENDOR_PLAN.md` §6。
+- **B2 分布仍待素材机重跑**（阶段三十的首条改动 + 本次引擎替换都需真机回归）。
+
+**文档同步**: README（引擎自持/依赖/结构/补丁删除）、CLAUDE.md（引擎自持章节/结构/命令）、docs/BASELINE.md
+（环境/自检/补丁行）、handoff.md（阶段三十一 + 基线）、`docs/ENGINE_VENDOR_PLAN.md`（状态/边界）、
+`THIRD_PARTY_NOTICES.md`（MIT）。

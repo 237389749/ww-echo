@@ -1,4 +1,4 @@
-# 交接（stage 30 之后：ok-ww 残留剥离 + 首条低权重门槛）
+# 交接（stage 31 之后：引擎自持 + ok-ww 残留剥离 + 首条低权重门槛）
 
 > 给下一个会话：先读 `CLAUDE.md`（项目手册，含「组合穷举」一节）与本文；功能规格原文在 `panel_plan.md`
 > （末尾有「实施状态」，列了与原文的差异与定案口径）。
@@ -16,10 +16,12 @@
 | **二十九** | `219357d` / `ea53b5d` | **声骸组合穷举 + 伤害排名**：`src/echo_panel.py` / `src/echo_combos.py` / `src/echo_inventory.py` / `tools/echo_plan.py` / `ui/plan_tab.py` + 单测；评估结束顺手写 `<报告>.json`；修 JSON 途径「攻击%↔固定攻击」误判 |
 | — | 本次 | **首份真机评估报告(135 只)体检 + COST 漏读修复**：实时 `read_cost_badge()`(角标区 3× 放大重读) + 离线 `infer_cost()`(第 2 行反推)，当时 130 项单测 |
 | **三十** | 本次 | **ok-ww 农场残留剥离**（月卡/技能热键/模板库 257→5/MouseReset/WWScene/登录窗口类/自动启动/blur/ok-ww 链接）+ **Lv5/Lv10 只认首条 + 可选 `_low_first` 低权重门槛**（轻云出月 0.1 / 前 2 档） |
+| **三十一** | 本次 | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / ~8.5k 行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **177 项**（无素材；素材齐全 181 项 / skipped=1。需 Python 3.11+ + ok-script==1.0.160；
-  3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。换环境/缺 `ok` 会 17 个模块 ImportError，此时不要拿"通过数"当基线）
+- `python -m unittest discover -s tests` → **177 项**（无素材；素材齐全 181 项 / skipped=1。需 Python 3.11+；
+  3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
+- `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）
 - `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`
   （六档文案：达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17）、
   **主属性数值可疑 0 条**、套装来源 `{icon:108, name:1}`
@@ -29,7 +31,6 @@
 - `python tools/eval_icon_match.py` → 217/219（99.1%）
 - `python tools/ui_shot.py [--dark]` → 离屏渲染 **7 页**（改 UI 后必跑；深色兜底见下）
 - `python tools/echo_plan.py --list` → 库存概览（109 只 / 47 个名字 / COST `{1:55, 3:35, 4:19}`）
-- `python tools/patches/check_patches.py` → ok-script 4 处补丁在位（升级后先跑它）
 
 ## 一.5、阶段三十做了什么（2026-11-13）
 
@@ -50,6 +51,21 @@
 - 新增单测：`test_judge_rules` 5 例（只认首条/低权重门槛/阈值可调/未配置不影响/轻云真实模板闭环）+ `test_echo_set_templates` 4 例（解析/默认关/非法配置/合法配置）。
 - **B2 分布需在素材机重跑**：首条改动会影响 tier ≤ 2 的未满级件，当前仓库无 `logs/eval_debug/`，未重跑。
 
+## 一.6、阶段三十一做了什么（2026-11-13）
+
+**引擎自持**（用户口径："做 B：vendor 一份精简 ok-script；精简由你规划"）：
+- 从 `ok-script==1.0.160` 复制 61 个文件（12,111 行）到 `ww_engine/`，删除 150 个文件（35,267 行）；
+  实际落地 75 个 `.py` / **8,540 行**（含重写的外壳与包 `__init__`）。
+- 保留：feature/Box/FeatureSet、task/task.py + TaskExecutor、device/DeviceManager + BitBlt/WGC/Hwnd + PostMessage/Pynput、
+  util 子集、rotypes、overlay、最小 StartController/TaskManager。
+- 重写：`ww_engine/__init__.py`（最小 OK/og）、`ww_engine/app.py`（最小 EngineApp）、`gui/StartController.py`、
+  `gui/tasks/TaskManger.py`、`device/DeviceManager.py`（Windows-only）、`ScreenshotFolder`。
+- 删除：ok-script 原生 GUI/resources、ADB/模拟器/浏览器/Nemu/DesktopDuplication、Genshin/PyDirect/Foreground、
+  update/打包/Analytics/i18n、paperclip、paddle/rapid/dgocr/opencc 分支。
+- 4 处 site-packages 补丁直接写进 vendored 代码；删除 `tools/patches/` 与安装步骤；`requirements.txt` 不再有 `ok-script`。
+- 验证：`python -m unittest discover -s tests` **177 项 / OK (skipped=2)**；`tools/ui_shot.py` **7 页**；
+  `ww_engine` 全模块导入 0 错误；`OK(config)` + `MainWindow` 离屏集成通过；OCR onnxocr 初始化 1.3s。
+- **未做/需真机**：本地/云游戏实际截图、点击、评估、强化走查；P4 真机验收清单见 `docs/ENGINE_VENDOR_PLAN.md` §6。
 
 ## 二、阶段二十九做了什么（组合穷举）
 

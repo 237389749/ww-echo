@@ -1,10 +1,12 @@
-# Python >=3.11（ok-script 1.0.160 起放宽；本机实测 3.13 / 3.14）
-# 注意：ok-script <=1.0.159 在 PyPI 上钉了 Requires-Python ==3.12.* —— 升到 1.0.160 是"去掉 3.12 限制"的关键；
-#       两者代码逐字节一致，装完记得跑 tools/patches/apply_patches.py 重打 4 处补丁。
-# opencv 4.14 起 numpy 约束为 `numpy>=2`（无 <2.3 上限）→ 3.13/3.14 才有 cpXXX 轮子可装；
-#   4.12 的 `numpy<2.3` 在 3.14 上会退化到源码编译 numpy（本机无 MSVC 会失败）。
-ok-script==1.0.160
-onnxocr-ppocrv5==0.0.18
+# Python >=3.11（3.13 / 3.14 已实测）
+# 引擎已 vendored 到 ww_engine/（源自 ok-script 1.0.160, MIT），不再依赖 ok-script 包，
+# 也不再需要 tools/patches/apply_patches.py。
+# opencv 4.14 起 numpy 约束为 `numpy>=2`；openvino 2026.0.0 要求 `numpy<2.5`。
 opencv-python==4.14.0.94
+onnxocr-ppocrv5==0.0.18
 openvino==2026.0.0
 pynput>=1.7.6
+pywin32>=306
+psutil>=6.0.0
+pycaw==20240210
+PySide6-Fluent-Widgets>=1.8.3

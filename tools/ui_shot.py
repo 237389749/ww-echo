@@ -63,7 +63,7 @@ class StubDeviceManager:
               "interaction": "PostMessage"}
 
     def refresh(self):
-        from ok.gui.Communicate import communicate
+        from ww_engine.gui.Communicate import communicate
         communicate.adb_devices.emit(True)
 
     def get_devices(self):
@@ -100,8 +100,8 @@ def main() -> int:
     register_fonts(app)
 
     # 只替换界面用到的 og 属性 —— 不初始化 OK 引擎(无设备环境会卡住)
-    import ok                                                        # noqa: F401
-    from ok import og
+    import ww_engine                                                        # noqa: F401
+    from ww_engine import og
 
     for name, val in (("device_manager", StubDeviceManager()),
                       ("executor", SimpleNamespace(global_config=StubGlobalConfig())),

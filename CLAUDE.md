@@ -1,6 +1,6 @@
 # CLAUDE.md — ww-echo 开发手册
 
-鸣潮(云游戏/本地)声骸强化 + 评估工具。基于 ok-script(截图/OCR/模板匹配/键鼠后端) + 自建 PySide6 UI。
+鸣潮(云游戏/本地)声骸强化 + 评估工具。引擎自持到 ww_engine/(源自 ok-script 1.0.160 的 MIT 精简 vendor) + 自建 PySide6 UI。
 **本手册面向后续开发(含 AI 协作者)。演进历史与改动原因见 CHANGELOG.md, 使用说明见 README.md,
 判定规则的全景说明/分类审查/待讨论边界见 `eval_rules.md`。**
 
@@ -9,7 +9,7 @@
 - 动手前陈述假设与取舍; 有歧义先问, 不静默选
 - 最小改动解决当前问题; 只改与请求相关的行; 不超前抽象
 - 改出孤儿引用(import/变量/函数)须清理, 但不动预存在的死代码
-- 本机 ok-script 在 site-packages 有 `[ww-echo patch]` 补丁, **改动/升级前先 grep 定位**, 详见下
+- 引擎已 vendored 到 `ww_engine/`(不再有 site-packages 补丁); 改截图/输入/任务运行时先看 `ww_engine/`
 - 坐标、OCR 区、滚动量等常量集中在 `EnhanceEchoTask.evaluate_only` 顶部注释, 调参先看那里
 - 目标驱动: 把请求转成可验证目标(如"修 bug"→"写复现测试再让它过"), 多步任务列出"步骤→验证"清单, 完成前以最相关测试/命令验证
 
@@ -18,7 +18,7 @@
 ```
 mainui.py                 唯一入口(PySide6); 启动先按 QSettings run_mode 调 apply_run_mode 再 OK(config)
                           (阶段二十四删除了 main.py/main_debug.py/run.py — 见下"阶段二十四要点")
-config.py                 全套 ok-script 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
+config.py                 全套 ww_engine 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
 ui/                       Fluent 左导航 7 页(运行/组合穷举/设备设置/套装配置/调试工具/开发者 + 底部关于);
                           main_window=FluentWindow 外壳(尺寸记忆/主题/快捷键); 设备设置含运行模式开关(重启生效)
 ui/plan_tab.py            「组合穷举」页: 输入装配(缩放属性/模式/套装/4C 归属/裸面板+补正) + 后台线程穷举 + 排名表/CSV
@@ -36,13 +36,12 @@ assets/echo_icons/        37 个套装图标(76x76, 文件名=套装名) — **�
 assets/echo_set_templates.json 套装配置存档
 assets/echo_probability.json   官方声骸副词条概率表(词条类型等概率 + 各档位概率, 见阶段十六)
 eval_rules.md             判定规则全景说明 + 分类审查矩阵 + 已评估不改的项(改判定前先读; §8 基线为 2026-10-29)
-docs/BASELINE.md          基线清单: 提交号 + 解释器/ok-script 版本 + 命令 + 期望输出(含 skip 数) + 复现脚本索引
+docs/BASELINE.md          基线清单: 提交号 + 解释器/引擎来源 + 命令 + 期望输出(含 skip 数) + 复现脚本索引
 tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 / 声骸名容错匹配 / 生成物与判据 / 文档数字自检
 tools/eval_icon_match.py  图标识别离线回归(用 logs/eval_debug 数据集, 无需开游戏)
 tools/echo_plan.py        声骸组合穷举 + 伤害排名的命令行入口(离线; `--list` 看库存)
 tools/ui_shot.py          离屏渲染 7 个页面出 PNG(桩件替代引擎, 改 UI 后的自检工具)
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
-tools/patches/            ok-script 补丁的逐处规格 + `check_patches.py`(升级后自检)
 tools/analysis/           复现脚本入库区(约定: 文件头写"输入→输出→支撑哪条结论"; B2 分布/换权重重放在此)
 ```
 
@@ -55,7 +54,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **分组卡片**: 每页用 `SettingCardGroup` + `SettingCard`(图标+标题+一句话说明+控件右对齐)。控件放卡右侧的写法是
   Gallery 惯例: `card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)` + `addSpacing(16)`。
   **不要用 `ComboBoxSettingCard`/`RangeSettingCard`/`OptionsSettingCard`** —— 它们要求 qfluentwidgets 自己的
-  `ConfigItem`, 而本项目配置在 ok-script/QSettings 里; 用 `SettingCard` + 原生 `ComboBox`/`SpinBox` 更省事。
+  `ConfigItem`, 而本项目配置在 ww_engine/QSettings 里; 用 `SettingCard` + 原生 `ComboBox`/`SpinBox` 更省事。
 - **`HeaderCardWidget` 的坑(已踩)**: `viewLayout` 是**横向**的(库源码 `QHBoxLayout(self.view)`), 正文必须自己套一层
   纵向容器; 并且要 `card.vBoxLayout.setStretchFactor(card.view, 1)` 才能让正文吃掉卡片多余高度(否则日志框不长高)。
   见 `ui/run_tab._card_body` / `ui/debug_tab._card_body` / `ui/about_tab._body`。
@@ -186,21 +185,22 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - 切换写 QSettings("OK-Echo","OK-Echo") 的 `run_mode`, **重启生效**(mainui 在 OK() 初始化前 apply)
 - **local**: `exe=Client-Win64-Shipping.exe`+`hwnd_class=UnrealWindow` 自动匹配本地客户端; PostMessage 可后台运行
 - **cloud**(云游戏 = 浏览器/云客户端窗口, 如 Firefox):
-  - `windows.title=re.compile('鸣潮')` → ok-script `find_hwnd` 按正则自动锁定标题含"鸣潮"的窗口, **无需手动选窗**
+  - `windows.title=re.compile('鸣潮')` → ww_engine `find_hwnd` 按正则自动锁定标题含"鸣潮"的窗口, **无需手动选窗**
   - interaction=Pynput(前台真实键鼠), capture 锁定 `BitBlt_RenderFull`, `supported_resolution.ratio=None` 跳过 16:9 校验
   - 云游戏本地无 UnrealWindow 可后台投递 → **必须前台**, 任务运行中不要最小化游戏
 
-## ok-script 补丁 — 升级 ok-script 会丢失, 需重打
+## 引擎自持 — 不再有 site-packages 补丁
 
-ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标注 `[ww-echo ... patch]`:
+`ww_engine/` 是 ok-script 1.0.160 的精简 vendor（MIT，见 `THIRD_PARTY_NOTICES.md`）。原来的 4 处 site-packages 补丁已直接写进 vendored 代码，不再需要 `apply_patches.py`/`check_patches.py`：
 
-| 文件 | 改动 | 为什么 |
-|------|------|--------|
-| `ok/gui/StartController.py` | `_auto_bring_to_front`(init=False; do_start 且 task 非 None 时置 True); `_wait_until_device_ready` 每轮按标志 `bring_to_front()`(含最小化恢复) | 点"开始"后自动把游戏窗口切前台启动任务; 纯启动不抢前台 |
-| `ok/device/capture_methods/hwnd_window.py` | `visible = not win32gui.IsIconic(hwnd)` 替代 `is_foreground()` | 后台/被遮挡窗口(BitBlt_RenderFull 可抓)不再判不可用; visible=False 只在真最小化出现 |
-| `ok/device/interaction_methods/pynput.py` | `should_capture()→True`; `clickable()` 保持纯 is_foreground; 新增 `_ensure_clickable()` | 任务主循环不再被前台门控(切走不再卡死); 真正 click/send_key/scroll 动作前自动拉前窗口 |
-| `ok/util/window.py` | `find_hwnd` 开头过滤空 exe 项: `exe_names = [e for e in (exe_names or []) if e]` | 云模式 `selected_exe=''` 时, 空 exe 会让**所有**窗口在 exe 匹配处被判不匹配 → 找不到"鸣潮"窗口 |
-| `ui/run_tab.py`(本项目, 非 site-packages) | 评估分支起线程前也 `bring_to_front()` | 评估模式与强化一致地切前台 |
+| 原补丁位置 | 现在的位置 | 行为 |
+|---|---|---|
+| `ok/gui/StartController.py` | `ww_engine/gui/StartController.py` | 用户点“开始”时把窗口拉前（含最小化恢复）；纯启动不抢前台 |
+| `ok/device/capture_methods/hwnd_window.py` | `ww_engine/device/capture_methods/hwnd_window.py` | `visible = not IsIconic(hwnd)`：后台/被遮挡窗口仍可抓；真最小化才不可用 |
+| `ok/device/interaction_methods/pynput.py` | `ww_engine/device/interaction_methods/pynput.py` | `should_capture()→True`；动作前 `_ensure_clickable()` 自动拉前 |
+| `ok/util/window.py` | `ww_engine/util/window.py` | `find_hwnd` 过滤空 exe 项，云模式按标题正则可找到窗口 |
+
+> 修改引擎时直接改 `ww_engine/`；不要再 pip 安装 ok-script，也不要把补丁打到 site-packages。
 
 ## 屏幕坐标基线(1920x1200 帧; 归一化 = px/1920, px/1200)
 
@@ -370,9 +370,9 @@ ok-script(site-packages) 4 处(4 个文件), 本项目内另 1 处。全部标�
 (`37829ac` 阶段二十四 · `54c124f` 阶段二十五 官方静态数据层+官方图标 · `5d32374`/`abf5468` 阶段二十六 界面重构 ·
 `d51f6e3` 阶段二十七 主属性数值校验 · `7246757` 阶段二十八 套装效果 `pieces` · 阶段二十九 组合穷举+伤害排名)。
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
-改动后跑: `python -m unittest discover -s tests`(**177 项**; 需 Python 3.11+ 与 ok-script==1.0.160; 3.13/3.14 已实测, 缺 ok 会 17 个模块 ImportError)
+改动后跑: `python -m unittest discover -s tests`(**177 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
-+ `python tools/echo_plan.py --list`(库存) + `python tools/patches/check_patches.py`(ok-script 补丁在位)。
++ `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。
 
 **真机状态**: 评估已真机跑过(2026-10-08, 135 只, 报告已体检; COST 漏读 27/135 已修)。
