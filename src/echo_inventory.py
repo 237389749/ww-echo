@@ -14,13 +14,13 @@
 两行**都算面板贡献**(它们就是面板上高亮的两条)。
 
 `攻击/生命/防御` 这一个名字同时有"固定值"与"百分比"两个变体, 所以导入时要判定用哪个:
-报告路径按数值里的 `%` 判(与 `EnhanceEchoTask._normalize_stat` 一致), JSON 路径按**官方取值网格**
+报告路径按数值里的 `%` 判(与 `src.echo_parse.normalize_stat` 一致), JSON 路径按**官方取值网格**
 (`src/echo_main_prop`)判 —— 词条档位表里固定值与百分比区间不重叠(攻击 30~60 vs 6.4~11.6), 判定唯一。
 
 **5★**: 评估产物里没有稀有度字段 —— 导入即视为 5★(契约"只用 5★"由用户口径保证: 只练 5★)。
 
 **评估得分**: JSON 路径直接用记录里的 `score`; `image_report.md` 没有这一项, 用**评估同一份实现**
-(`EnhanceEchoTask.compute_weighted_score`)现算 —— 这样"组合的评分和"两条途径给同一个数。
+(`src.echo_scoring.compute_weighted_score`)现算 —— 这样"组合的评分和"两条途径给同一个数。
 """
 from __future__ import annotations
 
@@ -35,16 +35,14 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 现算评分用的轻量 task 实例(只借纯计算方法; 延迟创建, 见 `echo_score`)
-_SCORE_TASK = None
-
 from src.echo_combos import EchoItem
 from src.echo_icon_match import match_icon
 from src.echo_main_prop import candidates as main_prop_candidates
+from src.echo_parse import dedup_key, normalize_stat, parse_number
+from src.echo_scoring import compute_weighted_score
 from src.echo_set_templates import (get_set_by_echo, get_set_weights, get_sets_by_echo,
                                     load_gamedata)
 from src.echo_stats import DEFAULT_WEIGHTS, get_mean, is_stat_match, snap_to_tier
-from src.task.EnhanceEchoTask import EnhanceEchoTask, parse_number
 
 _ROOM = "logs/eval_debug"
 
@@ -225,7 +223,7 @@ def _subs_from_props(props: list, main_n: int = 2) -> tuple:
     """属性行 → 副词条(排除前 2 行主属性; 走与线上同一套档位过滤)。"""
     out = []
     for raw_n, v_str in props[main_n:]:
-        norm = EnhanceEchoTask._normalize_stat(raw_n, v_str)
+        norm = normalize_stat(raw_n, v_str)
         val = parse_number(v_str)
         if norm and is_stat_match(norm, val):
             out.append((norm, val))
@@ -233,20 +231,16 @@ def _subs_from_props(props: list, main_n: int = 2) -> tuple:
 
 
 def echo_score(stats, set_name: str) -> tuple[float | None, float | None]:
-    """一只声骸 → `(评估得分, 伤害相关得分)`(与报告同一份实现 `compute_weighted_score`)。
+    """一只声骸 → `(评估得分, 伤害相关得分)`(与报告同一份实现 `src.echo_scoring.compute_weighted_score`)。
 
     评估 JSON 里已带 `score`, 但 `image_report.md` 转录没有 → 报告路径用它补上,
     这样"组合的评分和"两条导入途径一致。
-    **伤害相关得分** = 评估得分 − **共效**那一项的条分(共效权重 0.6 但不进伤害公式):
+    **伤害相关得分** = 评估得分 − **共效**那一项的条分(共效有评分权重, 但不进伤害公式):
     评分是线性的, 扣掉共效条分即得"只看伤害相关词条"的分 —— 这样"评分和最高"才和伤害排序一致
     (用户口径: 暴击不溢出时两者应当一致, 偏差主要来自共效占模)。
     """
-    global _SCORE_TASK
-    if _SCORE_TASK is None:
-        _SCORE_TASK = EnhanceEchoTask.__new__(EnhanceEchoTask)      # 只借用纯计算方法, 不跑 __init__
-        _SCORE_TASK.config = {"当前套装": "通用"}
     try:
-        score, _details = _SCORE_TASK.compute_weighted_score(
+        score, _details = compute_weighted_score(
             [(n, str(v)) for n, v in stats], set_name=set_name)
         score = round(float(score), 2)
     except Exception as e:                                          # noqa: BLE001 - 分数算不出不影响导入
@@ -385,7 +379,7 @@ def _load_report(report_path: str, frames: dict) -> list[EchoItem]:
         name, props, _cost = split_rows(lines)
         if not name or not props:
             continue
-        key = EnhanceEchoTask.dedup_key(name, props)      # 跨屏重叠的重复记录(与评估同一份去重)
+        key = dedup_key(name, props)      # 跨屏重叠的重复记录(与评估同一份去重)
         if key in seen:
             continue
         seen.add(key)

@@ -82,8 +82,11 @@ class TestJudgeFiveGrades(unittest.TestCase):
     def _judge(self, names, score_delta=0.0, r=1.0):
         t = _task()
         stats = _stats(names, r)
-        # 注意: score 必须与判定用**同一套装口径**(SET_NAME) —— 用通用口径会把填位词条也算分
-        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET):
+        # 注意: score 必须与判定用**同一套装口径**(SET_NAME) —— 用通用口径会把填位词条也算分。
+        # 评分实现已抽到 `src.echo_scoring`(耦合 P1), 它有自己的 `get_set_weights` 引用 →
+        # 两个模块都要 patch, 否则评分仍读真实模板(测试套不存在 → 退化成通用权重)。
+        with patch('src.task.EnhanceEchoTask.get_set_weights', return_value=SET), \
+             patch('src.echo_scoring.get_set_weights', return_value=SET):
             score, _ = t.compute_weighted_score([(n, str(v)) for n, v in stats], set_name=SET_NAME)
             # 第三项 = 「建议重铸」的方案(本用例只关心 verdict)
             (v, cn), thr, _ = t.judge_echo(SET_NAME, len(stats), score + score_delta, stats)

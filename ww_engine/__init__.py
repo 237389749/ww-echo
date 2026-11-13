@@ -14,7 +14,7 @@ from ww_engine.util.GlobalConfig import GlobalConfig, register_basic_options, ba
 from ww_engine.util.handler import Handler, ExitEvent
 from ww_engine.util.logger import Logger, config_logger
 from ww_engine.util.process import check_mutex, parse_arguments_to_map
-from ww_engine.util.file import get_path_relative_to_exe
+from ww_engine.util.file import get_path_relative_to_exe, clear_folder
 from ww_engine.gui.Communicate import communicate
 
 logger = Logger.get_logger('ww_engine')
@@ -188,7 +188,7 @@ __all__ = [
     'Config', 'ConfigOption', 'GlobalConfig', 'basic_options',
     'Handler', 'ExitEvent', 'Logger',
     'BaseTask', 'TriggerTask', 'FindFeature', 'OCR',
-    'Box', 'get_bounding_box', 'Feature', 'FeatureSet',
+    'Box', 'get_bounding_box', 'clear_folder', 'Feature', 'FeatureSet',
     'DeviceManager', 'TaskExecutor', 'TaskManager',
     'communicate',
     'CannotFindException', 'TaskDisabledException', 'FinishedException',

@@ -4,12 +4,11 @@ import time
 import os
 
 import cv2
-from qfluentwidgets import FluentIcon
 
-from ww_engine import FindFeature, Logger
-from ww_engine.feature.Box import get_bounding_box
-from ww_engine.util.file import clear_folder
-from src.echo_stats import (snap_to_tier, get_mean, is_stat_match, tier_percentile,
+from ww_engine import FindFeature, Logger, clear_folder, get_bounding_box
+from src import echo_parse, echo_scoring
+from src.echo_parse import parse_number  # noqa: F401  (旧调用面: from src.task.EnhanceEchoTask import parse_number)
+from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
                             tier_index, DEFAULT_WEIGHTS)  # noqa
 from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights,
@@ -23,14 +22,6 @@ logger = Logger.get_logger(__name__)
 number_pattern = re.compile(r"^[\d.%％ ]+$")
 property_pattern = re.compile(r"[\u4e00-\u9fff]{2,}")
 
-# OCR 词条名拆字污染的公共子串回退候选(优先级同 _normalize_stat 分支链)
-_TIERS_ORDER = ['共鸣技能伤害加成', '共鸣解放伤害加成', '普攻伤害加成', '重击伤害加成', '暴击伤害',
-                '共鸣效率', '攻击百分比', '生命百分比', '防御百分比', '攻击', '生命', '防御', '暴击']
-
-# 逐字白名单: 全部标准词条名 + 常见主属性名的单字并集。
-# OCR 把属性图标误识成汉字(艾攻击/众共鸣…)或拆字(共呜效率)时, 不在字典的字直接剥离。
-_STAT_CHARS = set(''.join(_TIERS_ORDER) + '治疗效果加成')
-
 # 详情面板的 COST 角标: 实测 219 张面板里 117 张 OCR 把数字并进同一个框(`COST 4`/`COST4`),
 # 其余 102 张只读到标签 `COST` —— 后者取**同一行右侧**的数字框(102/102 都能找到)。
 _COST_RE = re.compile(r'COST\s*([134])')
@@ -41,9 +32,6 @@ _COST_RE = re.compile(r'COST\s*([134])')
 # 的 COST 完全一致(见 echo_inventory.infer_cost / tests)。
 _COST_ROI = (0.685, 0.19, 0.792, 0.25)
 _COST_UPSCALE = 3
-
-# 声骸名里的"间隔号/空白/中点"(OCR 变体: ·/・/./空格) —— 只用于去重签名的相等性比较
-_NAME_PUNCT_RE = re.compile(r'[\s·・•․∙.\-—_]')
 
 
 def parse_cost(boxes) -> int | None:
@@ -64,25 +52,6 @@ def parse_cost(boxes) -> int | None:
             if m:
                 return int(m.group(1))
     return None
-
-
-def _strip_stat_chars(raw: str) -> str:
-    """逐字剥离白名单外的字符(OCR 杂字/图标误读), 返回清洗后词条名; 清洗后空/过短返回原文不猜。"""
-    cleaned = ''.join(ch for ch in raw if ch in _STAT_CHARS)
-    return cleaned if len(cleaned) >= 2 else raw
-
-
-def _lcs_len(a: str, b: str) -> int:
-    """最长公共连续子串长度(词条名 ≤10 字, 暴力窗口足够)"""
-    best = 0
-    for i in range(len(a)):
-        for j in range(len(b)):
-            k = 0
-            while i + k < len(a) and j + k < len(b) and a[i + k] == b[j + k]:
-                k += 1
-            if k > best:
-                best = k
-    return best
 
 
 # 通用模式(套装未映射)算基准线 B 用的**固定代表档位**。
@@ -158,34 +127,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     @staticmethod
     def _normalize_stat(raw_name: str, value_str: str) -> str:
-        """将 OCR 原始名统一为规范化词条名。
+        """OCR 原始名 → 规范化词条名(薄封装, 实现与容错规则见 `src.echo_parse.normalize_stat`)。
 
-        子项拆解回退: 精确子串链未命中(OCR 拆字污染, 如 共呜效率/共鸣技难伤害加成)时,
-        与候选词条名做**最长公共子串**匹配——公共子串 **≥3 字** 直接回退(平手按 _TIERS_ORDER
-        概率优先); **=2 字仅当候选唯一**才回退(如 共呜效率→效率 唯一, 而 伤害 命中多个不猜);
-        <2 字(攻击/暴击共享"击")拒绝, 返回原文由档位匹配自然丢弃。不确定一律不猜。
+        逐字白名单清洗 → 精确子串链 → 最长公共子串回退; 不确定一律不猜, 返回清洗后的原文
+        (由 `is_stat_match` 的离散档位匹配自然丢弃)。
         """
-        p = _strip_stat_chars(raw_name)   # 逐字白名单清洗: 图标误读/杂字(艾攻击/共呜/众共鸣…)直接剥离
-        if '暴击伤害' in p: return '暴击伤害'
-        if '暴击' in p: return '暴击'
-        if '攻击' in p: return '攻击百分比' if ('%' in value_str or '％' in value_str) else '攻击'
-        if '生命' in p: return '生命百分比' if ('%' in value_str or '％' in value_str) else '生命'
-        if '防御' in p: return '防御百分比' if ('%' in value_str or '％' in value_str) else '防御'
-        if '效率' in p: return '共鸣效率'
-        if '普攻' in p: return '普攻伤害加成'
-        if '重击' in p: return '重击伤害加成'
-        if '解放' in p: return '共鸣解放伤害加成'
-        if '技能' in p: return '共鸣技能伤害加成'
-        best_len, best_name, tie = 0, '', 0
-        for cand in _TIERS_ORDER:
-            l = _lcs_len(p, cand)
-            if l > best_len:
-                best_len, best_name, tie = l, cand, 1
-            elif l == best_len and l >= 2:
-                tie += 1            # 等长候选数(平手)>1 时不猜
-        if best_len >= 3 or (best_len == 2 and tie == 1):
-            return best_name
-        return p
+        return echo_parse.normalize_stat(raw_name, value_str)
 
     @staticmethod
     def check_main_prop(set_name, cost, main_props) -> dict | None:
@@ -264,9 +211,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         super().__init__(*args, **kwargs)
         self.name = "批量强化声骸(游戏语言必须为简体/繁体中文)"
         self.description = "点击B进入背包, 在过滤器中选择需要强化的声骸, 并按照等级从0排序后开始."
-        self.icon = FluentIcon.ADD
+        # 任务图标留空: 本项目自建 UI 不渲染任务的 icon/group_icon(引擎侧只给默认值), 留 None 后
+        # task adapter 不再 import qfluentwidgets(耦合 P1, 见 docs/COUPLING.md §4)。
+        self.icon = None
         self.group_name = "批量强化声骸"
-        self.group_icon = FluentIcon.ADD
+        self.group_icon = None
         self.fail_reason = ""
         self.supported_languages = ["zh_CN", "zh_TW"]
         self.default_config.update({
@@ -1147,22 +1096,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
     @staticmethod
     def dedup_key(echo_name, paired_all):
-        """去重签名 = 声骸名 + 全部属性行的档位值(主属性+词条), 档位值稳定不受 OCR 抖动影响。
-        全量 OCR 文本签名(含原始数值)对同一只每次识别会因个别字符抖动而不同 → 跨屏重叠时
-        seen_sigs 拦不住 → 重复记录; 档位值是离散集合, 同一声骸多次识别结果一致。
-        **评估遍历与 tools/offline_eval_report 共用这一份**(以前两边各写一遍, 改一处漏一处)。
+        """去重签名 = 声骸名 + 全部属性行的档位值(薄封装, 实现见 `src.echo_parse.dedup_key`)。
 
-        名字里的**间隔号/空白/中点**先去掉: OCR 会把 `双极·渊陨重锋` 读成 `双极・渊陨重锋`(全角中点),
-        名字不同 → 同一只被记两次(实测 20261008 那批 #38/#44 就是同一只两次, 让组合穷举出现成对的同分组合)。
-        这里只做"相等性比较"用, 不做名字查表, 所以去掉标点是安全的。
+        档位值是离散集合 → 同一声骸多次识别一致, 跨屏重叠时才拦得住(`seen_sigs`)。
+        名字先去掉间隔号/空白/中点(`双极·` / `双极・` 是同一只)。
+        评估遍历与 tools/offline_eval_report 共用这一份。
         """
-        parts = [_NAME_PUNCT_RE.sub('', str(echo_name))]
-        for raw_n, v_str in paired_all:
-            norm = EnhanceEchoTask._normalize_stat(raw_n, v_str)
-            v = parse_number(v_str)
-            tier_v = snap_to_tier(norm, v)
-            parts.append(f'{norm}={tier_v if tier_v is not None else round(v, 2)}')
-        return '|'.join(parts)
+        return echo_parse.dedup_key(echo_name, paired_all)
 
     def evaluate_one(self, echo_name, stats, set_name, set_src, main_props=None, cost=None):
         """一只声骸 → 报告记录字段(不含 index/screenshot): 评分 + 判定 + 前瞻 + 重铸方案 + 词条明细。
@@ -1289,51 +1229,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         return ('fail', '不建议强化'), base5, None
 
     def compute_weighted_score(self, paired_stats, set_name=None):
-        """
-        评分: 条分 = 档位/期望值 × 10 × 权重, 无效 0 分。期望 = get_mean 的官方概率期望档位值
-              (统一舍入 1 位小数, 见 _compute_means; 平均档 = 10.0 分, 满档 ≈ 13.1~14.0;
-              原按算术平均时分母偏大、上限才是 12.5)。
-        权重来源: 套装 JSON (get_set_weights); 通用模式用 DEFAULT_WEIGHTS 表。
-        set_name: 显式指定套装名(评估按声骸名映射时用); None 时回退 config['当前套装']。
-        判定用的两条线(A 达标线 / B 基准线)见 judge_echo; 本方法只做"档位值 ÷ 期望值 × 10 × 权重"的求和。
+        """评分(薄封装, 实现见 `src.echo_scoring.compute_weighted_score`)。
+
+        条分 = 档位值 ÷ 期望值 × 10 × 权重, 无效 0 分; 期望 = `echo_stats.get_mean` 的官方概率期望档位值。
+        权重来源: 套装 JSON (`get_set_weights`); 通用模式用 `DEFAULT_WEIGHTS` 表。
+        set_name: 显式指定套装名(评估按声骸名映射时用); None 时回退 config['当前套装'] ——
+        这一句是任务运行时状态, 所以留在 adapter 侧, 纯计算在 domain 模块。
         """
         if set_name is None:
             set_name = self.config.get('当前套装', '通用')
-        set_weights = get_set_weights(set_name if set_name != '通用' else None)
-
-        total = 0.0
-        details = []
-
-        for stat_name, value_str in paired_stats:
-            v = parse_number(value_str)
-            # stat_name 已是 OCR 归一化名, 与 tier 键统一
-            tier_name = stat_name
-
-            if set_weights is not None:
-                weight = set_weights.get(stat_name, 0.0)
-                is_valid = weight > 0
-            else:
-                weight = DEFAULT_WEIGHTS.get(stat_name, 0.0)
-                is_valid = weight > 0
-
-            if not is_valid:
-                details.append(f'{stat_name}={v} 无效(0)')
-                continue
-
-            tier_val = snap_to_tier(tier_name, v)
-            mean_val = get_mean(tier_name)
-            if tier_val is None or mean_val is None:
-                details.append(f'{stat_name}={v} 无档位数据')
-                continue
-
-            contribution = (tier_val / mean_val) * 10 * weight
-            total += contribution
-            # 末尾附档位分位(跨词条可比的质量度量; 概率表不可用时不展示) —— 见 echo_stats.tier_percentile
-            pct = tier_percentile(tier_name, v)
-            pct_tag = f' [前{pct:g}%]' if pct is not None else ''
-            details.append(f'{stat_name}={v}→{tier_val}/{mean_val}×10×{weight}={contribution:.2f}{pct_tag}')
-
-        return total, details
+        return echo_scoring.compute_weighted_score(paired_stats, set_name)
 
     def find_add_mat(self):
         return self.wait_ocr(0.09, 0.6, 0.38, 0.86, match=['阶段放入'], time_out=1)
@@ -1399,10 +1304,3 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.pause()
         self.esc()
         self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
-
-
-def parse_number(text):
-    try:
-        return float(text.replace('％', '%').split('%')[0])
-    except (ValueError, IndexError):
-        return 0.0
