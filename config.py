@@ -16,7 +16,6 @@ config = {
     'gui_icon': 'icon.png',
     'ocr': {
         'lib': 'onnxocr',
-        'auto_simplify': True,
         'params': {
             'use_openvino': True,
             'use_npu': True,

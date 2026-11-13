@@ -1,4 +1,3 @@
-import re
 import threading
 import time
 from typing import List
@@ -113,17 +112,11 @@ class ExecutorOperation:
     def debug(self):
         return self.executor.debug
 
-    def start_device(self):
-        self._app.start_controller.start_device()
-
     def get_overlay_view(self):
         """Return the raw shared overlay widget when running with the GUI."""
         if hasattr(self._app, 'get_overlay_view'):
             return self._app.get_overlay_view()
         return None
-
-    def is_scene(self, the_scene):
-        return isinstance(self.executor.current_scene, the_scene)
 
     def reset_scene(self):
         self.executor.reset_scene()
@@ -425,20 +418,6 @@ class ExecutorOperation:
         return self.click(x, y, name=box.name, move_back=move_back, move=move, down_time=down_time,
                           after_sleep=after_sleep)
 
-    def wait_scene(self, scene_type=None, time_out=0, pre_action=None, post_action=None):
-        """
-        Waits for a scene.
-
-        等待场景。
-
-        :param scene_type: Scene type. 场景类型。
-        :param time_out: Timeout. 超时。
-        :param pre_action: Pre action. 前动作。
-        :param post_action: Post action. 后动作。
-        :return: Result. 结果。
-        """
-        return self.executor.wait_scene(scene_type, time_out, pre_action, post_action)
-
     def sleep(self, timeout):
         """
         Sleeps for a duration.
@@ -528,9 +507,6 @@ class ExecutorOperation:
         :return: Frame. 帧。
         """
         return self.executor.next_frame()
-
-    def adb_ui_dump(self):
-        return self.executor.device_manager.adb_ui_dump()
 
     @property
     def frame(self):
@@ -770,7 +746,6 @@ class OCR(FindFeature):
         if threshold == 0:
             threshold = self.ocr_default_threshold
         start = time.time()
-        match = self.fix_match_regex(match)
         if frame is not None:
             image = frame
         else:
@@ -813,82 +788,8 @@ class OCR(FindFeature):
             return sort_boxes(detected_boxes)
 
     def ocr_fun(self, lib):
-        lib_name = self.executor.config.get('ocr').get(lib).get('lib')
-        if lib_name == 'paddleocr':
-            return self.paddle_ocr
-        elif lib_name == 'dgocr':
-            return self.duguang_ocr
-        elif lib_name == 'onnxocr':
-            return self.onnx_ocr
-        else:
-            return self.rapid_ocr
-
-    def fix_match_regex(self, match):
-        if match and self.executor.ocr_po_translation:
-            if not isinstance(match, list):
-                match = [match]
-            for i in range(len(match)):
-                if isinstance(match[i], re.Pattern):
-                    original_pattern_object = match[i]
-                    original_pattern_string = original_pattern_object.pattern
-                    original_flags = original_pattern_object.flags
-
-                    # 2. Translate the ORIGINAL PATTERN STRING
-                    translated_pattern_string = self.executor.ocr_po_translation.gettext(original_pattern_string)
-                    # logger.debug(f'translate regex {original_pattern_string} {translated_pattern_string}')
-                    if isinstance(translated_pattern_string, str):
-                        match[i] = re.compile(translated_pattern_string, original_flags)
-                    else:
-                        logger.warning(
-                            f"Warning: Translation failed for pattern: {original_pattern_string} {translated_pattern_string}. Keeping original.")
-        return match
-
-    def fix_texts(self, detected_boxes):
-        ocr_config = self.executor.config.get('ocr', {})
-
-        auto_simplify = False
-        if isinstance(ocr_config, dict):
-            auto_simplify = ocr_config.get('auto_simplify', False)
-
-        if auto_simplify:
-            locale_name = self.executor.locale.name()
-            if locale_name.startswith('zh_TW') or locale_name.startswith('zh_HK') or locale_name.startswith('zh_MO'):
-                try:
-                    from opencc import OpenCC
-                    if not hasattr(self, '_cc_jp2t'):
-                        self._cc_jp2t = OpenCC('jp2t')
-                        self._cc_t2s = OpenCC('t2s')
-
-                    for detected_box in detected_boxes:
-                        t_name = self._cc_jp2t.convert(detected_box.name)
-                        detected_box.name = self._cc_t2s.convert(t_name)
-                except ImportError:
-                    logger.error("opencc is not installed, but auto_simplify is enabled.")
-
-        for detected_box in detected_boxes:
-            detected_box.name = detected_box.name.strip()
-            if self.executor.ocr_po_translation is not None:
-                fix = self.executor.ocr_po_translation.gettext(detected_box.name)
-                if fix != detected_box.name:
-                    detected_box.name = fix
-                else:
-                    no_space = detected_box.name.replace(" ", "")
-                    fix = self.executor.ocr_po_translation.gettext(no_space)
-                    if fix != no_space:
-                        detected_box.name = fix
-            if fix := self.executor.text_fix.get(detected_box.name):
-                logger.debug(f'text_fixed {detected_box.name} -> {fix}')
-                detected_box.name = fix
-
-    def add_text_fix(self, fix):
-        """
-        Adds text fixes to the text_fix dictionary for OCR result correction.
-
-        添加文本修正字典，用于纠正 OCR 识别结果。
-
-        :param fix: A dictionary mapping incorrect OCR text to correct text. 映射错误 OCR 文本到正确文本的字典。
-        """
-        self.executor.text_fix.update(fix)
+        # ww_engine 只保留 onnxocr（TaskExecutor 对其它 lib 直接报错）
+        return self.onnx_ocr
 
     def onnx_ocr(self, box, image, match, scale_factor, threshold, lib):
         try:
@@ -897,118 +798,23 @@ class OCR(FindFeature):
             logger.error('onnx_ocr', e)
             self.screenshot('onnx_ocr_exception', frame=image)
             if 'ZE_RESULT_ERROR_DEVICE_LOST' in str(e):
-                raise Exception(QCoreApplication.translate('Task',
-                                                           'NPU inferring Error, you might need to update the Intel NPU driver!'))
+                raise Exception(QCoreApplication.translate(
+                    'Task', 'NPU inferring Error, you might need to update the Intel NPU driver!'))
             raise e
         detected_boxes = []
-        # logger.debug(f'rapid_ocr result {result}')
-        # Process the results and create Box objects
         if result[0] is not None:
             for i in range(len(result[0])):
                 pos = result[0][i][0]
-                text = result[0][i][1][0]
+                text = str(result[0][i][1][0]).strip()
                 confidence = result[0][i][1][1]
                 width, height = round(pos[2][0] - pos[0][0]), round(pos[2][1] - pos[0][1])
                 if width <= 0 or height <= 0:
                     logger.debug(f'ocr result negative box {text} {confidence} {width}x{height} pos:{pos}')
                     continue
                 detected_box = self.get_box(box, confidence, height, pos, scale_factor, text, threshold, width)
-                # logger.debug(f'rapid_ocr {text} {box} {confidence} {threshold} detected_box {detected_box}')
                 if detected_box:
                     detected_boxes.append(detected_box)
         ocr_boxes = detected_boxes
-        self.fix_texts(detected_boxes)
-        if match is not None:
-            detected_boxes = find_boxes_by_name(detected_boxes, match)
-        return detected_boxes, ocr_boxes
-
-    def rapid_ocr(self, box, image, match, scale_factor, threshold, lib):
-        try:
-            result = self.executor.ocr_lib(lib)(image, use_det=True, use_cls=False, use_rec=True)
-        except Exception as e:
-            logger.error('rapid_ocr_exception', e)
-            self.screenshot('rapid_ocr_exception', frame=image)
-            raise e
-        detected_boxes = []
-        # logger.debug(f'rapid_ocr result {result}')
-        # Process the results and create Box objects
-        if result.boxes is not None:
-            for i in range(len(result.boxes)):
-                pos = result.boxes[i]
-                text = result.txts[i]
-                confidence = result.scores[i]
-                width, height = round(pos[2][0] - pos[0][0]), round(pos[2][1] - pos[0][1])
-                if width <= 0 or height <= 0:
-                    logger.debug(f'ocr result negative box {text} {confidence} {width}x{height} pos:{pos}')
-                    continue
-                detected_box = self.get_box(box, confidence, height, pos, scale_factor, text, threshold, width)
-                # logger.debug(f'rapid_ocr {text} {box} {confidence} {threshold} detected_box {detected_box}')
-                if detected_box:
-                    detected_boxes.append(detected_box)
-        ocr_boxes = detected_boxes
-        self.fix_texts(detected_boxes)
-        if match is not None:
-            detected_boxes = find_boxes_by_name(detected_boxes, match)
-        return detected_boxes, ocr_boxes
-
-    def duguang_ocr(self, box, image, match, scale_factor, threshold, lib):
-        try:
-            results = self.executor.ocr_lib(lib).run(image)
-        except Exception as e:
-            logger.error('duguang_ocr_exception', e)
-            self.screenshot('duguang_ocr_exception', frame=image)
-            raise e
-        detected_boxes = []
-        # logger.debug(f'rapid_ocr result {result}')
-        # Process the results and create Box objects
-        # duguang_ocr returns a list of per-image results (第1张图片结果, 第2张图片结果, ...)
-        # each element is itself a list of [pos, (text, confidence)] detections
-        for image_results in results:
-            if not image_results:
-                continue
-            for result in image_results:
-                pos = result[0]
-                text, confidence = result[1]
-                width, height = round(pos[2][0] - pos[0][0]), round(pos[2][1] - pos[0][1])
-                if width <= 0 or height <= 0:
-                    logger.debug(f'ocr result negative box {text} {confidence} {width}x{height} pos:{pos}')
-                    continue
-                detected_box = self.get_box(box, confidence, height, pos, scale_factor, text, threshold, width)
-                # logger.debug(f'rapid_ocr {text} {box} {confidence} {threshold} detected_box {detected_box}')
-                if detected_box:
-                    detected_boxes.append(detected_box)
-        ocr_boxes = detected_boxes
-        self.fix_texts(detected_boxes)
-        if match is not None:
-            detected_boxes = find_boxes_by_name(detected_boxes, match)
-        return detected_boxes, ocr_boxes
-
-    def paddle_ocr(self, box, image, match, scale_factor, threshold, lib):
-        start = time.time()
-        results = self.executor.ocr_lib(lib).predict(image)
-        detected_boxes = []
-        # Process the results and create Box objects
-        if results:
-            result = results[0]
-
-            for idx in range(len(result['rec_texts'])):
-                pos = result['rec_boxes'][idx]
-                text = result['rec_texts'][idx]
-                confidence = result['rec_scores'][idx]
-
-                width, height = round(pos[2] - pos[0]), round(pos[3] - pos[1])
-                if width <= 0 or height <= 0:
-                    logger.error(f'ocr result negative box {text} {confidence} {width}x{height} pos:{pos}')
-                    continue
-                if confidence >= threshold:
-                    detected_box = Box(pos[0], pos[1], width, height, confidence, text)
-                    scale_box(detected_box, scale_factor)
-                    if box is not None:
-                        detected_box.x += box.x
-                        detected_box.y += box.y
-                    detected_boxes.append(detected_box)
-        ocr_boxes = detected_boxes
-        self.fix_texts(detected_boxes)
         if match is not None:
             detected_boxes = find_boxes_by_name(detected_boxes, match)
         return detected_boxes, ocr_boxes

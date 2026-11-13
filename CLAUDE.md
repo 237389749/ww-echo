@@ -201,6 +201,12 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 | `ok/util/window.py` | `ww_engine/util/window.py` | `find_hwnd` 过滤空 exe 项，云模式按标题正则可找到窗口 |
 
 > 修改引擎时直接改 `ww_engine/`；不要再 pip 安装 ok-script，也不要把补丁打到 site-packages。
+>
+> **任务层属性契约有单测守卫**（阶段三十一接管审核补的）：`tests/test_engine_task.py` 静态检查
+> `ww_engine/task/task.py` 里所有 `self.executor.<attr>` 都真实存在于 `TaskExecutor`，并用假 OCR 走完
+> `ocr()` → `onnx_ocr()` 后处理。**裁 `TaskExecutor` 时删了属性初始化、引用却留着**，会让真机 OCR
+> 一调用就 `AttributeError`（离线逻辑单测与"全模块导入"都抓不到；本层已踩过 `locale`/`text_fix`/
+> `ocr_po_translation` 一次）。删 `BaseTask` 的方法（如 `is_scene`/`wait_scene`/`adb_ui_dump`）前先确认本项目没用。
 
 ## 屏幕坐标基线(1920x1200 帧; 归一化 = px/1920, px/1200)
 
@@ -370,7 +376,9 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 (`37829ac` 阶段二十四 · `54c124f` 阶段二十五 官方静态数据层+官方图标 · `5d32374`/`abf5468` 阶段二十六 界面重构 ·
 `d51f6e3` 阶段二十七 主属性数值校验 · `7246757` 阶段二十八 套装效果 `pieces` · 阶段二十九 组合穷举+伤害排名)。
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
-改动后跑: `python -m unittest discover -s tests`(**177 项**; 需 Python 3.11+; 3.13/3.14 已实测)
+**阶段三十一(引擎自持)**: 在分支 **`engine/vendor`**（未合并 `main`，等 P4 真机验收），
+审核补记（OCR 主链路回归 + 台账修正）见 handoff.md / CHANGELOG 补记 22。
+改动后跑: `python -m unittest discover -s tests`(**182 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。

@@ -3,7 +3,7 @@
 > 给下一个会话：先读 `CLAUDE.md`（项目手册，含「组合穷举」一节）与本文；功能规格原文在 `panel_plan.md`
 > （末尾有「实施状态」，列了与原文的差异与定案口径）。
 
-## 一、已完成的阶段（全部已提交并 `push origin main`）
+## 一、已完成的阶段（阶段二十四~三十已提交并 `push origin main`；阶段三十一在分支 `engine/vendor`，未合并）
 
 | 阶段 | 提交 | 内容 |
 |---|---|---|
@@ -16,10 +16,10 @@
 | **二十九** | `219357d` / `ea53b5d` | **声骸组合穷举 + 伤害排名**：`src/echo_panel.py` / `src/echo_combos.py` / `src/echo_inventory.py` / `tools/echo_plan.py` / `ui/plan_tab.py` + 单测；评估结束顺手写 `<报告>.json`；修 JSON 途径「攻击%↔固定攻击」误判 |
 | — | 本次 | **首份真机评估报告(135 只)体检 + COST 漏读修复**：实时 `read_cost_badge()`(角标区 3× 放大重读) + 离线 `infer_cost()`(第 2 行反推)，当时 130 项单测 |
 | **三十** | 本次 | **ok-ww 农场残留剥离**（月卡/技能热键/模板库 257→5/MouseReset/WWScene/登录窗口类/自动启动/blur/ok-ww 链接）+ **Lv5/Lv10 只认首条 + 可选 `_low_first` 低权重门槛**（轻云出月 0.1 / 前 2 档） |
-| **三十一** | 本次 | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / ~8.5k 行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁 |
+| **三十一** | `09bf8b3`（`engine/vendor`） | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 10.2k 物理行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁。**未合并 main**，等 P4 真机验收 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **177 项**（无素材；素材齐全 181 项 / skipped=1。需 Python 3.11+；
+- `python -m unittest discover -s tests` → **182 项**（无素材；素材齐全 186 项 / skipped=1。需 Python 3.11+；
   3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
 - `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）
 - `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`
@@ -55,7 +55,8 @@
 
 **引擎自持**（用户口径："做 B：vendor 一份精简 ok-script；精简由你规划"）：
 - 从 `ok-script==1.0.160` 复制 61 个文件（12,111 行）到 `ww_engine/`，删除 150 个文件（35,267 行）；
-  实际落地 75 个 `.py` / **8,540 行**（含重写的外壳与包 `__init__`）。
+  实际落地 75 个 `.py` / **10,226 物理行**（8,449 非空行；含重写的外壳与包 `__init__`）。
+  > 早期文档写的 8,540 是**非空行**计数，和 §1 的 12,111/35,267（物理行）不同口径；本表已按物理行改正。
 - 保留：feature/Box/FeatureSet、task/task.py + TaskExecutor、device/DeviceManager + BitBlt/WGC/Hwnd + PostMessage/Pynput、
   util 子集、rotypes、overlay、最小 StartController/TaskManager。
 - 重写：`ww_engine/__init__.py`（最小 OK/og）、`ww_engine/app.py`（最小 EngineApp）、`gui/StartController.py`、
@@ -63,9 +64,31 @@
 - 删除：ok-script 原生 GUI/resources、ADB/模拟器/浏览器/Nemu/DesktopDuplication、Genshin/PyDirect/Foreground、
   update/打包/Analytics/i18n、paperclip、paddle/rapid/dgocr/opencc 分支。
 - 4 处 site-packages 补丁直接写进 vendored 代码；删除 `tools/patches/` 与安装步骤；`requirements.txt` 不再有 `ok-script`。
-- 验证：`python -m unittest discover -s tests` **177 项 / OK (skipped=2)**；`tools/ui_shot.py` **7 页**；
+- 验证：`python -m unittest discover -s tests` **177 项 / OK (skipped=2)**（审核后 182）；`tools/ui_shot.py` **7 页**；
   `ww_engine` 全模块导入 0 错误；`OK(config)` + `MainWindow` 离屏集成通过；OCR onnxocr 初始化 1.3s。
 - **未做/需真机**：本地/云游戏实际截图、点击、评估、强化走查；P4 真机验收清单见 `docs/ENGINE_VENDOR_PLAN.md` §6。
+
+## 一.7、接管审核（2026-11-13，同一分支）
+
+**结论先说**：离线基线（182 项单测 / 7 页 / 导入 0 错误）全过，但**真机 OCR 主链路原本会崩**——
+离线逻辑单测和"全模块导入"都覆盖不到。已修并补守卫；P4 仍需真机跑。
+
+- **P0：OCR 一调用就 AttributeError**（阶段三十一裁剪 TaskExecutor 时删了属性初始化，`task.py` 的
+  `fix_texts()` 仍引用）：`locale` / `text_fix` / `ocr_po_translation` 三个属性只在类注解里，
+  `config['ocr']['auto_simplify']=True` → 每次 OCR 走 `self.executor.locale.name()` 必炸。
+  处理：按规划**删掉整段 i18n/opencc 后处理**（`fix_texts`/`fix_match_regex`/`add_text_fix` 及 4 处调用），
+  OCR 结果改在 `onnx_ocr` 里 `strip()`；`ocr_fun` 只留 onnxocr，删除 rapid/dgocr/paddleocr 三个死实现；
+  `config.py` 去掉 `auto_simplify`。另删 `BaseTask` 里已无实现的 `is_scene`/`wait_scene`/`adb_ui_dump`。
+- **P0 邻接**：`TaskExecutor.execute` 的错误信息标题用了 `QCoreApplication.tr('app','Error')`（返回 `'app'`），
+  改成 `translate('app','Error')`。
+- **P1**：`ui/run_tab._copy_log` 用了未导入的 `QGuiApplication`（复制日志必炸）→ 补 import。
+- **新增守卫** `tests/test_engine_task.py`（5 项）：①静态检查 `task.py` 引用的 `executor.<attr>` 都存在于
+  `TaskExecutor`；②用假 OCR 走 `ocr()` → `onnx_ocr()`（strip/阈值/负尺寸/match）；③`ocr_fun` 只回 onnx。
+- **真实 OCR 冒烟**：用 onnxocr + 合成帧（"暴击伤害 21.0%" / "攻击 8.0%"）跑 `task.ocr()`，
+  两行置信度 0.99 / 0.97，坐标正确；模型初始化约 1.1s。
+- **台账修正**：`ww_engine` 行数改物理行口径（10,226）；测试基线 177 → **182**（素材齐全 186）；
+  明确阶段三十一在 `engine/vendor`（未合并 main）；`task/task.py` 实际裁到 1,163 物理行（原计划 ~1,000）。
+- **仍未做**：真机 P4（本地/云游戏各一轮）；`process.create_shortcut` / GPU 探测函数等残留留第二阶段。
 
 ## 二、阶段二十九做了什么（组合穷举）
 

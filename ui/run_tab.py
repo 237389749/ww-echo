@@ -10,6 +10,7 @@ import threading
 import time
 
 from PySide6.QtCore import QTimer, QSettings, Signal, QObject, Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF,

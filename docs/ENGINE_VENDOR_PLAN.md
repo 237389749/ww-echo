@@ -1,7 +1,11 @@
 # 引擎自持规划：从 ok-script 精简 vendor（阶段三十一）
 
 > 状态：**P1/P2 已实施（2026-11-13，分支 `engine/vendor`）**；P4 真机验收待做。
-> 实际落地：`ww_engine/` **75 个 `.py` / 8,540 行**（保留 61 文件/12,111 行，删除 150 文件/35,267 行）。
+> **接管审核（同日）**：修复 OCR 主链路回归（`TaskExecutor` 属性裁剪后仍被 `fix_texts` 引用），
+> 补 `tests/test_engine_task.py` 守卫；P3 基线 → 182 项单测 / 7 页。
+> 实际落地：`ww_engine/` **75 个 `.py` / 10,226 物理行（8,449 非空行）**；
+> 对照规划为保留 61 文件/12,111 行（物理行口径）、删除 150 文件/35,267 行。
+> 早期文档写的 8,540 是**非空行**计数，与 12,111/35,267 口径不同，已改正。
 > 目标提交基线：`54c9ee6`（阶段三十）。关联：`CLAUDE.md`（项目手册）、`handoff.md`（交接）、`docs/BASELINE.md`（验收基线）。
 > 本文回答两个问题：① 哪些 ok-script 代码要保留/删掉/重写；② 迁移后如何证明行为没变。
 
@@ -87,7 +91,7 @@
 
 | 文件 | 原始行 | 裁剪内容 | 目标行 |
 |---|---:|---|---:|
-| `task/task.py` | 1,370 | 删 `clipboard()`/`paperclip`、`opencc` 分支、未用的快捷键/录制/颜色辅助；保留 `ocr/click/send_key/scroll/find_*/wait_*/box/frame/sleep/pause/info_*` | ~1,000 |
+| `task/task.py` | 1,370 | 删 `clipboard()`/`paperclip`、`opencc`/i18n 分支、未用的快捷键/录制/颜色辅助；保留 `ocr/click/send_key/scroll/find_*/wait_*/box/frame/sleep/pause/info_*` | 1,163（实际） |
 | `task/TaskExecutor.py` | 619 | 删 i18n/`download_models`/blur overlay/GPU 检测；OCR 只留 `onnxocr` 分支；保留帧/暂停/任务循环/`wait_condition` | ~450 |
 | `device/DeviceManager.py` | 1,007 | 删 ADB/模拟器/Browser/Nemu 分支与方法；只保留 Windows `HwndWindow` + capture/interaction 选择 + 分辨率/窗口刷新 | ~450 |
 | `device/capture.py` | 9 | 注册表只留 BitBlt/WGC/Hwnd | ~9 |
@@ -245,7 +249,7 @@ log_info / log_debug / log_warning / log_error / find_confirm / find_echo_enhanc
 | # | 命令 | 通过标准 |
 |---|---|---|
 | V1 | `python -m compileall ww_engine src ui tools` | 退出码 0 |
-| V2 | `python -m unittest discover -s tests` | **177 项 / OK (skipped=2)** |
+| V2 | `python -m unittest discover -s tests` | **182 项 / OK (skipped=2)** |
 | V3 | `python tools/ui_shot.py` / `--dark` | **7 页**，无异常 |
 | V4 | `python -c "import ww_engine; from ww_engine import OK, og, BaseTask, FindFeature, Logger, Box"` | 导入成功 |
 | V5 | `grep -R "from ok\\|import ok" --include=*.py .` | **0 命中**（`helios/` 除外） |
@@ -255,10 +259,13 @@ log_info / log_debug / log_warning / log_error / find_confirm / find_echo_enhanc
 
 ### P4：真机验收（1~2 天）
 
+- **先点一次「调试工具」页的「OCR 测试」**（最短复现路径）：它直接走 `BaseTask.ocr()` → `onnx_ocr()`；
+  本轮修的 P0（裁剪后 `fix_texts` 引用已删属性）就是在这条路径上必炸。要求：无 `AttributeError`，
+  日志里 `ocr_zone ... found result` 有文字；同页截图预览、覆盖层开关正常。
 - 本地模式：选窗 → 评估 20 只 → 强化 5 只 → 暂停/继续/停止。
 - 云游戏模式：F11 全屏 → 自动锁窗 → 前台键鼠 → 评估 10 只。
 - 设备设置：切换截图方式（WGC/BitBlt）、交互方式（PostMessage/Pynput）、重启生效。
-- 覆盖层开关、日志、截图、OCR 测试、导出报告。
+- 覆盖层开关、日志、截图、OCR 测试、导出报告；跑完 grep 日志无 `AttributeError` / `NameError` / `UnboundLocalError`。
 - 关键回归：窗口最小化/被遮挡/切走再切回；开始任务自动拉前台；停止后无残留线程。
 
 ### P5：清理与文档（0.5 天）

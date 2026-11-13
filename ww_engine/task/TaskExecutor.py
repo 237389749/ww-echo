@@ -40,10 +40,7 @@ class TaskExecutor:
     onetime_tasks: list
     onetime_task_queue: list
     thread: object
-    locale: object
     scene: object
-    text_fix: dict
-    ocr_po_translation: object
     config: object
     basic_options: object
     lock: object
@@ -501,7 +498,7 @@ class TaskExecutor:
                 else:
                     error = str(e)
                 communicate.notification.emit(error, name, True, True, None, params)
-                task.info_set(QCoreApplication.tr('app', 'Error'), error)
+                task.info_set(QCoreApplication.translate('app', 'Error'), error)
                 logger.error(f"{name} exception stopped", e)
                 if self._frame is not None:
                     communicate.screenshot.emit(self.frame, name, True, None)

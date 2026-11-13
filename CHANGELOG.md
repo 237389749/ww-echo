@@ -1521,7 +1521,8 @@ eval_rules.md（§2 首条规则/§7 占位键/§8 B2 待重跑）、docs/BASELI
 - 全量 211 文件 / 47,378 行 → **保留 61 文件 / 12,111 行**，**删除 150 文件 / 35,267 行（74.4%）**。
 - 删除大头：`ok/gui` 94 文件 / 25,489 行（含 `resources.py` 13,965 行）、`capture/adb` 3,252 行、
   `alas` 1,043 行、`device` 其余 1,445 行、`util` 其余 2,935 行、`paperclip` 655 行。
-- 实际落地 `ww_engine/` **75 个 `.py` / 8,540 行**（保留 + 裁剪 + 重写外壳）。
+- 实际落地 `ww_engine/` **75 个 `.py` / 10,226 物理行（8,449 非空行）**（保留 + 裁剪 + 重写外壳）。
+  > 当时记的 8,540 是**非空行**口径；本节 12,111 / 35,267 是物理行，补记 22 已统一为物理行。
 
 ### 二、保留 / 裁剪 / 重写
 
@@ -1529,7 +1530,7 @@ eval_rules.md（§2 首条规则/§7 占位键/§8 B2 待重跑）、docs/BASELI
   `device/DeviceManager`（Windows-only 重写）+ BitBlt/WGC/Hwnd + PostMessage/Pynput/keys、
   `util/config`/`GlobalConfig`/`logger`/`file`/`window`/`process`/`handler`/`collection`/`clazz`/`color`、
   `rotypes/**`、`gui/Communicate`、`gui/util/Alert`、`gui/overlay/*`。
-- **裁剪**：`task/task.py` 删 clipboard/paperclip、快捷方式、`opencc` 分支保留为可选；
+- **裁剪**：`task/task.py` 删 clipboard/paperclip、快捷方式、`opencc`/i18n 分支（补记 22 落实）；
   `TaskExecutor` 删 i18n/下载/blur/GPU 检测，OCR 只留 `onnxocr`；`DeviceManager` 删 ADB/模拟器/Browser/Nemu；
   `StartController` 删自动启动 exe/GPU 检查/ADB/Browser；`TaskManager` 删自定义/导入/定时任务/文件监视。
 - **重写**：`ww_engine/__init__.py`（最小 `OK`/`og`/导出）、`ww_engine/app.py`（最小 `EngineApp`）、
@@ -1543,7 +1544,7 @@ eval_rules.md（§2 首条规则/§7 占位键/§8 B2 待重跑）、docs/BASELI
 
 ### 三、验证
 
-- `python -m unittest discover -s tests` → **177 项 / OK (skipped=2)**（无素材）。
+- `python -m unittest discover -s tests` → **182 项 / OK (skipped=2)**（无素材；补记 22 前为 177）。
 - `python tools/ui_shot.py` → **7 页**；`MainWindow` + `OK(config)` 离屏集成通过。
 - `ww_engine` 全模块导入 **0 错误**；`OK(config)` 初始化 OCR（onnxocr + OpenVINO）约 **1.3 s**。
 - `grep "from ok|import ok"`（本项目 `.py`）→ **0 命中**。
@@ -1553,3 +1554,45 @@ eval_rules.md（§2 首条规则/§7 占位键/§8 B2 待重跑）、docs/BASELI
 **文档同步**: README（引擎自持/依赖/结构/补丁删除）、CLAUDE.md（引擎自持章节/结构/命令）、docs/BASELINE.md
 （环境/自检/补丁行）、handoff.md（阶段三十一 + 基线）、`docs/ENGINE_VENDOR_PLAN.md`（状态/边界）、
 `THIRD_PARTY_NOTICES.md`（MIT）。
+
+---
+
+**补记 22（2026-11-13：接管审核 —— 修 OCR 主链路回归 + 台账校正）**
+
+**审核结论先说**: 阶段三十一的离线基线（177 项单测 / 7 页 / 全模块导入）确实能过，但**真机 OCR 主链路会崩**；
+离线逻辑单测与"全模块导入"都覆盖不到这一类。已修、已补守卫，P4 仍需真机跑。
+
+**P0 回归（裁 `TaskExecutor` 删了属性初始化，`task.py` 仍引用）**
+- `TaskExecutor.__init__` 随 i18n 一起删掉了 `self.locale` / `self.text_fix` / `self.ocr_po_translation` 的赋值
+  （类注解还在），而 `BaseTask.fix_texts()` 仍然引用三者；`config['ocr']['auto_simplify']=True` →
+  每次 OCR 都走 `self.executor.locale.name()` → `AttributeError`。**评估/强化/OCR 测试/调试页 OCR 全部受影响。**
+- 修法（按 ENGINE_VENDOR_PLAN §2.2 的原意，删而不是补桩）：整段删 `fix_texts` / `fix_match_regex` / `add_text_fix`
+  及 4 处调用；`onnx_ocr` 里把识别文字 `str(...).strip()`（保留原先 `fix_texts` 唯一的通用效果清洗）；
+  `ocr_fun` 只返回 `onnx_ocr`，删 `rapid_ocr`/`duguang_ocr`/`paddle_ocr` 三个死实现；`config.py` 去掉 `auto_simplify`；
+  `TaskExecutor` 去掉三个注解。另删 `BaseTask` 里已无实现的 `is_scene`/`wait_scene`/`adb_ui_dump`。
+
+**P0 邻接 / P1**
+- `TaskExecutor.execute` 错误标题 `QCoreApplication.tr('app','Error')` → 返回 `'app'`（`tr` 是"源文本+消歧"），
+  改 `QCoreApplication.translate('app','Error')`。
+- `ui/run_tab._copy_log` 用了未导入的 `QGuiApplication`（复制日志必 `NameError`）→ 补 `from PySide6.QtGui import ...`。
+
+**守卫与实测**
+- 新增 `tests/test_engine_task.py`（5 项）：①静态检查 `task.py` 的 `self.executor.<attr>` 都存在于 `TaskExecutor`；
+  ②假 OCR 走 `ocr()` → `onnx_ocr()`（strip / 阈值 / 负尺寸 / match 过滤）；③`ocr_fun` 只回 onnx。
+- 真实 OCR 冒烟（onnxocr + OpenVINO，合成帧两条中文）：`暴击伤害 21.0%` 0.99 / `攻击 8.0%` 0.97，坐标正确；
+  模型初始化约 1.1 s。
+- `python -m unittest discover -s tests` → **182 项 / OK (skipped=2)**；`tools/ui_shot.py` → 7 页；
+  `OK(config)` + `MainWindow` 离屏集成 + overlay 创建通过（QT_QPA_PLATFORM=offscreen）。
+
+**台账校正**
+- `ww_engine/` 行数：早先写的 **8,540 是"非空行"**（`Measure-Object -Line` 口径），与同表 12,111/35,267 的
+  物理行不可比。按物理行：**75 文件 / 10,226 行（8,449 非空）**；`task/task.py` 实裁到 **1,163 行**（原目标 ~1,000）。
+- 测试基线 177 → **182**（素材齐全 181 → **186**），同步 `docs/BASELINE.md` / `CLAUDE.md` / `handoff.md` /
+  `docs/ENGINE_VENDOR_PLAN.md`。
+- 明确阶段三十一提交 `09bf8b3` 在分支 **`engine/vendor`**，`main` 仍停 `6d1e90d`；handoff 原先"全部已 push origin main"
+  的说法已改。
+
+**残留（第二阶段/真机）**: 真机 P4（本地/云游戏截图、点击、评估、强化、暂停/继续/停止、切截图/交互）；
+`process.create_shortcut`（win32com）、`get_first_gpu_free_memory_mib`/`is_cuda_12_or_above` 等死函数；
+`config['my_app']`/`src/globals.Globals` 占位（新 OK 不再加载）；`Config`/`GlobalConfig`/`task.py` 对
+qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.63 s，软目标 <0.5 s）。

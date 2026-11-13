@@ -25,7 +25,7 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 
 | # | 命令 | 期望输出 | 依赖 |
 |---|---|---|---|
-| B1 | `python -m unittest discover -s tests` | **177 项**（`Ran 177 tests` / `OK (skipped=2)`；无 `logs/eval_debug/` 时 `TestRealDataset` 整类跳过；素材齐全时为 **181 项 / skipped=1**） | 仅代码 |
+| B1 | `python -m unittest discover -s tests` | **182 项**（`Ran 182 tests` / `OK (skipped=2)`；无 `logs/eval_debug/` 时 `TestRealDataset` 整类跳过；素材齐全时为 **186 项 / skipped=1**） | 仅代码 |
 | B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
 | B3 | `python tools/eval_icon_match.py` | **217/219**（99.1%）；s1 中位 ≈0.894；名字候选一致 196/211 | 同上 |
 | B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **7 页** PNG，无异常 | 仅代码 |
@@ -44,6 +44,8 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 > （opencv 4.14.0.94 / numpy 2.4.6 / openvino 2026.0.0 / onnxocr 0.0.18 / PySide6 6.12 / qfluentwidgets 1.11.3），
 > B1 `Ran 177 / OK (skipped=2)`（无素材，`TestRealDataset` 整类跳过）、B4 7 页、`ww_engine` 全模块导入 0 错误。
 > 说明：引擎自持后不再依赖 ok-script 的 `Requires-Python`，Python 3.13 直接可跑。
+> **同日接管审核**：新增 `tests/test_engine_task.py` 5 项（引擎任务层接线守卫，B1 → **182**）；
+> 另用真实 onnxocr + 合成帧跑通 `task.ocr()`（两行中文 0.99 / 0.97），确认 OCR 主链路可用。
 
 离线快速重放（不需要素材，只看当前权重下的判定）：
 

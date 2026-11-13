@@ -13,7 +13,7 @@ from ww_engine.util.config import Config, ConfigOption
 from ww_engine.util.GlobalConfig import GlobalConfig, register_basic_options, basic_options
 from ww_engine.util.handler import Handler, ExitEvent
 from ww_engine.util.logger import Logger, config_logger
-from ww_engine.util.process import check_mutex, parse_arguments_to_map, prevent_sleeping
+from ww_engine.util.process import check_mutex, parse_arguments_to_map
 from ww_engine.util.file import get_path_relative_to_exe
 from ww_engine.gui.Communicate import communicate
 
