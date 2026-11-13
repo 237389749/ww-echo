@@ -1713,8 +1713,9 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 **补记 26（2026-11-13：耦合 P0 落地 —— domain 不再为 engine 的 GUI 栈付费）**
 
 **改动**
-- `src.echo_set_templates.py` / `src.echo_icon_match.py`：`from ww_engine import Logger` → stdlib
-  `logging.getLogger(__name__)`；`mainui` 已把 `src` logger 接到 `log_bridge`，运行期日志仍进 UI。
+- `src.echo_set_templates.py` / `src.echo_icon_match.py`：`from ww_engine import Logger` → stdlib logging，
+  但 logger 名走 `ww_engine.<module>`（`src/logging_utils.get_logger`），复用 engine 的文件/UI handler，
+  **不 import engine**；`mainui` 的 `src` handler 仍保留给其他 stdlib logger。
 - 删除 `src/globals.py` 与 `config['my_app']`（新 `OK` 从不加载 `my_app`，只是占位）。
 - 删除 `src/task/process_feature.py` 与 `config['template_matching']['feature_processor']`（8 行空函数；
   `FeatureSet(feature_processor=None)` 行为一致）。
@@ -1729,7 +1730,7 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
   （OCR 初始化线程需等 1~3 s 再 teardown，否则 Qt 信号会先被销毁）。`echo_plan --list-profiles` 退出码 0。
 - `import_coupling.py --check` → engine 反向依赖 **0**；P0 后跨层违规只剩
   **`src.echo_inventory → src.task.EnhanceEchoTask`（P1）**；UI→engine 内部 / UI→entry / entry→task / domain→engine 均 **0**。
-- import 耗时（P0 前→后）：`echo_set_templates` **0.95→0.04 s**、`echo_icon_match` **1.07→0.20 s**、
+- import 耗时（P0 前→后）：`echo_set_templates` **0.95→0.05 s**、`echo_icon_match` **1.07→0.20 s**、
   `echo_combos` **1.05→0.073 s**；`echo_inventory`/`echo_plan` 仍 ≈0.85 s（P1 链）；`ww_engine` ≈0.9~1.0 s（P2 懒加载）。
 - 文档：`docs/COUPLING.md`（P0 状态 + 前后耗时）、`CLAUDE.md` 分层节、`handoff.md` 一.9、本补记。
 

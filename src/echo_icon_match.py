@@ -17,13 +17,14 @@
 """
 
 import glob
-import logging
 import os
 
 import cv2
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 # 详情面板套装图标区(整帧归一化)。1920x1200 实测 (1402,199)-(1430,227), 与视觉模型在同一批
 #   debug 图上核对的 detail.png 坐标 (135,79)-(163,107) 一致; 图标直径约 28px(含 2px 外发光)

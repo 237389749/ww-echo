@@ -226,6 +226,7 @@ ww-echo/
 │   ├── echo_score_sim.py           # 整只声骸分位(按官方概率模拟"随机满级声骸"分数分布)
 │   ├── char_profiles.py            # 角色预设的读写/构造(assets/char_profiles.json)
 │   ├── run_modes.py                # 运行模式常量(local/cloud; config 与 UI 共用)
+│   ├── logging_utils.py            # domain logger(走 ww_engine.* 命名空间, 不 import engine)
 │   └── task/
 │       ├── EnhanceEchoTask.py      # 强化 + 评估(自动遍历 v2)
 │       ├── BaseEchoTask.py         # 任务基类

@@ -25,11 +25,12 @@ JSON 格式 (assets/echo_set_templates.json):
 """
 
 import json
-import logging
 import os
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 # 游戏中实际存在的 13 个副词条名称(白名单)。**展示顺序也以这里为唯一来源** ——
 # 套装配置表格(ui/set_config_tab) 与强化配置下拉(EnhanceEchoTask) 都直接用 STAT_ORDER, 不再各抄一份。

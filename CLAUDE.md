@@ -52,7 +52,8 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **边界**: `engine`(ww_engine, 对项目代码 **0 出边**) → `domain`(src 非 task) → `task_adapter`(src.task) → `ui` → `entry`(config/mainui);
   `tools/tests` 允许跨层。完整矩阵/违规/import 耗时见 `docs/COUPLING.md`, 复现
   `python tools/analysis/import_coupling.py --check`(带 `--timing` 看耗时)。
-- **P0 已落地**: domain 不再借 `ww_engine.Logger`(改 stdlib logging); 删 `src/globals.py`+`config['my_app']`;
+- **P0 已落地**: domain 不再 import `ww_engine.Logger`(改 stdlib logging, 但 logger 名走 `ww_engine.*` 的
+  `src/logging_utils.get_logger`, 复用 engine 文件/UI handler); 删 `src/globals.py`+`config['my_app']`;
   删 `process_feature` 空实现; `MODE_*` 移到 `src/run_modes.py`; UI 改走 engine 根 API
   (`og`/`communicate`/`basic_options`), 调试页 `Alert` 改公共 notification。
 - **当前只剩 P1**: `src.echo_inventory → src.task.EnhanceEchoTask`(借 `parse_number`/`_normalize_stat`/

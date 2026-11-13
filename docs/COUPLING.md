@@ -24,7 +24,7 @@
 
 | # | 改动 | 结果 |
 |---|---|---|
-| 1 | `echo_icon_match` / `echo_set_templates` 改用 stdlib `logging.getLogger(__name__)` | domain→engine **0**；`echo_set_templates` import **0.95 s → 0.04 s** |
+| 1 | `echo_icon_match` / `echo_set_templates` 改用 stdlib logging，但 logger 名走 `ww_engine.<module>`（`src/logging_utils.py`），复用 engine 的文件/UI handler，**不 import engine** | domain→engine **0**；`echo_set_templates` import **0.95 s → 0.05 s** |
 | 2 | 删除 `src/globals.py` + `config['my_app']` | domain→engine/Qt 又少 1 条（死文件） |
 | 3 | 删除 `src/task/process_feature.py` + `feature_processor` 配置项 | entry→task **0**；`FeatureSet` 默认 `None` 行为一致 |
 | 4 | 新增 `src/run_modes.py`（`MODE_LOCAL/MODE_CLOUD`），`config` 再导出；UI 直接 import domain | UI→entry **0**；entry→domain +1（正常方向） |
@@ -101,7 +101,7 @@
 | `src.echo_panel` | 0.047 | 0.047 | 纯 domain |
 | `src.char_profiles` | 0.047 | 0.047 | 纯 domain |
 | `ww_engine` | 0.97 | 0.90~0.99 | 根包拉起 Qt/cv2/rotypes（P2 才动） |
-| `src.echo_set_templates` | **0.95** | **0.04** | P0 去掉 `Logger` |
+| `src.echo_set_templates` | **0.95** | **0.05** | P0 去掉 `Logger`；仍复用 engine 日志 handler |
 | `src.echo_icon_match` | **1.07** | **0.20** | P0 去掉 `Logger`；剩 cv2/numpy |
 | `src.echo_combos` | **1.05** | **0.073** | 受益于 `echo_set_templates` |
 | `src.echo_inventory` | 0.94 | **0.85** | 仍经 `EnhanceEchoTask`（P1） |

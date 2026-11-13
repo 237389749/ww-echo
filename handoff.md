@@ -125,13 +125,14 @@
 静态扫全仓 import（`tools/analysis/import_coupling.py`），结论见 `docs/COUPLING.md`：
 
 - **engine 边界干净**：`ww_engine` 对 `src/ui/config` **0 条出边**；涉及 `src/ui` 的模块循环 **0**。
-- **P0 已落地**：domain 改 stdlib `logging`（不再借 `ww_engine.Logger`）、删除 `src/globals.py` + `config['my_app']`、
+- **P0 已落地**：domain 改 stdlib `logging`（经 `src/logging_utils.get_logger` 走 `ww_engine.*` 命名空间复用 engine
+  文件/UI handler，**不 import engine**）、删除 `src/globals.py` + `config['my_app']`、
   删除 `process_feature` 空实现、`MODE_*` 移到 `src/run_modes.py`、UI 改走 engine 根 API
   （`og`/`communicate`/`basic_options`，`Alert` 改公共 notification）。
   P0 后 **domain→engine / UI→entry / entry→task / UI→engine 内部全部为 0**。
 - **当前只剩 P1**：`src.echo_inventory → src.task.EnhanceEchoTask`（借 `parse_number`/`_normalize_stat`/
   `compute_weighted_score`/`dedup_key`），把 `tools.echo_plan` 拖进 Qt（import ≈0.85 s）。
-- **import 成本（P0 前→后）**：`echo_set_templates` 0.95→**0.04 s**、`echo_icon_match` 1.07→**0.20 s**、
+- **import 成本（P0 前→后）**：`echo_set_templates` 0.95→**0.05 s**、`echo_icon_match` 1.07→**0.20 s**、
   `echo_combos` 1.05→**0.073 s**；`echo_inventory`/`echo_plan` 仍 ≈0.85 s（P1 链）；`ww_engine` ≈0.9~1.0 s（P2 懒加载）。
 - **下一步**：P1 抽纯函数到 `src/echo_parse|echo_scoring` + task adapter 少碰 engine 内部 → P2 `ww_engine.__init__`
   懒加载 + 去核心 `FluentIcon`。**不要**为了 `og`/Rust 重写 engine/UI（`og` 是服务定位，不是 import 环）。
