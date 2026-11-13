@@ -12,7 +12,9 @@ import time
 
 from PySide6.QtCore import QObject
 
-from ww_engine import Handler, Logger, og
+from ww_engine.locator import og
+from ww_engine.util.handler import Handler
+from ww_engine.util.logger import Logger
 from ww_engine.device.capture import BaseWindowsCaptureMethod
 from ww_engine.gui.Communicate import communicate
 from ww_engine.util.window import resize_window

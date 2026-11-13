@@ -467,7 +467,7 @@ class TaskExecutor:
                     communicate.task.emit(task)
             except TaskDisabledException:
                 logger.info(f"TaskDisabledException, continue {task}")
-                from ww_engine import og
+                from ww_engine.locator import og
                 task.running = False
                 self.current_task = None
                 if not is_trigger_task:
@@ -488,7 +488,7 @@ class TaskExecutor:
                 name = task.name
                 task.running = False
                 task.disable()
-                from ww_engine import og
+                from ww_engine.locator import og
                 params = None
                 if isinstance(e, HotkeyConfigException):
                     error = "{key} is invalid, please check the hotkey config!"

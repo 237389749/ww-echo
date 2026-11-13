@@ -1,12 +1,15 @@
-"""Minimal application shell for ww_engine.
+"""Application shell（应用外壳）— 与 `ww_engine` 自动化内核分离的 Qt 部分。
 
-只保留自建 UI 需要的部分：
-  - 创建/复用 QApplication
+2026-11-13 第三阶段从 `ww_engine/app.py` 拆出：外壳只负责
+  - 创建/复用 QApplication、设置标题/图标/版本
   - 保存 ok_config（覆盖层开关）
-  - 提供 start_controller
+  - 提供 start_controller（拉前窗口 + 启动链路）
   - 按需创建 OverlayWindow
   - 退出时设置 exit_event 并关闭 Qt
 不再包含 ok-script 的 MainWindow / About / Tabs / i18n / resources。
+
+依赖方向：**shell → engine**（communicate/Config/Logger/设备接口），engine 核心不 import 本包
+（唯一例外是 `ww_engine/__init__.py` 这个组合根：`OK.app` 与惰性导出 `EngineApp`）。
 """
 
 import sys
@@ -16,9 +19,9 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from ww_engine.gui.Communicate import communicate
-from ww_engine.gui.StartController import StartController
 from ww_engine.util.config import Config
 from ww_engine.util.logger import Logger
+from ww_app_shell.start_controller import StartController
 
 logger = Logger.get_logger(__name__)
 
@@ -71,8 +74,8 @@ class EngineApp:
 
     def get_overlay_view(self):
         if self.overlay_window is None:
-            from ww_engine.gui.overlay.OverlayWindow import OverlayWindow
-            from ww_engine import og
+            from ww_app_shell.overlay_window import OverlayWindow
+            from ww_engine.locator import og
             if og.device_manager is None or og.device_manager.hwnd_window is None:
                 return None
             self.overlay_window = OverlayWindow(og.device_manager.hwnd_window)

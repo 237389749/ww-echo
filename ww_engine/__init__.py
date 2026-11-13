@@ -5,11 +5,15 @@
 只保留本项目用到的部分；ok-script 的原生 GUI、ADB/模拟器/浏览器、
 更新/打包/分析/i18n 等已删除。
 
+**应用外壳在 `ww_app_shell`**（2026-11-13 第三阶段拆出）：`EngineApp`/`StartController`/overlay/QMessageBox
+都在那边；本包只剩自动化内核 + 一个 QtCore 依赖（`gui/Communicate.py` 的信号中枢）。
+本模块是**组合根**：`OK.app` 与惰性导出 `EngineApp` 会 import `ww_app_shell`，其余 engine 模块不碰它。
+
 **导入成本（工程约定）**：根包 eagerly 只导入「stdlib + QtCore(`communicate`) + psutil」这一档；
 `EngineApp` / `DeviceManager` / `TaskExecutor` / `TaskManager` / `BaseTask` / `FeatureSet` 等
 会拉起 QtWidgets / cv2 / PIL / rotypes / pynput 的名字走 PEP 562 的 `__getattr__` 按需导入
 （见 `_LAZY_IMPORTS`）。`from ww_engine import EngineApp` 与 `ww_engine.EngineApp` 用法完全不变。
-目标：`import ww_engine` < 0.5 s（实测与依据见 `docs/COUPLING.md` §6 P2）。
+目标：`import ww_engine` < 0.5 s（实测与依据见 `docs/COUPLING.md` §0.3/§6）。
 """
 
 import importlib
@@ -22,8 +26,9 @@ from ww_engine.util.GlobalConfig import GlobalConfig, register_basic_options, ba
 from ww_engine.util.handler import Handler, ExitEvent
 from ww_engine.util.logger import Logger, config_logger
 from ww_engine.util.process import check_mutex, parse_arguments_to_map
-from ww_engine.util.file import get_path_relative_to_exe, clear_folder
+from ww_engine.util.file import clear_folder
 from ww_engine.gui.Communicate import communicate
+from ww_engine.locator import OkGlobals, og          # og 在子模块里，避免 根包↔应用外壳 的 import 环
 from ww_engine.task.exceptions import (
     CannotFindException, TaskDisabledException, FinishedException,
     WaitFailedException, CaptureException, HotkeyConfigException,
@@ -31,14 +36,15 @@ from ww_engine.task.exceptions import (
 
 logger = Logger.get_logger('ww_engine')
 
-# 惰性导入表：名字 -> (模块, 属性)。这些模块会拉起 QtWidgets(QApplication/QMessageBox)、
-# cv2、PIL、rotypes、pynput —— 只有真要跑任务/开窗口时才该付这笔钱。
+# 惰性导入表：名字 -> (模块, 属性)。这些模块会拉起 QtWidgets(QApplication)、cv2、PIL、rotypes、pynput ——
+# 只有真要跑任务/开窗口时才该付这笔钱。
 # 新增根导出时：轻的写上面(含 `og`/`Logger`/`Config` 的依赖闭包)，重的登记到这里。
+# `EngineApp` 在 `ww_app_shell`（应用外壳）：只有组合根(本文件)知道它，engine 其余模块不 import shell。
 _LAZY_IMPORTS = {
-    'EngineApp': ('ww_engine.app', 'EngineApp'),
+    'EngineApp': ('ww_app_shell.app', 'EngineApp'),
     'DeviceManager': ('ww_engine.device.DeviceManager', 'DeviceManager'),
     'TaskExecutor': ('ww_engine.task.TaskExecutor', 'TaskExecutor'),
-    'TaskManager': ('ww_engine.gui.tasks.TaskManger', 'TaskManager'),
+    'TaskManager': ('ww_engine.task.TaskManager', 'TaskManager'),
     'BaseTask': ('ww_engine.task.task', 'BaseTask'),
     'TriggerTask': ('ww_engine.task.task', 'TriggerTask'),
     'FindFeature': ('ww_engine.task.task', 'FindFeature'),
@@ -48,45 +54,6 @@ _LAZY_IMPORTS = {
     'Feature': ('ww_engine.feature.Feature', 'Feature'),
     'FeatureSet': ('ww_engine.feature.FeatureSet', 'FeatureSet'),
 }
-
-
-class OkGlobals:
-    """Global namespace (same shape as ok-script's `og`)."""
-
-    def __init__(self):
-        self.app = None
-        self.executor = None
-        self.device_manager = None
-        self.handler = None
-        self.main_window = None
-        self.my_app = None
-        self.dpi_scaling = 1.0
-        self.ok = None
-        self.config = None
-        self.task_manager = None
-        self.app_path = get_path_relative_to_exe()
-        self.use_dml = False
-        self.global_config = None
-        self.exit_event = None
-        logger.info(f'app path {self.app_path}')
-
-    def get_overlay_view(self):
-        if self.app and hasattr(self.app, 'get_overlay_view'):
-            return self.app.get_overlay_view()
-        return None
-
-    def set_use_dml(self):
-        # 本项目 OCR 固定走 onnxocr + OpenVINO；DirectML 分支已移除。
-        self.use_dml = False
-
-    def set_dpi_scaling(self, window):
-        try:
-            self.dpi_scaling = window.windowHandle().screen().devicePixelRatio()
-        except Exception:
-            self.dpi_scaling = 1.0
-
-
-og = OkGlobals()
 
 
 def __getattr__(name):
@@ -101,7 +68,8 @@ def __getattr__(name):
     if target is not None:
         module = importlib.import_module(target[0])
         value = getattr(module, target[1])
-        globals()[name] = value          # 缓存：后续访问不再走 __getattr__
+        # 写回模块字典缓存（不用 globals()：子模块名曾把内置 globals 遮蔽过一次）
+        sys.modules[__name__].__dict__[name] = value
         return value
     try:
         spec = importlib.util.find_spec(f'{__name__}.{name}')
@@ -174,14 +142,14 @@ class OK:
     @property
     def app(self):
         if self._app is None:
-            from ww_engine.app import EngineApp      # 惰性：QtWidgets 只在要窗口时拉起
+            from ww_app_shell.app import EngineApp      # 惰性：QtWidgets 只在要窗口时拉起
             self._app = EngineApp(self.config, self.exit_event)
             og.app = self._app
         return self._app
 
     def do_init(self):
         from ww_engine.feature.FeatureSet import FeatureSet
-        from ww_engine.gui.tasks.TaskManger import TaskManager
+        from ww_engine.task.TaskManager import TaskManager
         from ww_engine.task.TaskExecutor import TaskExecutor
 
         logger.info(f'do_init, config: {self.config}')

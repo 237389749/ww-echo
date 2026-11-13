@@ -1,16 +1,21 @@
-"""引擎根包**惰性导入**的守卫 —— `import ww_engine` 不许拉起 QtWidgets / cv2 / qfluentwidgets。
+"""引擎根包**惰性导入** + **外壳边界**的守卫。
 
-为什么需要这条测试：在 `ww_engine/__init__.py` 顶部**加一行重的 import**（例如又把 `FluentIcon`
-或 `EngineApp` 拉回顶部）不会有任何功能错误，只会让每个 `from ww_engine import og` 的调用方
-（UI 启动 / 测试 / 离线工具）付一次 ~0.6 s 的 qfluentwidgets 账单 —— 2026-11 的 P2 就是修这个
-（见 `docs/COUPLING.md` §6）。静态扫描抓不到「函数内 import 也是合法写法」，所以这里用**子进程实测
-sys.modules**；再用「惰性名字与直接子模块导入是同一对象」防 `_LAZY_IMPORTS` 映射写错。
+1. `import ww_engine` 不许拉起 QtWidgets / cv2 / qfluentwidgets / 应用外壳。
+   为什么需要：在 `ww_engine/__init__.py` 顶部**加一行重的 import**（例如又把 `FluentIcon`
+   或 `EngineApp` 拉回顶部）不会有任何功能错误，只会让每个 `from ww_engine import og` 的调用方
+   （UI 启动 / 测试 / 离线工具）付一次 ~0.6 s 的 qfluentwidgets 账单 —— 2026-11 的 P2 就是修这个
+   （见 `docs/COUPLING.md` §0.3）。静态扫描抓不到「函数内 import 也是合法写法」，所以这里用**子进程实测
+   sys.modules**；再用「惰性名字与直接子模块导入是同一对象」防 `_LAZY_IMPORTS` 映射写错。
+2. **只有组合根**（`ww_engine/__init__.py`）可以 import 应用外壳 `ww_app_shell`；engine 其余模块
+   一律走 `ww_engine.*` 子模块（`og` 在 `ww_engine.locator`）。2026-11 第三阶段拆壳时就是这么定的。
 
-对应文档：`docs/COUPLING.md` §0.3 / §6（P2）、CHANGELOG 补记 28。
+对应文档：`docs/COUPLING.md` §0.3/§0.4、CHANGELOG 补记 28/29。
 """
 
+import ast
 import importlib
 import os
+import pathlib
 import subprocess
 import sys
 import unittest
@@ -18,8 +23,9 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-# 裸 `import ww_engine` 之后不应出现在 sys.modules 里的重依赖（QtCore 允许：communicate 是 eager 的）
-HEAVY = ("qfluentwidgets", "cv2", "PIL", "rotypes", "pynput")
+# 裸 `import ww_engine` 之后不应出现在 sys.modules 里的重依赖（QtCore 允许：communicate 是 eager 的；
+# ww_app_shell 也不许被拉起 —— 外壳只在要开窗口时导入）
+HEAVY = ("qfluentwidgets", "cv2", "PIL", "rotypes", "pynput", "ww_app_shell")
 
 
 class TestLazyRootPackage(unittest.TestCase):
@@ -59,6 +65,46 @@ class TestLazyRootPackage(unittest.TestCase):
         for name in lazy:
             with self.subTest(missing=name):
                 self.assertIn(name, ww_engine.__all__, msg=f"{name} 惰性登记了但没进 __all__")
+
+    def test_only_composition_root_imports_app_shell(self):
+        """engine 里只有 `ww_engine/__init__.py`（组合根）可以 import `ww_app_shell`。
+
+        用 AST 只看真正的 import（注释/文档串里提到包名不算）。
+        """
+        engine = pathlib.Path(ROOT) / "ww_engine"
+        root_init = engine / "__init__.py"
+        offenders = []
+        for path in engine.rglob("*.py"):
+            if path == root_init:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                targets = []
+                if isinstance(node, ast.Import):
+                    targets = [a.name for a in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    targets = [node.module]
+                for t in targets:
+                    if t == "ww_app_shell" or t.startswith("ww_app_shell."):
+                        offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}: {t}")
+        self.assertEqual(offenders, [],
+                         msg="engine 子模块不应依赖应用外壳（改用 ww_engine.* 子模块；og 在 ww_engine.locator）")
+
+    def test_shell_does_not_import_engine_root(self):
+        """外壳必须依赖 engine 的具体子模块，不能 import 根包（否则形成 根包↔外壳 环）。"""
+        shell = pathlib.Path(ROOT) / "ww_app_shell"
+        if not shell.exists():
+            self.skipTest("没有 ww_app_shell 包")
+        offenders = []
+        for path in shell.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                hit = (isinstance(node, ast.Import) and any(a.name == "ww_engine" for a in node.names)) or \
+                      (isinstance(node, ast.ImportFrom) and node.module == "ww_engine" and not node.level)
+                if hit:
+                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+        self.assertEqual(offenders, [],
+                         msg="外壳 import 了 engine 根包 → 根包↔外壳 成环；改用 ww_engine.locator / 子模块")
 
 
 if __name__ == "__main__":

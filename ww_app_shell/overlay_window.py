@@ -2,11 +2,11 @@ import time
 
 from PySide6.QtCore import QObject, Signal, Qt, QTimer
 
-from ww_engine import Logger
-from ww_engine import og
+from ww_engine.locator import og
+from ww_engine.util.logger import Logger
 from ww_engine.device.capture import HwndWindow
 from ww_engine.gui.Communicate import communicate
-from ww_engine.gui.debug.OverlayWidget import OverlayWidget
+from ww_app_shell.overlay_widget import OverlayWidget
 
 logger = Logger.get_logger(__name__)
 

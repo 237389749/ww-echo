@@ -3,8 +3,8 @@ from PySide6.QtCore import Qt, QPoint, QTimer, QRectF, QRect
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QGuiApplication, QBrush, QImage
 from PySide6.QtWidgets import QWidget
 
-from ww_engine import Logger
-from ww_engine import og
+from ww_engine.locator import og
+from ww_engine.util.logger import Logger
 from ww_engine.gui.Communicate import communicate
 
 logger = Logger.get_logger(__name__)

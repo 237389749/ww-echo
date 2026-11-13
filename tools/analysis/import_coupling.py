@@ -20,6 +20,7 @@
 
 分层:
   engine = ww_engine.*
+  shell  = ww_app_shell.*（应用外壳：EngineApp/StartController/overlay/QMessageBox；可依赖 engine）
   domain = src.*（不含 src.task.*）
   task_adapter = src.task.*
   ui = ui.*
@@ -38,12 +39,18 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 EXCLUDE = {"ww-echo-policy-calculator-main"}
 
-LAYERS = ("engine", "domain", "task_adapter", "ui", "entry", "tools", "tests")
+LAYERS = ("engine", "shell", "domain", "task_adapter", "ui", "entry", "tools", "tests")
+
+# engine → 非 engine 的唯一例外：组合根 `ww_engine/__init__.py` 可以引用应用外壳
+# （`OK.app` 与惰性导出 `EngineApp`）。engine 的其他模块 import shell = 违规。
+SHELL_IMPORTERS = {"ww_engine"}
 
 
 def layer_of(module: str) -> str:
     if module.startswith("ww_engine"):
         return "engine"
+    if module.startswith("ww_app_shell"):
+        return "shell"
     if module.startswith("src.task"):
         return "task_adapter"
     if module.startswith("src"):
@@ -67,10 +74,19 @@ def module_name(path: pathlib.Path) -> str:
     return ".".join(parts)
 
 
-def resolve_relative(module: str, level: int, current: str) -> str:
+def resolve_relative(module: str, level: int, current: str, is_package: bool = False) -> str:
+    """相对 import → 绝对模块名。
+
+    坑：`from . import X` 写在 `pkg/__init__.py` 里时，level=1 指的是**包自身**(`pkg`)；
+    写在普通模块 `pkg/mod.py` 里才指父包(`pkg`)。`module_name()` 把 `__init__` 剥掉了，
+    所以必须由调用方传 `is_package`，否则 `from . import roapi` 会被误记成 `pkg → 父包` 的边
+    (2026-11-13 的假边 `ww_engine.rotypes → ww_engine` 就是这么来的，会污染 SCC)。
+    """
     if level == 0:
         return module
-    parts = current.split(".")[:-1]
+    parts = current.split(".")
+    if not is_package:
+        parts = parts[:-1]
     up = level - 1
     if up:
         parts = parts[:-up] if up <= len(parts) else []
@@ -100,7 +116,8 @@ def build_graph():
             if isinstance(node, ast.Import):
                 targets = [a.name for a in node.names]
             elif isinstance(node, ast.ImportFrom):
-                base = resolve_relative(node.module or "", node.level or 0, module)
+                base = resolve_relative(node.module or "", node.level or 0, module,
+                                        is_package=path.name == "__init__.py")
                 for alias in node.names:
                     if alias.name == "*":
                         targets.append(base)
@@ -200,12 +217,10 @@ def main() -> int:
 
     emit("## 1. 分层矩阵（唯一模块对；行=importer，列=imported）")
     emit()
-    cols = [c for c in LAYERS if c != "engine"]
+    cols = list(LAYERS)          # 含 engine：外壳→engine 的边（18 条）必须看得见
     emit("| importer \\ imported | " + " | ".join(cols) + " |")
     emit("|---|" + "---:|" * len(cols))
     for row in LAYERS:
-        if row == "engine":
-            continue
         emit(f"| {row} | " + " | ".join(
             "—" if row == c else str(by_layer[(row, c)]) for c in cols) + " |")
     emit()
@@ -215,8 +230,11 @@ def main() -> int:
     violations: list[tuple[str, str, str, str]] = []
     for a, b in sorted(edges):
         la, lb = layer_of(a), layer_of(b)
-        if la == "engine" and lb != "engine":
+        if la == "engine" and lb != "engine" and not (lb == "shell" and a in SHELL_IMPORTERS):
+            # engine → 非 engine 一律 P0；唯一例外是组合根引用应用外壳（见 SHELL_IMPORTERS）
             violations.append(("P0", "engine 反向依赖项目代码", a, b))
+        elif la == "shell" and lb not in ("engine", "shell"):
+            violations.append(("P1", "shell 依赖 engine 之外的层", a, b))
         elif la == "domain" and lb in ("engine", "task_adapter", "ui", "entry"):
             violations.append(("P1", "domain 依赖上游", a, b))
         elif la == "task_adapter" and lb in ("ui", "entry"):
@@ -260,6 +278,9 @@ def main() -> int:
                if not (m.startswith("ww_engine.gui") or m.startswith("ww_engine.overlay"))]
     if core_qt:
         emit("> engine 非 GUI 代码里的 Qt 直接依赖: " + ", ".join(f"`{m}`" for m in sorted(core_qt)))
+    else:
+        emit("[ok] engine 的非 GUI 代码不再直接依赖 Qt（QtWidgets 全在 `ww_app_shell`；"
+             "engine 侧只剩 `ww_engine.gui` 里的 `Signal` 中枢）。")
     emit()
 
     emit("## 5. 模块级循环（SCC）")

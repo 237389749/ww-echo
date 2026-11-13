@@ -1,25 +1,11 @@
+"""引擎侧的通知 helper（**无 QtWidgets 依赖**）。
+
+`alert_info` / `alert_error` 只是把消息发到 `communicate.notification` 信号上（UI 层负责展示/托盘）。
+真正弹 `QMessageBox` 的 `show_alert` 属应用外壳，已移到 `ww_app_shell/alert.py`
+（2026-11-13 第三阶段拆分；engine 因此不再直接 import QtWidgets）。
+"""
+
 from ww_engine.gui.Communicate import communicate
-
-
-def show_alert(title, message):
-    # QMessageBox 是 QtWidgets(重)；只在真要弹框时导入，让 alert_info/alert_error 保持 QtCore 级
-    from PySide6.QtWidgets import QMessageBox
-
-    # Create a QMessageBox
-    msg = QMessageBox()
-
-    # Set the title and message
-    msg.setWindowTitle(title)
-    msg.setText(message)
-
-    from ww_engine import og
-    msg.setWindowIcon(og.app.icon)
-
-    # Add a confirm button
-    msg.setStandardButtons(QMessageBox.Ok)
-
-    # Show the message box
-    msg.exec()
 
 
 def alert_info(message, tray=False, show_tab=None):
