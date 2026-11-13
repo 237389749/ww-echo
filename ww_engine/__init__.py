@@ -4,8 +4,16 @@
 截图 / 窗口 / 键鼠注入 / OCR / 模板匹配 / 任务运行时。
 只保留本项目用到的部分；ok-script 的原生 GUI、ADB/模拟器/浏览器、
 更新/打包/分析/i18n 等已删除。
+
+**导入成本（工程约定）**：根包 eagerly 只导入「stdlib + QtCore(`communicate`) + psutil」这一档；
+`EngineApp` / `DeviceManager` / `TaskExecutor` / `TaskManager` / `BaseTask` / `FeatureSet` 等
+会拉起 QtWidgets / cv2 / PIL / rotypes / pynput 的名字走 PEP 562 的 `__getattr__` 按需导入
+（见 `_LAZY_IMPORTS`）。`from ww_engine import EngineApp` 与 `ww_engine.EngineApp` 用法完全不变。
+目标：`import ww_engine` < 0.5 s（实测与依据见 `docs/COUPLING.md` §6 P2）。
 """
 
+import importlib
+import importlib.util
 import os
 import sys
 
@@ -16,8 +24,30 @@ from ww_engine.util.logger import Logger, config_logger
 from ww_engine.util.process import check_mutex, parse_arguments_to_map
 from ww_engine.util.file import get_path_relative_to_exe, clear_folder
 from ww_engine.gui.Communicate import communicate
+from ww_engine.task.exceptions import (
+    CannotFindException, TaskDisabledException, FinishedException,
+    WaitFailedException, CaptureException, HotkeyConfigException,
+)
 
 logger = Logger.get_logger('ww_engine')
+
+# 惰性导入表：名字 -> (模块, 属性)。这些模块会拉起 QtWidgets(QApplication/QMessageBox)、
+# cv2、PIL、rotypes、pynput —— 只有真要跑任务/开窗口时才该付这笔钱。
+# 新增根导出时：轻的写上面(含 `og`/`Logger`/`Config` 的依赖闭包)，重的登记到这里。
+_LAZY_IMPORTS = {
+    'EngineApp': ('ww_engine.app', 'EngineApp'),
+    'DeviceManager': ('ww_engine.device.DeviceManager', 'DeviceManager'),
+    'TaskExecutor': ('ww_engine.task.TaskExecutor', 'TaskExecutor'),
+    'TaskManager': ('ww_engine.gui.tasks.TaskManger', 'TaskManager'),
+    'BaseTask': ('ww_engine.task.task', 'BaseTask'),
+    'TriggerTask': ('ww_engine.task.task', 'TriggerTask'),
+    'FindFeature': ('ww_engine.task.task', 'FindFeature'),
+    'OCR': ('ww_engine.task.task', 'OCR'),
+    'Box': ('ww_engine.feature.Box', 'Box'),
+    'get_bounding_box': ('ww_engine.feature.Box', 'get_bounding_box'),
+    'Feature': ('ww_engine.feature.Feature', 'Feature'),
+    'FeatureSet': ('ww_engine.feature.FeatureSet', 'FeatureSet'),
+}
 
 
 class OkGlobals:
@@ -58,20 +88,32 @@ class OkGlobals:
 
 og = OkGlobals()
 
-# 这些 import 必须在 og/Logger/Handler 之后：StartController/OverlayWindow
-# 会从 `ww_engine` 根导入它们。
-from ww_engine.app import EngineApp  # noqa: E402
-from ww_engine.device.DeviceManager import DeviceManager  # noqa: E402
-from ww_engine.task.TaskExecutor import TaskExecutor  # noqa: E402
-from ww_engine.gui.tasks.TaskManger import TaskManager  # noqa: E402
-from ww_engine.task.task import BaseTask, TriggerTask, FindFeature, OCR  # noqa: E402
-from ww_engine.feature.Box import Box, get_bounding_box  # noqa: E402
-from ww_engine.feature.Feature import Feature  # noqa: E402
-from ww_engine.feature.FeatureSet import FeatureSet  # noqa: E402
-from ww_engine.task.exceptions import (  # noqa: E402
-    CannotFindException, TaskDisabledException, FinishedException,
-    WaitFailedException, CaptureException, HotkeyConfigException,
-)
+
+def __getattr__(name):
+    """PEP 562：重的根导出按需导入（表见 `_LAZY_IMPORTS`），首次解析后缓存在模块字典里。
+
+    兜底：`from ww_engine import rotypes` 这类「子包当属性用」的写法交给 import 机制
+    （rotypes 内部就有 `from ww_engine import rotypes`），不在这里硬编码。
+    """
+    if name.startswith('__') and name.endswith('__'):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    target = _LAZY_IMPORTS.get(name)
+    if target is not None:
+        module = importlib.import_module(target[0])
+        value = getattr(module, target[1])
+        globals()[name] = value          # 缓存：后续访问不再走 __getattr__
+        return value
+    try:
+        spec = importlib.util.find_spec(f'{__name__}.{name}')
+    except (ImportError, AttributeError, ValueError):
+        spec = None
+    if spec is not None:                 # 是子模块/子包（如 rotypes、task、gui）
+        return importlib.import_module(f'{__name__}.{name}')
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(_LAZY_IMPORTS))
 
 
 class ScreenshotFolder:
@@ -83,7 +125,11 @@ class ScreenshotFolder:
 
 
 class OK:
-    """Minimal engine entrypoint (replaces ok-script.OK)."""
+    """Minimal engine entrypoint (replaces ok-script.OK).
+
+    重模块（EngineApp/DeviceManager/TaskExecutor/TaskManager）**只在 `OK()` 里按需导入**：
+    这样 `import ww_engine` 与 `from ww_engine import og` 不必先把 QtWidgets/cv2 拉起来。
+    """
 
     exit_event = ExitEvent()
     init_error = None
@@ -128,11 +174,16 @@ class OK:
     @property
     def app(self):
         if self._app is None:
+            from ww_engine.app import EngineApp      # 惰性：QtWidgets 只在要窗口时拉起
             self._app = EngineApp(self.config, self.exit_event)
             og.app = self._app
         return self._app
 
     def do_init(self):
+        from ww_engine.feature.FeatureSet import FeatureSet
+        from ww_engine.gui.tasks.TaskManger import TaskManager
+        from ww_engine.task.TaskExecutor import TaskExecutor
+
         logger.info(f'do_init, config: {self.config}')
         self.init_device_manager()
         self.screenshot = ScreenshotFolder(self.config.get('screenshots_folder', 'screenshots'))
@@ -173,6 +224,7 @@ class OK:
 
     def init_device_manager(self):
         if self.device_manager is None:
+            from ww_engine.device.DeviceManager import DeviceManager
             self.device_manager = DeviceManager(self.config, self.exit_event, self.global_config)
             og.device_manager = self.device_manager
 

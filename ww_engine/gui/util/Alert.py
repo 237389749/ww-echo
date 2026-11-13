@@ -1,9 +1,10 @@
-from PySide6.QtWidgets import QMessageBox
-
 from ww_engine.gui.Communicate import communicate
 
 
 def show_alert(title, message):
+    # QMessageBox 是 QtWidgets(重)；只在真要弹框时导入，让 alert_info/alert_error 保持 QtCore 级
+    from PySide6.QtWidgets import QMessageBox
+
     # Create a QMessageBox
     msg = QMessageBox()
 

@@ -1,10 +1,8 @@
 import threading
 import time
 from typing import List
-from PySide6.QtCore import QCoreApplication
 
 import cv2
-from qfluentwidgets import FluentIcon
 
 from ww_engine.feature.Box import find_boxes_by_name, find_boxes_within_boundary, Box, find_box_by_name, relative_box, \
     sort_boxes, find_highest_confidence_box
@@ -798,8 +796,9 @@ class OCR(FindFeature):
             logger.error('onnx_ocr', e)
             self.screenshot('onnx_ocr_exception', frame=image)
             if 'ZE_RESULT_ERROR_DEVICE_LOST' in str(e):
-                raise Exception(QCoreApplication.translate(
-                    'Task', 'NPU inferring Error, you might need to update the Intel NPU driver!'))
+                # 原先走 QCoreApplication.translate('Task', ...)；引擎 i18n 已移除(补记 22)，
+                # 无 translator 时 translate 原样返回源码串 → 直接用字面量，省掉 task.py 的 Qt 依赖。
+                raise Exception('NPU inferring Error, you might need to update the Intel NPU driver!')
             raise e
         detected_boxes = []
         if result[0] is not None:
@@ -898,7 +897,8 @@ class BaseTask(OCR):
         self.start_time = 0
         self.icon = None
         self.group_name = None
-        self.group_icon = FluentIcon.SYNC
+        # 任务图标只给 ok-script 原生任务页用；本项目自建 UI 不渲染 → None(去掉 qfluentwidgets 依赖)
+        self.group_icon = None
         self.first_run_alert = None
         self.show_create_shortcut = False
         self.sleep_check_interval = -1

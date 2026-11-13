@@ -1,7 +1,5 @@
 import threading
 
-from qfluentwidgets import FluentIcon
-
 from ww_engine.util.config import ConfigOption, Config
 
 _basic_options_default = {
@@ -43,7 +41,7 @@ def create_basic_options(enable_blur=False):
         config_type.update(_blur_options_type)
         description.update(_blur_options_description)
     return ConfigOption('Basic Options', default, config_type=config_type,
-                        config_description=description, icon=FluentIcon.GAME)
+                        config_description=description)
 
 
 basic_options = create_basic_options()

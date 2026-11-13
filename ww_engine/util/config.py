@@ -1,6 +1,4 @@
 ## Config.py
-from qfluentwidgets import FluentIcon
-
 from ww_engine.gui.Communicate import communicate
 from ww_engine.util.file import get_relative_path, read_json_file, write_json_file
 from ww_engine.util.logger import Logger
@@ -11,7 +9,11 @@ logger = Logger.get_logger("Config")
 class ConfigOption:
 
     def __init__(self, name, default=None, description="", config_description=None, config_type=None,
-                 validator=None, icon=FluentIcon.INFO, show_at_tab=False):
+                 validator=None, icon=None, show_at_tab=False):
+        """`icon` 只给 ok-script 的原生 GUI 用；本项目自建 UI 不读它，默认 None。
+
+        以前这里默认 `FluentIcon.INFO`，导致 `import ww_engine` 被迫拉起 qfluentwidgets（≈0.6 s）。
+        """
         self.name = name
         self.description = description
         self.default_config = default or {}

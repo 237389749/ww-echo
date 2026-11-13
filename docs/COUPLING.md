@@ -1,11 +1,12 @@
-# 底层耦合体检（2026-11-13；P0 + P1 已落地）
+# 底层耦合体检（2026-11-13；P0 + P1 + P2 已落地）
 
 > 目的：回答“引擎自持之后，`ww_engine` / `src` / `ui` / `config` 的依赖方向还乱不乱”。
 > 方法：`tools/analysis/import_coupling.py` 静态扫全部 `.py`（stdlib，不 import 项目），
 > 按层统计唯一 import 对、跨层违规、UI 对 engine 内部模块的 import、Qt 直接依赖、模块级循环；
 > 另用 `--timing` 实测 import 耗时。
 >
-> **状态**：2026-11-13 完成体检，并已落地 P0（§0.1）与 P1（§0.2）；**只剩 P2**（§6）。
+> **状态**：2026-11-13 完成体检，并已落地 P0（§0.1）、P1（§0.2）、P2（§0.3）；
+> 只剩“可选的第三阶段”（`ww_engine/gui` 拆壳）与 BOM 清理（§6）。
 > 复现：`python tools/analysis/import_coupling.py --out logs/analysis/coupling.md --timing`
 
 ## 0. 一句话结论
@@ -16,8 +17,11 @@ domain→engine、**domain→task_adapter**、UI→entry、entry→task、UI→e
 
 P1 之后 `src.echo_inventory`（以及 CLI `tools.echo_plan`）不再经过 task adapter →
 **不 import PySide6 / qfluentwidgets / ww_engine**，import 从 ≈0.85 s 降到 **0.18 / 0.21 s**。
-剩下的是两个“成本类”问题（P2）：`ww_engine` 根包 ≈0.8~0.9 s（`__init__` 顶部拉起 app/DeviceManager/TaskExecutor），
-以及 engine 非 GUI 核心里仍有的 Qt 依赖。
+
+P2 之后 `import ww_engine` 从 **0.90 s → 0.209 s**（目标 <0.5 s）：根包只 eagerly 导入
+「stdlib + QtCore（`communicate`）+ psutil」，`EngineApp`/`DeviceManager`/`TaskExecutor`/`TaskManager`/
+`BaseTask`/`FeatureSet` 等走 PEP 562 `__getattr__` 按需导入；engine 非 GUI 核心里的 `FluentIcon` 已去掉
+（qfluentwidgets 从根包导入链上彻底消失）。
 全局单例（`og`、`communicate`、`OK.exit_event`）是**运行时服务定位**，不是 import 环；domain 自己不碰 `og`，
 不建议为了“消灭 og”重写。
 
@@ -49,7 +53,21 @@ P1 之后 `src.echo_inventory`（以及 CLI `tools.echo_plan`）不再经过 tas
 `import src.echo_inventory` 与 `import tools.echo_plan` 都成功，且 `sys.modules` 里这些前缀**一个都没有**
 （`echo_score`/`dedup_key` 也照常算分）—— P1 的验收条款“CLI 不再需要 Qt”成立。
 
-## 1. 分层与矩阵（P1 后）
+## 0.3 P2 已落地（2026-11-13）：根包惰性导入 + engine 核心去 `FluentIcon`
+
+| # | 改动 | 结果 |
+|---|---|---|
+| 1 | `ww_engine/__init__.py` 只 eagerly 导入轻依赖（`Config`/`ConfigOption`/`GlobalConfig`/`basic_options`/`Handler`/`Logger`/`process`/`file`/`communicate`/异常）；`EngineApp`/`DeviceManager`/`TaskExecutor`/`TaskManager`/`BaseTask`/`TriggerTask`/`FindFeature`/`OCR`/`Box`/`get_bounding_box`/`Feature`/`FeatureSet` 登记进 `_LAZY_IMPORTS`，由 **PEP 562 `__getattr__`** 按需导入并缓存（含 `__dir__`，子包如 `rotypes` 有兜底） | `import ww_engine` **0.90 s → 0.209 s**；裸 import 后 `sys.modules` 里没有 cv2/PIL/qfluentwidgets/rotypes/pynput |
+| 2 | `OK` 内部（`app` property / `do_init` / `init_device_manager`）改成**函数内 import**：重模块只在真跑引擎时才拉起 | `from ww_engine import OK, og` 不再暗示 QtWidgets；`from ww_engine import EngineApp` 用法不变 |
+| 3 | engine 核心去 `FluentIcon`：`util.config.ConfigOption(icon=None)`、`util.GlobalConfig` 不再传 icon、`task.task` 的 `group_icon=None` | **qfluentwidgets 从根包导入链上消失**（它单独值 ≈0.6 s）；`ConfigOption.icon` 全仓无消费者 |
+| 4 | `task.TaskExecutor` 的 `QCoreApplication.translate('app','Error')` → `'Error'`；`task.task` 的 NPU 驱动报错同样改字面量（引擎 i18n 已在补记 22 删除，`translate` 本就原样返回）；`gui.util.Alert` 的 `QMessageBox` 改成函数内导入 | engine 里只剩 `app`（壳）+ `gui/*` 直接 import Qt（§4） |
+| 5 | 新增守卫 `tests/test_engine_lazy.py`：① 子进程实测「裸 import 不拉重依赖」② `__all__` 全解析且惰性名字与直接子模块导入**同一对象** | 谁再把重 import 加回 `__init__` 顶部，单测立刻红（测试基线 182 → **184**） |
+
+**代价/取舍**：`import ww_engine` 的 0.209 s 里 ≈131 ms 是 `PySide6.QtCore`（`communicate` 是 `Signal` 中心，
+所有 UI/引擎消费方都要它）—— 再往下压就要把 `communicate` 也做成惰性代理，收益只对手写脚本有意义，
+本轮刻意不做（见 §6“不建议做”）。
+
+## 1. 分层与矩阵（P2 后）
 
 | 层 | 范围 | 允许依赖 |
 |---|---|---|
@@ -85,74 +103,75 @@ P1 之后 `src.echo_inventory`（以及 CLI `tools.echo_plan`）不再经过 tas
 
 **没有涉及 `src`/`ui` 的模块级循环**：长度 >1 的 SCC 只有 2 个，全部在 `ww_engine` 内部
 （`ww_engine` 根 ↔ app/DeviceManager/TaskExecutor 的 hub，以及 `rotypes` 上游自带），**涉及 `src`/`ui` 的循环 = 0**。
+> 注：P2 的惰性导入是**运行时**行为；静态 AST 里 `__init__` 仍有指向这些模块的边（函数内 import 也算），
+> 所以 SCC 图不变 —— 这是刻意的：静态图用来判断“谁依赖谁”，运行时成本用 §5 的数字衡量。
 
 ## 3. UI 对 engine 内部模块的 import
 
 **P0 后为 0**：`debug_tab` / `main_window` / `settings_tab` 已统一从 `ww_engine` 根拿
 `og`、`communicate`、`basic_options`；`Alert` 不再被 UI import（调试页改用公共 notification 信号）。
 
-## 4. Qt / qfluentwidgets 渗透（P1 后）
+## 4. Qt / qfluentwidgets 渗透（P2 后）
 
 | 层 | 直接 import Qt/qfluentwidgets 的模块 |
 |---|---|
-| engine (10) | `app`、`gui.Communicate`、`gui.StartController`、`gui.debug.OverlayWidget`、`gui.overlay.OverlayWindow`、`gui.util.Alert`、`task.TaskExecutor`、`task.task`、`util.GlobalConfig`、`util.config` |
+| engine (6) | `app`、`gui.Communicate`、`gui.StartController`、`gui.debug.OverlayWidget`、`gui.overlay.OverlayWindow`、`gui.util.Alert` |
 | ui (9) | 全部页面/窗口（正常） |
 | entry (1) | `mainui`（正常） |
 | tools (1) | `tools.ui_shot`（离屏渲染，正常） |
 
-**task_adapter 已不在表里**（P1：`EnhanceEchoTask` 的 `FluentIcon.ADD` → `None`）。
+**task_adapter 与 engine 的非 GUI 核心都已出表**（P1/P2）：
+- `util.config` / `util.GlobalConfig` / `task.task` 不再 import `qfluentwidgets`（只把它当默认图标来源，已改 `None`）；
+- `task.TaskExecutor` 不再 import `PySide6.QtCore`（`translate` → 字面量）；
+- `task.task` 也不再 import `PySide6.QtCore`（同上，NPU 报错文案）；
+- engine 里唯一还直接 import Qt 的非 `gui` 模块是 **`app`（应用外壳：QApplication/QIcon）** —— 这正是 §6 里
+  “第三阶段可把 `ww_engine/gui` + `app` 拆成独立壳包”的动机。
 
-**关键点**：engine 的**非 GUI 核心**里仍有 5 个 Qt 依赖：
-- `util.config` / `util.GlobalConfig` / `task.task`：`FluentIcon` 默认值/任务图标（纯展示，可改 `None`）；
-- `task.TaskExecutor`：只用 `QCoreApplication.translate` 做错误文案（可懒 import）；
-- `app`：应用外壳（QApplication），属于“要跑 GUI 才会用”的部分。
+## 5. import 耗时（P0 前 → P0 后 → P1 后 → P2 后，本机中位）
 
-只要 `ww_engine/__init__.py` 还在模块顶部 import `app`/`DeviceManager`/`TaskExecutor`/`TaskManager`，
-**任何 `ww_engine.*` 子模块 import 都会触发整个根包初始化** —— 这是 P2 的懒加载要解决的（domain 已不碰 engine，
-所以现在这项成本只落在 task/UI 侧）。
+| 模块 | P0 前 | P0 后 | P1 后 | P2 后 | 说明 |
+|---|---:|---:|---:|---:|---|
+| `src.echo_stats` | 0.045 | 0.043 | 0.033 | 0.033 | 纯 domain |
+| `src.echo_panel` | 0.047 | 0.047 | 0.040 | 0.032 | 纯 domain |
+| `src.char_profiles` | 0.047 | 0.047 | 0.040 | 0.036 | 纯 domain |
+| `ww_engine` | 0.97 | 0.90~0.99 | 0.76~0.90 | **0.209** | P2：根包惰性导入（其中 ≈131 ms 是 QtCore） |
+| `src.echo_set_templates` | **0.95** | **0.05** | 0.038 | 0.031 | P0 去掉 `Logger` |
+| `src.echo_icon_match` | **1.07** | **0.20** | 0.174 | 0.162 | P0 去掉 `Logger`；剩 cv2/numpy |
+| `src.echo_combos` | **1.05** | **0.073** | 0.062 | 0.056 | 受益于 `echo_set_templates` |
+| `src.echo_inventory` | 0.94 | **0.85** | **0.177** | 0.173 | P1：不再经 `EnhanceEchoTask` |
+| `tools.echo_plan` | 0.99 | **0.85** | **0.208** | 0.177 | P1：**不再 import Qt**（只剩 cv2 + numpy） |
 
-## 5. import 耗时（P0 前 → P0 后 → P1 后，本机中位）
-
-| 模块 | P0 前 | P0 后 | P1 后 | 说明 |
-|---|---:|---:|---:|---|
-| `src.echo_stats` | 0.045 | 0.043 | 0.033 | 纯 domain |
-| `src.echo_panel` | 0.047 | 0.047 | 0.040 | 纯 domain |
-| `src.char_profiles` | 0.047 | 0.047 | 0.040 | 纯 domain |
-| `ww_engine` | 0.97 | 0.90~0.99 | 0.76~0.90 | 根包拉起 Qt/cv2/rotypes（P2 才动） |
-| `src.echo_set_templates` | **0.95** | **0.05** | 0.038 | P0 去掉 `Logger` |
-| `src.echo_icon_match` | **1.07** | **0.20** | 0.174 | P0 去掉 `Logger`；剩 cv2/numpy |
-| `src.echo_combos` | **1.05** | **0.073** | 0.062 | 受益于 `echo_set_templates` |
-| `src.echo_inventory` | 0.94 | **0.85** | **0.177** | P1：不再经 `EnhanceEchoTask` |
-| `tools.echo_plan` | 0.99 | **0.85** | **0.208** | P1：**不再 import Qt**（只剩 cv2 + numpy） |
-
-**P1 后口径**：单进程 import 5 次取中位（2026-11-13 22:38，Python 3.13.16 venv）；
-`echo_plan` 的 0.208 s 基本就是 `cv2` 的成本（`echo_icon_match` 0.174 s）。
-这组数字说明：**P0 把“纯 domain/离线组合”从 1 秒级拉回几十毫秒，P1 把“库存/组合穷举 CLI”也拉回 0.2 s 内**。
+**P2 后口径**：`ww_engine` = 单进程 import 5 次中位（2026-11-13 23:0x，Python 3.13.16 venv；
+`runs=[0.214, 0.212, 0.205, 0.209, 0.203]`）；其余为 `import_coupling.py --timing` 的单次值。
+`import ww_engine` 的 207 ms 里：`PySide6.QtCore` ≈131（communicate）、`util.process`(psutil) ≈28、
+`util.logger` ≈24，剩下是 stdlib。**qfluentwidgets / cv2 / numpy / PIL / rotypes 都不在裸 import 的成本里了。**
+这组数字说明：**P0 把 domain 拉回几十毫秒，P1 把库存/组合穷举 CLI 拉回 0.2 s 内，P2 把引擎根包从 0.9 s 拉到 0.21 s**。
 
 ## 6. 剩余可改进项
 
-### P2（第二阶段，较大）
-1. **`ww_engine/__init__.py` 懒加载**：`OK/EngineApp/DeviceManager/TaskExecutor/TaskManager/BaseTask/...`
-   改成 `__getattr__` 按需导入；`og`/`Logger`/`Config` 保持轻量。目标 `import ww_engine` <0.5 s。
-2. **去掉 engine 核心的 `FluentIcon`**：`util.config`/`util.GlobalConfig`/`task.task` 的默认 `icon=None`；
-   `TaskExecutor` 的 `QCoreApplication.translate` 改懒 import 或普通字符串。
-3. **`ww_engine/gui` 的定位**：`Communicate`/`Alert`/`StartController`/overlay 是“应用外壳”而不是
-   “Windows 自动化内核”；第二阶段可以拆成独立包（如 `ww_app_shell`），engine 只留 capture/interaction/task。
+### 第三阶段（可选，较大）
+1. **把应用外壳拆出 engine**：`ww_engine/gui`（`Communicate`/`Alert`/`StartController`/overlay）+ `app.py`
+   本质是“应用外壳”，不是“Windows 自动化内核”；可拆成独立包（如 `ww_app_shell`），engine 只留
+   capture/interaction/task/feature —— 这样 `engine` 层对 Qt 的依赖会掉到 0（除了 shell 包）。
+
+### 小项
+2. **3 个文件的 UTF-8 BOM**：`src/echo_panel.py`、`tests/test_echo_combos.py`、`tests/test_echo_panel.py`
+   （能跑，`ast.parse` 会报 `U+FEFF`；纯格式）。
 
 ### 已完成（存档）
 - **P0**（2026-11-13）：domain 去 `Logger` / 删死文件 / `MODE_*` 下移 / UI 走根 API → §0.1。
-- **P1**（2026-11-13）：抽 `src/echo_parse|echo_scoring`、`EnhanceEchoTask` 留薄封装、task adapter 少碰 engine 内部
-  → §0.2。
+- **P1**（2026-11-13）：抽 `src/echo_parse|echo_scoring`、`EnhanceEchoTask` 留薄封装、task adapter 少碰 engine 内部 → §0.2。
+- **P2**（2026-11-13）：根包 `__getattr__` 惰性导入 + 去核心 `FluentIcon` + 守卫 `tests/test_engine_lazy.py` → §0.3。
 
 ### 不建议做
 - 不要为了“消灭 `og`”重写任务/UI：`og` 是服务定位，不是 import 环；domain 已经不碰它。
+- **不要为了把 0.209 s 压到 0.03 s 去惰性化 `communicate`**：它是 `Signal` 中心，每个 UI/引擎消费方都要 QtCore；
+  只有“连 Qt 都不装的纯脚本”受益，而那种脚本（如 `tools/echo_plan.py`）现在根本不 import `ww_engine`。
 - 不要重写 `ww_engine` 的截图/键鼠/overlay：引擎边界已经干净，真正的风险在 OCR/真机，不在语言/分层。
 - 不要用 Rust 解决这些耦合：它们都是 Python 包 `__init__` 的导入副作用和少量函数放错层。
 
 ## 7. 附：其它发现
 
-- **3 个文件带 UTF-8 BOM**：`src/echo_panel.py`、`tests/test_echo_combos.py`、`tests/test_echo_panel.py`。
-  Python 能跑，但 `ast.parse`/部分工具会报 `U+FEFF`；建议统一去掉（纯格式，不影响逻辑）。
 - `ui` 层还有 11 条内部依赖（页面之间/widgets），属正常；`tools/tests` 跨层是正常。
 - 没有发现 `src` 或 `ui` 被 engine 反向 import；`ww_engine` 的 19 模块 SCC 是根包 hub，不是业务环。
 
@@ -162,6 +181,7 @@ P1 之后 `src.echo_inventory`（以及 CLI `tools.echo_plan`）不再经过 tas
 python tools/analysis/import_coupling.py --check
 python tools/analysis/import_coupling.py --timing --out logs/analysis/coupling.md
 python tools/analysis/p1_equiv_check.py      # 纯函数抽取前后逐例对比（默认对比 3e698cf）
-python -m unittest discover -s tests         # 182 项
+python -m unittest discover -s tests         # 184 项（含 test_engine_lazy 的惰性导入守卫）
+python -X importtime -c "import ww_engine"   # 根包导入成本（目标 <0.5 s；裸 import 不应出现 qfluentwidgets/cv2）
 python tools/echo_plan.py --list             # 纯 CLI 冒烟（P1 后不再需要 Qt）
 ```

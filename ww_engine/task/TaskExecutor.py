@@ -2,8 +2,6 @@ import sys
 import threading
 import time
 
-from PySide6.QtCore import QCoreApplication
-
 from ww_engine.gui.Communicate import communicate
 from ww_engine.gui.util.Alert import alert_info
 from ww_engine.task.exceptions import FinishedException, TaskDisabledException, WaitFailedException, CaptureException, \
@@ -498,7 +496,8 @@ class TaskExecutor:
                 else:
                     error = str(e)
                 communicate.notification.emit(error, name, True, True, None, params)
-                task.info_set(QCoreApplication.translate('app', 'Error'), error)
+                # 原先 QCoreApplication.translate('app','Error')；引擎 i18n 已移除 → 字面量等价
+                task.info_set('Error', error)
                 logger.error(f"{name} exception stopped", e)
                 if self._frame is not None:
                     communicate.screenshot.emit(self.frame, name, True, None)
