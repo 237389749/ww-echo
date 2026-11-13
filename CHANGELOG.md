@@ -1783,3 +1783,44 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 - 3 个 BOM 文件仍未清（纯格式）。
 - 文档同步：`docs/COUPLING.md`（P0+P1 矩阵/耗时/Qt 表）、`CLAUDE.md` 分层节、`handoff.md` 一.9、
   `docs/SESSION_2026-11-13.md`、`docs/BASELINE.md` 与 `tools/analysis/README.md` 的脚本索引。
+
+---
+
+**补记 28（2026-11-13：耦合 P2 落地 —— 根包惰性导入，`import ww_engine` 0.90 → 0.209 s）**
+
+**动机**：补记 25~27 的最后一个“成本类”项 —— 任何 `from ww_engine import og`（UI 启动 / 测试 / 工具）都要付一次
+根包顶部那次 `qfluentwidgets`（单独 ≈0.6 s）+ QtWidgets / cv2 / PIL 的钱，哪怕调用方只要一个 logger 或配置常量。
+
+**改动（`343d80b`）**
+- `ww_engine/__init__.py`：只 eager 导入「stdlib + QtCore(`communicate`) + psutil」这一档
+  （`Config`/`ConfigOption`/`GlobalConfig`/`basic_options`/`Handler`/`ExitEvent`/`Logger`/`config_logger`/
+  `check_mutex`/`parse_arguments_to_map`/`get_path_relative_to_exe`/`clear_folder`/`communicate`/异常 +
+  `og`/`OK`/`ScreenshotFolder`）；`EngineApp`/`DeviceManager`/`TaskExecutor`/`TaskManager`/`BaseTask`/`TriggerTask`/
+  `FindFeature`/`OCR`/`Box`/`get_bounding_box`/`Feature`/`FeatureSet` 登记进 `_LAZY_IMPORTS`，由 **PEP 562
+  `__getattr__`** 按需导入并在首次解析后缓存；补了 `__dir__`，并对子包（`from ww_engine import rotypes`）兜底。
+- `OK`（`app` property / `do_init` / `init_device_manager`）改成**函数内 import** —— 重模块只在真跑引擎时才拉起。
+- engine 核心去 `FluentIcon`：`util.config.ConfigOption(icon=None)`、`util.GlobalConfig` 不再传 icon、
+  `task.task` 的 `group_icon=None`（本项目自建 UI 不渲染任务图标，全仓无消费者）。
+- `task.TaskExecutor` 的 `QCoreApplication.translate('app','Error')` → `'Error'`；`task.task` 的 NPU 报错同理
+  （补记 22 已删 i18n，无 translator 时 `translate` 本就原样返回）；`gui.util.Alert` 的 `QMessageBox` 改成函数内导入。
+- 新增守卫 `tests/test_engine_lazy.py`（2 项）：子进程实测「裸 import 不拉 cv2/PIL/qfluentwidgets/rotypes/pynput」
+  + `__all__` 每个名字可解析且惰性名字与直接子模块导入**同一对象**（防 `_LAZY_IMPORTS` 映射写错）。
+
+**验证**
+- `import ww_engine` **0.90 → 0.209 s**（单进程 5 次中位，`runs=[0.214,0.212,0.205,0.209,0.203]`）；
+  `-X importtime` 里 `PySide6.QtCore` ≈131 ms、`util.process`(psutil) ≈28 ms、`util.logger` ≈24 ms，
+  **qfluentwidgets / cv2 / numpy / PIL / rotypes 全部不在裸 import 的成本里**。
+- `unittest discover` → **184 项 / OK (skipped=2)**；`compileall` 退出码 0；`pyflakes` 与 HEAD 同条数（无新增告警）。
+- 离屏 `OK(config)` 冒烟：惰性链全走通（DeviceManager→FeatureSet→TaskExecutor→TaskManager→EngineApp），
+  任务可实例化、评分/去重正常；`tools/ui_shot.py` 7 页（设备设置/套装配置目检无变化）；`echo_plan --list-profiles` 0。
+- `import_coupling.py --check` → 0 违规；engine 里直接 import Qt 的模块 **10 → 6**（`app` + `gui.*`），
+  非 GUI 核心只剩 `app` 这个应用外壳。
+
+**取舍（写进 `docs/COUPLING.md` §6“不建议做”）**
+- `communicate` 刻意保持 eager：它是 `Signal` 中心，UI/引擎消费方都要 QtCore；惰性化只对手写脚本有意义，
+  而那些脚本（如 `tools/echo_plan.py`）现在根本不 import `ww_engine`。
+- 更激进的第三阶段（把 `ww_engine/gui` + `app.py` 拆成 `ww_app_shell` 包）只改变分层纯度，不影响运行，留待有需求时做。
+
+**文档同步**：`docs/COUPLING.md`（新增 §0.3 P2 表、§4 Qt 表 10→6、§5 加 P2 列、§6 只剩可选拆壳）、
+`CLAUDE.md` 分层节、`handoff.md` 一.9 与基线行、`docs/SESSION_2026-11-13.md`、
+`docs/BASELINE.md`（B1 182 → **184**，素材齐全 186 → 188）。

@@ -20,9 +20,10 @@
 | **三十一** | `09bf8b3`（`engine/vendor`） | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 10.2k 物理行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁。**未合并 main**，等 P4 真机验收 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **182 项**（无素材；素材齐全 186 项 / skipped=1。需 Python 3.11+；
+- `python -m unittest discover -s tests` → **184 项**（无素材；素材齐全 188 项 / skipped=1。需 Python 3.11+；
   3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
-- `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）
+- `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）；**P2 后 `import ww_engine` ≈0.21 s**
+  （根包惰性导入，裸 import 不拉 cv2/qfluentwidgets/PIL/rotypes/pynput —— 守卫在 `tests/test_engine_lazy.py`）
 - `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`
   （六档文案：达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17）、
   **主属性数值可疑 0 条**、套装来源 `{icon:108, name:1}`
@@ -120,7 +121,7 @@
 **待拍板**：① P1 把「建议强化」与「建议重铸」的概率门拆开（或改期望调谐器对比），需真实 B2 量化影响；
 ② P2 主属性进评分（先做展示）。
 
-## 一.9、底层耦合体检（2026-11-13；P0 + P1 已落地）
+## 一.9、底层耦合体检（2026-11-13；P0 + P1 + P2 已落地）
 
 静态扫全仓 import（`tools/analysis/import_coupling.py`），结论见 `docs/COUPLING.md`：
 
@@ -134,13 +135,19 @@
   等价性 `tools/analysis/p1_equiv_check.py` 152 例 0 差异）；`src.echo_inventory` 改走 domain 并删掉
   “借 task 实例算分”的桩；task adapter 改 engine 根 API（`get_bounding_box`/`clear_folder`）并把任务图标置 `None`
   → **不再 import Qt**。
+- **P2 已落地（`343d80b`）**：`ww_engine/__init__` 改 **PEP 562 惰性导入**（`_LAZY_IMPORTS` 覆盖
+  `EngineApp`/`DeviceManager`/`TaskExecutor`/`TaskManager`/`BaseTask`/`TriggerTask`/`FindFeature`/`OCR`/
+  `Box`/`get_bounding_box`/`Feature`/`FeatureSet`；`OK` 内部改函数内 import）；engine 核心去 `FluentIcon`
+  （`ConfigOption(icon=None)` / `task.group_icon=None` / `translate` → 字面量）→ `qfluentwidgets` 退出 engine 导入链；
+  守卫 `tests/test_engine_lazy.py`（子进程实测裸 import 不拉重依赖 + `__all__` 惰性来源同一对象）。
 - **结果**：P0 后 domain→engine / UI→entry / entry→task / UI→engine 内部归零；**P1 后 domain→task_adapter 也归零**，
-  `import_coupling.py` 违规表为空。
-- **import 成本（P0 前→P0 后→P1 后）**：`echo_set_templates` 0.95→0.05→**0.038 s**、`echo_icon_match` 1.07→0.20→**0.174 s**、
-  `echo_combos` 1.05→0.073→**0.062 s**、`echo_inventory` 0.94→0.85→**0.177 s**、`echo_plan` 0.99→0.85→**0.208 s**
-  （且 `import tools.echo_plan` 不再拉起 PySide6/qfluentwidgets/ww_engine）；`ww_engine` ≈0.8~0.9 s（只剩 P2）。
-- **下一步**：只剩 P2 —— `ww_engine.__init__` 懒加载 + 去核心 `FluentIcon`（目标 `import ww_engine` <0.5 s）。
-  **不要**为了 `og`/Rust 重写 engine/UI（`og` 是服务定位，不是 import 环）。
+  `import_coupling.py` 违规表为空；**P2 后 engine 里直接 import Qt 的只剩 6 个**（`app` + `gui.*`）。
+- **import 成本（P0 前→P0 后→P1 后→P2 后）**：`echo_set_templates` 0.95→0.05→0.038→**0.031 s**、
+  `echo_icon_match` 1.07→0.20→0.174→**0.162 s**、`echo_combos` 1.05→0.073→0.062→**0.056 s**、
+  `echo_inventory` 0.94→0.85→0.177→**0.173 s**、`echo_plan` 0.99→0.85→0.208→**0.177 s**、
+  **`ww_engine` 0.97→0.90→0.76~0.90→0.209 s**（≈131 ms 是 QtCore，`communicate` 保持 eager）。
+- **下一步**：耦合只剩**可选第三阶段**（把 `ww_engine/gui` + `app.py` 拆成独立应用壳，让 engine 对 Qt 0 依赖）与 BOM 清理。
+  **不要**为了 `og`、把 0.209 压到 0.03（惰性化 `communicate`）或 Rust 去重写 engine/UI。
 
 ## 二、阶段二十九做了什么（组合穷举）
 

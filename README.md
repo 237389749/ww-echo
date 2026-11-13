@@ -210,6 +210,7 @@ ww-echo/
 ├── config.py                       # ww_engine 配置
 ├── ww_engine/                      # 自持引擎: 截图/窗口/键鼠/OCR/模板匹配/任务运行时
 │                                   # (源自 ok-script 1.0.160, MIT; 已删除 GUI/ADB/模拟器/更新等)
+│                                   # 根包惰性导入: import 约 0.2 s, 重模块(QtWidgets/cv2)按需加载
 ├── ui/                             # 自定义 PySide6 UI(FluentWindow 左导航 7 页)
 │   ├── main_window.py              # 外壳: 导航 / 尺寸与页面记忆 / 主题 / 快捷键
 │   ├── run_tab.py / plan_tab.py / set_config_tab.py / settings_tab.py

@@ -49,7 +49,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 > **交接文档**：阶段二十四~二十九 的完成情况、数据面认知、下一棒(真机走查 / 与 calculator 对账)见仓库根 `handoff.md`。
 
-## 分层与耦合(2026-11-13 体检 + P0 + P1)
+## 分层与耦合(2026-11-13 体检 + P0 + P1 + P2)
 
 - **边界**: `engine`(ww_engine, 对项目代码 **0 出边**) → `domain`(src 非 task) → `task_adapter`(src.task) → `ui` → `entry`(config/mainui);
   `tools/tests` 允许跨层。完整矩阵/违规/import 耗时见 `docs/COUPLING.md`, 复现
@@ -64,12 +64,18 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   (等价性: `python tools/analysis/p1_equiv_check.py` 对比 P1 前提交 `3e698cf`, 152 例 0 差异)。
   `echo_inventory` 改走 domain → **domain→task_adapter = 0**; task adapter 改 engine 根 API
   (`get_bounding_box`/`clear_folder`) 且任务 `icon/group_icon=None` → **不再 import Qt**。
+- **P2 已落地**: `ww_engine/__init__.py` 只 eagerly 导入轻依赖(`og`/`Logger`/`Config`/`Handler`/`communicate`…),
+  `EngineApp`/`DeviceManager`/`TaskExecutor`/`TaskManager`/`BaseTask`/`FeatureSet`/`Box`… 走
+  **PEP 562 `__getattr__`**(表 `ww_engine._LAZY_IMPORTS`)按需导入; engine 核心去 `FluentIcon`
+  (`ConfigOption(icon=None)`/`task.group_icon=None`/`translate` 改字面量) → qfluentwidgets 不再进导入链。
+  **`import ww_engine` 0.90 → 0.209 s**(其中 ≈131 ms 是 QtCore, `communicate` 保持 eager)。
+  守卫 `tests/test_engine_lazy.py`: 裸 import 不许拉起 cv2/PIL/qfluentwidgets/rotypes/pynput。
 - **违规表为空**: engine→项目 0、domain→engine/task 0、UI→entry 0、entry→task 0、UI→engine 内部 0。
-- **成本(P1 后, 单进程 5 次中位)**: 纯 domain 0.03~0.07 s; `echo_icon_match` 0.174 s(只剩 cv2/numpy);
-  `echo_inventory` **0.177 s**、`echo_plan` **0.208 s**(且不再拉起 PySide6/qfluentwidgets/ww_engine);
-  `ww_engine` ≈0.8~0.9 s(根包, 只剩 P2)。
-- **下一步**: 只剩 P2 —— `ww_engine.__init__` 懒加载(目标 `import ww_engine` <0.5 s) + 去核心 `FluentIcon`。
-  **不要**为了 `og` 或 Rust 去重写 engine/UI。
+- **成本(P2 后, 单进程 5 次中位)**: 纯 domain 0.03~0.07 s; `echo_icon_match` 0.162 s(只剩 cv2/numpy);
+  `echo_inventory` **0.173 s**、`echo_plan` **0.177 s**(且不再拉起 PySide6/qfluentwidgets/ww_engine);
+  `ww_engine` **0.209 s**。
+- **下一步**: 只剩可选第三阶段(把 `ww_engine/gui`+`app.py` 拆成独立应用壳, 让 engine 对 Qt 0 依赖)与 BOM 清理。
+  **不要**为了 `og`/把 0.209 压到 0.03 去惰性化 `communicate`/Rust 去重写 engine/UI。
 
 ## 界面(Fluent, 阶段二十六)
 
@@ -405,7 +411,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
 **阶段三十一(引擎自持)**: 在分支 **`engine/vendor`**（未合并 `main`，等 P4 真机验收），
 审核补记（OCR 主链路回归 + 台账修正）见 handoff.md / CHANGELOG 补记 22。
-改动后跑: `python -m unittest discover -s tests`(**182 项**; 需 Python 3.11+; 3.13/3.14 已实测)
+改动后跑: `python -m unittest discover -s tests`(**184 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。
