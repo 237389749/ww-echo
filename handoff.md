@@ -119,6 +119,23 @@
 **待拍板**：① P1 把「建议强化」与「建议重铸」的概率门拆开（或改期望调谐器对比），需真实 B2 量化影响；
 ② P2 主属性进评分（先做展示）。
 
+## 一.9、底层耦合体检（2026-11-13）
+
+静态扫全仓 import（`tools/analysis/import_coupling.py`），结论见 `docs/COUPLING.md`：
+
+- **engine 边界干净**：`ww_engine` 对 `src/ui/config` **0 条出边**；模块级循环只有 2 个 SCC，全在 engine/rotypes 内部，
+  涉及 `src/ui` 的循环 **0**。
+- **domain 有 4 条反向依赖**：`echo_icon_match`/`echo_set_templates`/死文件 `globals` 借 `ww_engine.Logger`
+  （拉整包 Qt）；`echo_inventory` → `EnhanceEchoTask`（借 4 个纯函数）。`tools.echo_plan` 因此 import ≈1.0 s，
+  纯 domain 只要 0.05 s。
+- **UI 绕开根 API** 5 处（`gui.Communicate`/`gui.util.Alert`/`util.GlobalConfig`）；`ui.settings_tab→config`
+  只借两个模式常量；`config→process_feature` 是空函数。这些是 P0/P2，不是运行时 bug。
+- **Qt 渗透**：engine 非 GUI 核心仍有 `util.config`/`util.GlobalConfig`/`task.task`（FluentIcon）与
+  `task.TaskExecutor`（QtCore.translate）；`src.task.EnhanceEchoTask` 也 import `FluentIcon`。
+- **建议顺序**：P0 去 Logger/死文件/空函数/常量 → P1 抽 `parse_number`/`_normalize_stat`/`dedup_key`/
+  `compute_weighted_score` 到 `src/echo_parse|echo_scoring`，让 CLI 脱离 Qt → P2 `ww_engine.__init__` 懒加载 +
+  去核心 FluentIcon。**不要**为了 `og`/Rust 重写 engine/UI（`og` 是服务定位，不是 import 环）。
+
 ## 二、阶段二十九做了什么（组合穷举）
 
 **分层**：`echo_panel.py`（面板聚合 + 伤害）→ `echo_combos.py`（穷举 + Top-K）→ `echo_inventory.py`（库存导入）

@@ -1671,3 +1671,39 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
   （权重表/重铸期望展示）、`handoff`、`docs/CALCULATOR_RECONCILIATION.md`、`ui/run_tab.py` 说明文字。
 - **未验证**：OCR 重读/页面锚点只在逻辑上成立，尚未真机（无素材/无窗口）；需 P4 首次评估时观察
   "检测到锚点/低置信重读"日志与耗时变化。
+
+---
+
+**补记 25（2026-11-13：底层耦合体检 —— 只审计，未改代码）**
+
+**输入/工具**：`tools/analysis/import_coupling.py`（stdlib，静态扫 129 个 `.py` / 293 条唯一 import 边），
+报告 `docs/COUPLING.md`。
+
+**结论**
+- **engine 边界干净**：`ww_engine` 对 `src/ui/config` **0 出边**；模块级 SCC 只有 2 个，全在 engine/rotypes 内部；
+  涉及 `src/ui` 的循环 **0**。vendored 的隔离目标成立。
+- **domain 有 4 条反向依赖**（P1）：
+  - `src.echo_icon_match` / `src.echo_set_templates` / 死文件 `src.globals` → `ww_engine`（只借 `Logger`，
+    却拉起 Qt/cv2/rotypes）；
+  - `src.echo_inventory` → `src.task.EnhanceEchoTask`（借 `parse_number` / `_normalize_stat` /
+    `compute_weighted_score` / `dedup_key` 四个纯函数），把 `tools.echo_plan` 也拖进 Qt。
+- **UI 绕开根 API** 5 处：`ww_engine.gui.Communicate`（3 处）、`gui.util.Alert`、`util.GlobalConfig`。
+- **小环/空转**：`ui.settings_tab → config` 只借 `MODE_LOCAL/MODE_CLOUD`；`config → process_feature` 是 8 行空函数。
+- **import 成本**：纯 domain（`echo_stats`/`echo_panel`/`char_profiles`）≈0.05 s；任何借 `ww_engine` 的
+  domain/CLI ≈0.9~1.1 s（`ww_engine` 自身 ≈0.97 s，`echo_set_templates` ≈0.95 s，`tools.echo_plan` ≈0.99 s）。
+- **Qt 渗透**：engine 10 个模块 import Qt；非 GUI 核心仍有 `util.config`/`util.GlobalConfig`/`task.task`
+  （FluentIcon）与 `task.TaskExecutor`（QtCore.translate）；`src.task.EnhanceEchoTask` 也 import `FluentIcon`。
+- **BOM**：`src/echo_panel.py`、`tests/test_echo_combos.py`、`tests/test_echo_panel.py` 带 UTF-8 BOM（能跑，
+  `ast.parse` 会报 U+FEFF；纯格式）。
+
+**建议（未实施）**
+- **P0**：domain 改用 stdlib `logging`（`mainui` 已接 `src` logger）；删 `src/globals.py` + `config['my_app']`；
+  删 `process_feature` 空实现与 `feature_processor`；`MODE_*` 移到中立模块；UI 改走 engine 根 API
+  （`communicate`/`basic_options`），`Alert` 由 UI 自己实现或提升公共 API。
+- **P1**：把 4 个纯函数抽到 `src/echo_parse.py` / `src/echo_scoring.py`，`EnhanceEchoTask` 保留薄封装；
+  `echo_inventory`/CLI 不再经 task adapter；目标 `tools.echo_plan --list` 不再需要 PySide6/qfluentwidgets。
+- **P2**：`ww_engine.__init__` 懒加载（目标 `import ww_engine` <0.5 s）+ 去核心 `FluentIcon`；
+  第二阶段可把 `ww_engine/gui`（Communicate/Alert/StartController/overlay）拆成独立应用壳。
+
+**未做**：没有改任何 import/代码；`unittest` 仍 182 项 / OK (skipped=2)，`import_coupling.py --check` 通过
+（engine 反向依赖 0）。下一步按 P0 → P1 做，P2 留第二阶段。

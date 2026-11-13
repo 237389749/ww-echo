@@ -67,6 +67,7 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `b2_replay_old_weights.py <提交>` | 文档里那版旧分布是哪套权重跑出来的 | stdout（覆盖 `eval_report.html`） | CHANGELOG 补记 21 证据① |
 | `b2_replay_old_core_first.py` | `_core_first` 修正对这份数据到底有没有影响 | stdout（同上） | CHANGELOG 补记 21 证据② |
 | `calculator_reconcile.py` | 与外部「声骸策略工坊」对账：档位/权重比例/A/B 完成度/锁成本/强化盈亏平衡 | stdout 或 `logs/analysis/*.md` | `docs/CALCULATOR_RECONCILIATION.md`、CHANGELOG 补记 23 |
+| `import_coupling.py` | 底层耦合体检：分层矩阵/跨层违规/Qt 依赖/import 循环/耗时 | stdout 或 `logs/analysis/*.md` | `docs/COUPLING.md`、CHANGELOG 补记 25 |
 
 历史脚本原本都在工作区根 `.scratch/`（**不在版本库**，见 §3），它们支撑了文档里的这些结论：
 
