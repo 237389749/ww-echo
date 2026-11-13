@@ -1824,3 +1824,52 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 **文档同步**：`docs/COUPLING.md`（新增 §0.3 P2 表、§4 Qt 表 10→6、§5 加 P2 列、§6 只剩可选拆壳）、
 `CLAUDE.md` 分层节、`handoff.md` 一.9 与基线行、`docs/SESSION_2026-11-13.md`、
 `docs/BASELINE.md`（B1 182 → **184**，素材齐全 186 → 188）。
+
+---
+
+**补记 29（2026-11-13：第三阶段 — 应用外壳拆成 `ww_app_shell`，engine 对 Qt 只剩 Signal 中枢）**
+
+**动机**：补记 25 预留的第三阶段 —— `ww_engine/gui`（StartController/overlay/Alert）+ `app.py` 本质是“应用外壳”，
+不是 Windows 自动化内核；而且 `og` 定义在根包，外壳要 `og` 就只能 import 根包 → “根包 ↔ 外壳”互相 import。
+
+**改动（`058bee9`）**
+- 新包 **`ww_app_shell/`**：`app.py`(EngineApp)、`start_controller.py`、`overlay_window.py`、`overlay_widget.py`、
+  `alert.py`(show_alert 的 QMessageBox)；`ww_engine/{app.py, gui/StartController.py, gui/overlay/, gui/debug/}`
+  用 `git mv` 迁出（历史保留）。
+- `ww_engine/gui/util/Alert.py` 只留 **Qt-free** 的 `alert_info`/`alert_error`（纯 `communicate.notification` 信号）；
+  `ww_engine/gui/tasks/TaskManger.py` → `ww_engine/task/TaskManager.py`（本来就不是 GUI，顺手修掉拼写）。
+- **`og`/`OkGlobals` 下移到 `ww_engine/locator.py`**（根包 re-export 同一对象）：外壳只依赖 `ww_engine.locator`
+  等具体子模块，不再 import 根包 → 消掉 `根包 ↔ 外壳` 环。
+  **踩坑**：一开始叫 `ww_engine/globals.py`，子模块会成为父包属性 → 根包里的内置 `globals()` 被遮蔽，
+  `__getattr__` 里 `globals()[name] = value` 直接 `TypeError: 'module' object is not callable`（单测立刻抓到）；
+  改名 `locator.py`，写回缓存也改成 `sys.modules[__name__].__dict__`。
+- 组合根保留外壳入口：`_LAZY_IMPORTS['EngineApp'] = ('ww_app_shell.app', ...)`、`OK.app` 函数内 import 外壳；
+  `from ww_engine import OK, og, EngineApp` 等用法完全不变。
+- `TaskExecutor` 的 `from ww_engine import og` → `from ww_engine.locator import og`：顺带消掉根包↔TaskExecutor 环。
+
+**体检工具 bugfix（同期发现，影响此前所有 SCC 数字）**
+- `import_coupling.resolve_relative`：`from . import X` 写在 `pkg/__init__.py` 里时 **level=1 指包自身**（不是父包）；
+  旧实现按父包解析，把 `ww_engine/rotypes/__init__.py` 的 `from . import roapi` 记成 **假边 `ww_engine.rotypes → ww_engine`**，
+  于是根包/rotypes/外壳被并进同一个 SCC。现在 `resolve_relative(..., is_package=...)`。
+- 矩阵补回 **`engine` 列**（否则看不到 shell→engine 的 18 条边）；§4 增加“engine 非 GUI 代码不再直接依赖 Qt”的判定输出。
+- 修完后：模块 133 / 边 307 / **SCC 只剩 1 个**（`rotypes` 4 模块，上游自带）/ 跨层违规 **0** /
+  engine→shell 仅组合根 **1** 条 / shell→engine **18** 条。
+
+**验证**
+- `unittest discover` → **186 项 / OK (skipped=2)**（+2：`test_only_composition_root_imports_app_shell` /
+  `test_shell_does_not_import_engine_root`，都用 AST 判定、注释不算）。
+- `import_coupling.py --check` → 0 违规；engine 里直接 import Qt 的模块 **6 → 1**（`gui/Communicate.py`，只 QtCore）。
+- 离屏 `OK(config)` + `MainWindow` 集成：`og.app` = `ww_app_shell.app.EngineApp`、`start_controller` 来自 shell、
+  `MainWindow` 可显示；任务实例冒烟（评分/去重）正常；`tools/ui_shot.py` 7 页正常（运行页目检无变化）。
+- 导入成本：**`ww_engine` 相对 `PySide6.QtCore` 的中位差 ≈0.076 s**（7 次交替测量）；裸 import 的
+  `sys.modules` 里没有 QtWidgets / `ww_app_shell`；`ww_app_shell` 自身 0.49~0.74 s（只在开窗口时付）。
+- ⚠ **机器 I/O 抖动**：同一天 QtCore 单次 import 在 **0.13~0.50 s** 之间波动（`import sys` 恒 0），
+  文档里的绝对值都标了区间，判据用“相对 QtCore 的增量”和“成分”两条（`docs/COUPLING.md` §5）。
+
+**取舍**：`communicate`（QtCore `Signal` 中心）**留在 engine** —— 它被 `device/*`、`feature/FeatureSet`、`task/*`、
+`util/config`、`util/logger` 共 7 个核心模块直接 emit，搬走会让 engine→shell 变成到处都有的边；
+它是“engine ↔ UI 的契约面”，单点 Qt 依赖是刻意的（COUPLING §0.4/§6）。
+
+**文档同步**：`docs/COUPLING.md`（§0.4 新增、§1 矩阵含 shell、§2 SCC 1 个、§4 Qt 6→1、§5 加 shell 与抖动说明、
+§6 只剩 BOM、§7 工具假边、§8 186 项）、`CLAUDE.md`（结构/分层/186）、`handoff.md` 一.9 与基线行、
+`docs/SESSION_2026-11-13.md`、`docs/BASELINE.md`（B1 184 → **186**，素材齐全 188 → 190）、`README.md` 结构树。

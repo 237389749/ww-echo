@@ -19,6 +19,10 @@
 mainui.py                 唯一入口(PySide6); 启动先按 QSettings run_mode 调 apply_run_mode 再 OK(config)
                           (阶段二十四删除了 main.py/main_debug.py/run.py — 见下"阶段二十四要点")
 config.py                 全套 ww_engine 配置 + MODE_LOCAL/MODE_CLOUD + apply_run_mode()
+ww_engine/                自动化内核(截图/窗口/键鼠/OCR/模板匹配/任务运行时) + QtCore 信号中枢(gui/Communicate)
+                          根包惰性导入: 裸 import 约 0.2 s, 重模块(QtWidgets/cv2)与外壳按需加载
+ww_app_shell/             应用外壳(第三阶段拆出): EngineApp / StartController / overlay / show_alert(QMessageBox)
+                          只依赖 engine 具体子模块(communicate/locator/util/device), 不 import engine 根包
 ui/                       Fluent 左导航 7 页(运行/组合穷举/设备设置/套装配置/调试工具/开发者 + 底部关于);
                           main_window=FluentWindow 外壳(尺寸记忆/主题/快捷键); 设备设置含运行模式开关(重启生效)
 ui/plan_tab.py            「组合穷举」页: 输入装配(缩放属性/模式/套装/4C 归属/裸面板+补正) + 后台线程穷举 + 排名表/CSV
@@ -49,10 +53,12 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 > **交接文档**：阶段二十四~二十九 的完成情况、数据面认知、下一棒(真机走查 / 与 calculator 对账)见仓库根 `handoff.md`。
 
-## 分层与耦合(2026-11-13 体检 + P0 + P1 + P2)
+## 分层与耦合(2026-11-13 体检 + P0 + P1 + P2 + 外壳拆分)
 
-- **边界**: `engine`(ww_engine, 对项目代码 **0 出边**) → `domain`(src 非 task) → `task_adapter`(src.task) → `ui` → `entry`(config/mainui);
-  `tools/tests` 允许跨层。完整矩阵/违规/import 耗时见 `docs/COUPLING.md`, 复现
+- **边界**: `engine`(ww_engine, 对项目代码 **0 出边**) → `shell`(ww_app_shell, 应用外壳) → `domain`(src 非 task) →
+  `task_adapter`(src.task) → `ui` → `entry`(config/mainui); `tools/tests` 允许跨层。
+  规则: engine 只能依赖第三方 + 自己, **只有组合根 `ww_engine/__init__.py` 可引用 shell**; shell 只能依赖 engine
+  **具体子模块**(不得 import engine 根包) + Qt。完整矩阵/违规/import 耗时见 `docs/COUPLING.md`, 复现
   `python tools/analysis/import_coupling.py --check`(带 `--timing` 看耗时)。
 - **P0 已落地**: domain 不再 import `ww_engine.Logger`(改 stdlib logging, 但 logger 名走 `ww_engine.*` 的
   `src/logging_utils.get_logger`, 复用 engine 文件/UI handler); 删 `src/globals.py`+`config['my_app']`;
@@ -68,14 +74,19 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   `EngineApp`/`DeviceManager`/`TaskExecutor`/`TaskManager`/`BaseTask`/`FeatureSet`/`Box`… 走
   **PEP 562 `__getattr__`**(表 `ww_engine._LAZY_IMPORTS`)按需导入; engine 核心去 `FluentIcon`
   (`ConfigOption(icon=None)`/`task.group_icon=None`/`translate` 改字面量) → qfluentwidgets 不再进导入链。
-  **`import ww_engine` 0.90 → 0.209 s**(其中 ≈131 ms 是 QtCore, `communicate` 保持 eager)。
-  守卫 `tests/test_engine_lazy.py`: 裸 import 不许拉起 cv2/PIL/qfluentwidgets/rotypes/pynput。
-- **违规表为空**: engine→项目 0、domain→engine/task 0、UI→entry 0、entry→task 0、UI→engine 内部 0。
-- **成本(P2 后, 单进程 5 次中位)**: 纯 domain 0.03~0.07 s; `echo_icon_match` 0.162 s(只剩 cv2/numpy);
-  `echo_inventory` **0.173 s**、`echo_plan` **0.177 s**(且不再拉起 PySide6/qfluentwidgets/ww_engine);
-  `ww_engine` **0.209 s**。
-- **下一步**: 只剩可选第三阶段(把 `ww_engine/gui`+`app.py` 拆成独立应用壳, 让 engine 对 Qt 0 依赖)与 BOM 清理。
-  **不要**为了 `og`/把 0.209 压到 0.03 去惰性化 `communicate`/Rust 去重写 engine/UI。
+  **`import ww_engine` 0.90 → 0.21 s**(≈131 ms 是 QtCore, `communicate` 保持 eager)。守卫 `tests/test_engine_lazy.py`。
+- **外壳已拆(第三阶段)**: `EngineApp`/`StartController`/overlay/`show_alert` → `ww_app_shell/`; `og`/`OkGlobals`
+  → `ww_engine/locator.py`(根包再导出, 外壳只引用它 → 无 根包↔外壳 环); engine 里直接 import Qt 的模块
+  **6 → 1**(只剩 `gui/Communicate.py` 的 `Signal` 中枢, 刻意留在 engine —— 7 个核心模块直接 emit 它)。
+  **别把新模块命名成 `ww_engine/globals.py`**: 子模块会成为父包属性, 把内置 `globals()` 遮蔽
+  (踩过: `TypeError: 'module' object is not callable`)。
+- **违规表为空**: engine→项目 0、domain→engine/task 0、UI→entry 0、entry→task 0、UI→engine 内部 0;
+  模块级 SCC **只剩 1 个**(`rotypes` 上游 4 模块, 非业务环)。
+- **成本(第三阶段后)**: 纯 domain 0.03~0.07 s; `echo_icon_match` ≈0.16 s(只剩 cv2/numpy);
+  `echo_inventory` ≈0.17 s、`echo_plan` ≈0.18 s(不再拉起 Qt); `ww_engine` 相对 QtCore 增量 **≈0.08 s**;
+  `ww_app_shell` 0.49~0.74 s(只在开窗口时付)。
+- **下一步**: 只剩 BOM 清理(3 个文件)。**不要**为了 `og`/把 0.2 s 再压到 0.03(惰性化 `communicate`)/
+  Rust 去重写 engine/UI。
 
 ## 界面(Fluent, 阶段二十六)
 
@@ -226,7 +237,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 | 原补丁位置 | 现在的位置 | 行为 |
 |---|---|---|
-| `ok/gui/StartController.py` | `ww_engine/gui/StartController.py` | 用户点“开始”时把窗口拉前（含最小化恢复）；纯启动不抢前台 |
+| `ok/gui/StartController.py` | `ww_app_shell/start_controller.py`（第三阶段从 engine 拆出） | 用户点“开始”时把窗口拉前（含最小化恢复）；纯启动不抢前台 |
 | `ok/device/capture_methods/hwnd_window.py` | `ww_engine/device/capture_methods/hwnd_window.py` | `visible = not IsIconic(hwnd)`：后台/被遮挡窗口仍可抓；真最小化才不可用 |
 | `ok/device/interaction_methods/pynput.py` | `ww_engine/device/interaction_methods/pynput.py` | `should_capture()→True`；动作前 `_ensure_clickable()` 自动拉前 |
 | `ok/util/window.py` | `ww_engine/util/window.py` | `find_hwnd` 过滤空 exe 项，云模式按标题正则可找到窗口 |
@@ -411,7 +422,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
 **阶段三十一(引擎自持)**: 在分支 **`engine/vendor`**（未合并 `main`，等 P4 真机验收），
 审核补记（OCR 主链路回归 + 台账修正）见 handoff.md / CHANGELOG 补记 22。
-改动后跑: `python -m unittest discover -s tests`(**184 项**; 需 Python 3.11+; 3.13/3.14 已实测)
+改动后跑: `python -m unittest discover -s tests`(**186 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。

@@ -25,7 +25,7 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 
 | # | 命令 | 期望输出 | 依赖 |
 |---|---|---|---|
-| B1 | `python -m unittest discover -s tests` | **184 项**（`Ran 184 tests` / `OK (skipped=2)`；无 `logs/eval_debug/` 时 `TestRealDataset` 整类跳过；素材齐全时为 **188 项 / skipped=1**） | 仅代码 |
+| B1 | `python -m unittest discover -s tests` | **186 项**（`Ran 186 tests` / `OK (skipped=2)`；无 `logs/eval_debug/` 时 `TestRealDataset` 整类跳过；素材齐全时为 **190 项 / skipped=1**） | 仅代码 |
 | B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
 | B3 | `python tools/eval_icon_match.py` | **217/219**（99.1%）；s1 中位 ≈0.894；名字候选一致 196/211 | 同上 |
 | B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **7 页** PNG，无异常 | 仅代码 |
@@ -52,6 +52,9 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 > 另用真实 onnxocr + 合成帧跑通 `task.ocr()`（两行中文 0.99 / 0.97），确认 OCR 主链路可用。
 > **同日耦合 P2**：新增 `tests/test_engine_lazy.py` 2 项（根包惰性导入守卫，B1 → **184**）；
 > `import ww_engine` 基线 **0.209 s**（5 次中位；其中 ≈131 ms 是 QtCore）—— 见 `docs/COUPLING.md` §0.3/§5。
+> **同日第三阶段（外壳拆分）**：再 +2 项（engine 只有组合根可 import `ww_app_shell` / shell 不许 import engine 根包，
+> B1 → **186**）；`import_coupling.py` 的 SCC 修掉假边后只剩 `rotypes` 4 模块 —— 见 `docs/COUPLING.md` §0.4。
+> ⚠ 本机 `PySide6.QtCore` 单次 import 在 0.13~0.50 s 波动（`import sys` 恒 0），import 耗时请按“相对增量 + 成分”比较。
 
 离线快速重放（不需要素材，只看当前权重下的判定）：
 

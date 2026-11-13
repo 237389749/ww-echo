@@ -20,10 +20,10 @@
 | **三十一** | `09bf8b3`（`engine/vendor`） | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 10.2k 物理行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁。**未合并 main**，等 P4 真机验收 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **184 项**（无素材；素材齐全 188 项 / skipped=1。需 Python 3.11+；
+- `python -m unittest discover -s tests` → **186 项**（无素材；素材齐全 190 项 / skipped=1。需 Python 3.11+；
   3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
 - `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）；**P2 后 `import ww_engine` ≈0.21 s**
-  （根包惰性导入，裸 import 不拉 cv2/qfluentwidgets/PIL/rotypes/pynput —— 守卫在 `tests/test_engine_lazy.py`）
+  （根包惰性导入，裸 import 不拉 cv2/qfluentwidgets/PIL/rotypes/pynput/外壳 —— 守卫在 `tests/test_engine_lazy.py`）
 - `python tools/offline_eval_report.py`（109 只真实数据）→ 判定分布 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`
   （六档文案：达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17）、
   **主属性数值可疑 0 条**、套装来源 `{icon:108, name:1}`
@@ -140,14 +140,19 @@
   `Box`/`get_bounding_box`/`Feature`/`FeatureSet`；`OK` 内部改函数内 import）；engine 核心去 `FluentIcon`
   （`ConfigOption(icon=None)` / `task.group_icon=None` / `translate` → 字面量）→ `qfluentwidgets` 退出 engine 导入链；
   守卫 `tests/test_engine_lazy.py`（子进程实测裸 import 不拉重依赖 + `__all__` 惰性来源同一对象）。
+- **第三阶段已落地（`058bee9`）**：应用外壳拆成 **`ww_app_shell/`**（`EngineApp`/`StartController`/overlay/
+  `show_alert`）；`ww_engine/gui` 只留 `Communicate`（QtCore 信号中枢）与 Qt-free 的 `alert_info/alert_error`；
+  `og` 下移到 `ww_engine/locator.py`（根包再导出）→ 消掉 根包↔外壳 环；任务管理器改到 `ww_engine/task/TaskManager.py`。
 - **结果**：P0 后 domain→engine / UI→entry / entry→task / UI→engine 内部归零；**P1 后 domain→task_adapter 也归零**，
-  `import_coupling.py` 违规表为空；**P2 后 engine 里直接 import Qt 的只剩 6 个**（`app` + `gui.*`）。
+  `import_coupling.py` 违规表为空；**P2 后 engine Qt 6 个**；**第三阶段后 engine Qt 只剩 1 个**（`gui/Communicate`，
+  QtWidgets 全在 `ww_app_shell`），模块级 SCC **只剩 rotypes 上游 4 模块**（体检工具修了 `from . import X` 的假边之后）。
 - **import 成本（P0 前→P0 后→P1 后→P2 后）**：`echo_set_templates` 0.95→0.05→0.038→**0.031 s**、
   `echo_icon_match` 1.07→0.20→0.174→**0.162 s**、`echo_combos` 1.05→0.073→0.062→**0.056 s**、
   `echo_inventory` 0.94→0.85→0.177→**0.173 s**、`echo_plan` 0.99→0.85→0.208→**0.177 s**、
-  **`ww_engine` 0.97→0.90→0.76~0.90→0.209 s**（≈131 ms 是 QtCore，`communicate` 保持 eager）。
-- **下一步**：耦合只剩**可选第三阶段**（把 `ww_engine/gui` + `app.py` 拆成独立应用壳，让 engine 对 Qt 0 依赖）与 BOM 清理。
-  **不要**为了 `og`、把 0.209 压到 0.03（惰性化 `communicate`）或 Rust 去重写 engine/UI。
+  **`ww_engine` 0.97→0.90→0.76~0.90→0.21 s 量级**（相对 QtCore 增量 ≈0.08 s，`communicate` 保持 eager）；
+  `ww_app_shell` 0.49~0.74 s（只在开窗口时付）。⚠ 这台机器的 QtCore import 在 0.13~0.50 s 间波动，
+  文档一律标区间，判据看「相对增量 + 成分」。
+- **下一步**：耦合只剩 BOM 清理。**不要**为了 `og`、把 0.2 s 压到 0.03（惰性化 `communicate`）或 Rust 去重写 engine/UI。
 
 ## 二、阶段二十九做了什么（组合穷举）
 
