@@ -857,11 +857,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         zero_run = 0
                         # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
                         # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
-                        set_name, set_src = self.resolve_set_name(echo_name, badge_hue_at(nx, ny))
+                        badge = badge_hue_at(nx, ny)
+                        set_name, set_src = self.resolve_set_name(echo_name, badge)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         rec = self.evaluate_one(echo_name, stats, set_name, set_src,
                                                 main_props=paired_all[:2], cost=cost)
+                        # 徽章环色写进记录: 报告/JSON 自带证据, 事后可**离线核对套装判定**
+                        rec['badge_hue'] = badge[0] if badge and badge[1] else None
                         verdict, verdict_cn, score = rec["verdict"], rec["verdict_cn"], rec["score"]
                     else:
                         # 0级声骸(0词条): 无评估价值——**跳过不记录、不终止**。

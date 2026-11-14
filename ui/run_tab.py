@@ -888,6 +888,8 @@ def _build_eval_html(data):
         set_name = r.get("set") or "—"
         set_src = {"icon": "套装图标判定", "hue": "卡片徽章环色判定", "name": "声骸名兜底",
                    "default": "默认(通用)"}.get(r.get("set_src"), "")
+        if r.get("badge_hue") is not None:
+            set_src += f' (环色 {float(r["badge_hue"]):.0f})'
         # 主指标"完成度" = 得分 ÷ 该套装 Top-5 全满档 —— 玩家直觉的"离毕业多远"(100% = 毕业)
         # 注: 旧的"击败 X%"(相对随机产出的分位)已按用户要求**不再展示** —— 它对"抽到几条有效词条"远比
         #     "档位多高"敏感(5 条全最低档就已击败 97%), 与玩家的比较体系不符;

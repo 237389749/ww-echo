@@ -97,7 +97,9 @@ class TestEvalWiring(unittest.TestCase):
         with open(path, encoding='utf-8') as f:
             src = f.read()
         self.assertIn('badge_hue_at(', src)
-        self.assertIn('resolve_set_name(echo_name, badge_hue_at(', src)
+        self.assertIn('resolve_set_name(echo_name, badge)', src)
+        # 环色要写进记录, 事后才能离线核对套装判定
+        self.assertIn("rec['badge_hue']", src)
 
 
 if __name__ == '__main__':
