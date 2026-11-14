@@ -297,3 +297,69 @@ def cells_from_structure(struct, click_dy_ratio=0.08):
         return []
     dy = (struct.get('row_pitch') or 0) * click_dy_ratio
     return [(float(c), float(r) + dy) for r in struct['rows'] for c in struct['cols']]
+
+
+# ---------------------------------------------------------------------------
+# 布局模型（2026-11-14，用户提议的「结构与比例抽象」）
+#
+# 实测两张不同难度/不同时间的真实帧（1254x889）后确认：背包网格的几何**只随帧宽缩放**
+# （UI scale = 帧宽 / 1920）：
+#   列距 176px@1920 / 115px@1254 → 0.0917 × 帧宽
+#   行距 212px@1920 / 138px@1254 → 0.110  × 帧宽（不是随帧高！）
+# 所以把「比例」和「位置」拆开：
+#   比例（列距/行距/列数）—— 一次标定后缓存，跨屏复用；
+#   位置（首列中心、行线相位）—— 每屏用结构检测重新取（滚动后相位会变）。
+# 这样后续屏幕**只用 Sobel 行检测**（不需要金色，也不依赖 +25），列由模型给出；
+# 行检测失败/间距突变时再回退整帧结构检测 → 再回退角标 OCR。
+# ---------------------------------------------------------------------------
+class GridModel:
+    """背包网格的布局模型：比例（相对帧宽）+ 可缓存的列布局。"""
+
+    def __init__(self, col_pitch_ratio, row_pitch_ratio, cols, anchor_col_ratio,
+                 click_dy_ratio=0.08):
+        self.col_pitch_ratio = float(col_pitch_ratio)
+        self.row_pitch_ratio = float(row_pitch_ratio)
+        self.cols = int(cols)
+        self.anchor_col_ratio = float(anchor_col_ratio)
+        self.click_dy_ratio = float(click_dy_ratio)
+
+    @classmethod
+    def from_structure(cls, struct, frame_width):
+        """从一次完整结构检测（detect_grid_structure 的返回）建立模型。"""
+        cols = struct['cols']
+        if len(cols) < 2 or not frame_width:
+            return None
+        col_pitch = (cols[-1] - cols[0]) / (len(cols) - 1)
+        return cls(col_pitch / frame_width, struct['row_pitch'] / frame_width,
+                   len(cols), cols[0] / frame_width)
+
+    def col_centers(self, frame_width):
+        return [(self.anchor_col_ratio + i * self.col_pitch_ratio) * frame_width
+                for i in range(self.cols)]
+
+    def cells(self, frame_width, row_lines):
+        """模型列 × 给定行线 → 点击点（行优先）。"""
+        if not row_lines:
+            return []
+        dy = self.row_pitch_ratio * frame_width * self.click_dy_ratio
+        return [(x, float(r) + dy) for r in row_lines for x in self.col_centers(frame_width)]
+
+    def matches(self, row_pitch, frame_width, tol=0.12):
+        """新检测到的行距是否仍符合模型（窗口尺寸变化/UI 改动时判失效）。"""
+        if not frame_width or not row_pitch:
+            return False
+        expect = self.row_pitch_ratio * frame_width
+        return abs(row_pitch - expect) <= expect * tol
+
+
+def detect_row_lines(frame_bgr, rect):
+    """只做行检测（Sobel-y，等级条顶边），返回 (rows, pitch) 或 ([], None)。"""
+    if cv2 is None or np is None:
+        return [], None
+    x0, y0, x1, y1 = [int(round(v)) for v in rect]
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(frame_bgr.shape[1], x1), min(frame_bgr.shape[0], y1)
+    if x1 - x0 < 100 or y1 - y0 < 100:
+        return [], None
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    return _detect_rows(gray, x0, x1, y0, y1)

@@ -125,5 +125,45 @@ class TestGridStructure(unittest.TestCase):
         self.assertEqual(len(cells), 4)
 
 
+class TestGridModel(unittest.TestCase):
+    """布局模型：比例（列距/行距/首列）与位置（每屏行线）分离。"""
+
+    STRUCT = {
+        'rows': [184.0, 322.0, 460.0, 598.0, 736.0],
+        'cols': [163.0, 278.0, 393.5, 508.5, 623.5, 739.0],
+        'row_pitch': 138.0,
+    }
+
+    def test_model_from_structure_reproduces_cells(self):
+        m = echo_grid.GridModel.from_structure(self.STRUCT, 1254.0)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.cols, 6)
+        for got, want in zip(m.col_centers(1254.0), self.STRUCT['cols']):
+            self.assertAlmostEqual(got, want, delta=0.8)
+        cells = m.cells(1254.0, self.STRUCT['rows'])
+        self.assertEqual(len(cells), 30)
+        self.assertAlmostEqual(cells[0][1], 184.0 + 138.0 * 0.08, delta=0.3)
+
+    def test_matches_pitch(self):
+        m = echo_grid.GridModel.from_structure(self.STRUCT, 1254.0)
+        self.assertTrue(m.matches(138.0, 1254.0))
+        self.assertTrue(m.matches(145.0, 1254.0))      # +5% 仍在容差内
+        self.assertFalse(m.matches(100.0, 1254.0))     # 间距突变 → 模型失效
+
+    def test_model_survives_scroll_shift(self):
+        # 滚动 120px 后行线整体下移/上移，列布局与行距不变 → 模型给出的格点跟着行走
+        m = echo_grid.GridModel.from_structure(self.STRUCT, 1254.0)
+        shifted = [y - 120.0 for y in self.STRUCT['rows']]
+        cells = m.cells(1254.0, shifted)
+        self.assertEqual(len(cells), 30)
+        self.assertAlmostEqual(cells[0][1], shifted[0] + 138.0 * 0.08, delta=0.3)
+
+    def test_detect_row_lines_synthetic(self):
+        img = TestGridStructure._synthetic()
+        rows, pitch = echo_grid.detect_row_lines(img, (100, 89, 820, 800))
+        self.assertEqual(len(rows), 5, msg=f'rows={rows}')
+        self.assertAlmostEqual(pitch or 0, 138, delta=4)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

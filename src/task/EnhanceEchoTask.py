@@ -308,6 +308,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         count_text = ''            # 最近一次左上计数区的原始 OCR 文本(页面锚点用)
         anchor_ok = False          # 左上「声骸N/3000」锚点是否识别到(仅用于错误提示, 不单独中断)
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
+        layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -396,16 +397,25 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             sy0, sy1 = 0.10 * fh, 0.90 * fh
             # 小窗口(如 1254x889)下 +25 只有 10~14px 高: 单次裁剪 OCR 只检出 5~14/30,
             # 还会把 +25 拆成 + 与 25 → 单次结果聚行聚列必然残缺(实测漏第一行/第一列、点到隔壁)。
-            # ① 结构标定优先（不识别文字）：等级条顶边 → 行，金色亮段 → 列。
-            #    滚动后相位自然跟着变；窗口分辨率/DPI 无关；检测失败再走 ② 角标 OCR。
-            struct = echo_grid.detect_grid_structure(self.frame, (sx0, sy0, sx1, sy1))
+            # ① 布局模型 + 行检测（最快、最稳）：列布局来自首屏标定的比例，行每屏重新取
+            #    （滚动后相位会变）；行距突变/模型缺失时回到完整结构检测。
+            nonlocal layout_model
+            frame = self.frame
+            rows, row_pitch = echo_grid.detect_row_lines(frame, (sx0, sy0, sx1, sy1))
+            if layout_model is not None and rows and layout_model.matches(row_pitch, fw):
+                cells_model = layout_model.cells(fw, rows)
+                self.log_debug(f'模型标定: {layout_model.cols} 列 × {len(rows)} 行 (行距 {row_pitch:.0f}px)')
+                return [(mx / fw, my / fh) for mx, my in cells_model]
+            # ② 完整结构标定：等级条顶边 → 行，金色亮段 → 列；成功则更新模型
+            struct = echo_grid.detect_grid_structure(frame, (sx0, sy0, sx1, sy1))
             if struct:
                 struct_cells = echo_grid.cells_from_structure(struct)
                 if len(struct_cells) >= 20:
+                    layout_model = echo_grid.GridModel.from_structure(struct, fw)
                     self.log_debug(f'结构标定: {len(struct["cols"])} 列 × {len(struct["rows"])} 行 '
                                    f'(行距 {struct["row_pitch"]:.0f}px)')
                     return [(mx / fw, my / fh) for mx, my in struct_cells]
-            # ② 回退：两路 OCR 并集 + 拆框合并 + 等间距推断
+            # ③ 回退：两路 OCR 并集 + 拆框合并 + 等间距推断
             texts = list(self.ocr(*grid_box))
             dbg_ocr('grid', texts)
             try:

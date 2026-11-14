@@ -373,6 +373,9 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   (两帧差 ≤0.1px) → **6×5=30 格**, 纯投影 ~10ms/屏(OCR 并集 ~0.8s/屏), 滚动后相位自动重算, 与分辨率/DPI 无关。
   **检测失败(例如整屏全是 0 级、金线不明显)才回退**角标 OCR: 两路并集 + `merge_badge_marks` 合并拆框/去重/ROI +
   `cells_from_marks` 等间距补列补行。
+  **比例抽象**: 实测网格几何只随**帧宽**缩放(列距 0.0917×宽、行距 0.110×宽; 1920→176/212, 1254→115/138),
+  所以首屏完整标定后存 `GridModel`(列距/行距/首列比例), 后续屏幕**只做 Sobel 行检测**(~10ms) + 模型给列,
+  不再需要金线/+25; 行距变化 >12% 判模型失效, 重新完整标定, 再失败才走 OCR 兜底。
 - **PostMessage 滚轮**: `WM_MOUSEWHEEL` 的 lParam 是**屏幕坐标**(其它鼠标消息才是客户区), 且要逐格 `WHEEL_DELTA` 发送。
   旧实现把客户区坐标塞进去 → 本地窗口模式列表**根本不滚**(每屏重复扫同一批 → 报告重复、空转几十秒)。云模式 Pynput 没暴露。
 - **点选失效兜底**: 进循环前先读一次详情面板做基线; 每格点击后若签名没变(或没读到属性)就**向格子中心偏一点重试一次**
@@ -450,7 +453,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
 **阶段三十一(引擎自持)**: 在分支 **`engine/vendor`**（未合并 `main`，等 P4 真机验收），
 审核补记（OCR 主链路回归 + 台账修正）见 handoff.md / CHANGELOG 补记 22。
-改动后跑: `python -m unittest discover -s tests`(**199 项**; 需 Python 3.11+; 3.13/3.14 已实测)
+改动后跑: `python -m unittest discover -s tests`(**203 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。
