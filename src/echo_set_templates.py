@@ -263,6 +263,58 @@ def _substring_hits(candidate: str, index: dict) -> list[str]:
             and (candidate in t or t in candidate)]
 
 
+def _cjk_only(text: str) -> str:
+    """只留汉字(剥 OCR 的标点/空格/数字/拉丁字母) —— 套装名全是汉字。"""
+    return ''.join(ch for ch in (text or '') if '\u4e00' <= ch <= '\u9fff')
+
+
+def match_set_text(texts, candidates=None, min_lcs: int = 3) -> tuple[str | None, str]:
+    """OCR 文本行 → **套装名**(文字信号, 不依赖图标)。返回 `(套装名 | None, 命中方式)`。
+
+    为什么需要(2026-11-14 六次): 3.x 详情面板没有套装图标, 网格卡片徽章太小只能读环色(85%);
+    但**详情面板下滑后能看到套装名文字** —— 文本比 28px 字形稳得多, 还能用"声骸名给出的候选"约束,
+    相当于把 37 选 1 压成 2~4 选 1。
+
+    匹配顺序(参照 `_match_echo_key` 的三级容错):
+      ① 候选(或全部套装名)在某一行的**汉字串里精确子串命中**;
+      ② 否则最长公共子串 ≥ `min_lcs` 且**唯一**才认(OCR 错字容错), 多候选不猜。
+    命中方式 'text'(精确) / 'text-lcs'(容错), 供报告标注。
+    """
+    names = list(candidates or []) or list(get_all_set_names())
+    names = [n for n in names if n]
+    if not names:
+        return None, ''
+    lines = []
+    for t in texts or []:
+        raw = getattr(t, 'name', t)
+        c = _cjk_only(str(raw))
+        if len(c) >= 2:
+            lines.append(c)
+    if not lines:
+        return None, ''
+    # ① 精确子串(取命中的最长名, 防止 A 是 B 的子串时误判)
+    hits = [n for n in names if any(n in line for line in lines)]
+    if len(hits) == 1:
+        return hits[0], 'text'
+    if len(hits) > 1:
+        hits.sort(key=len, reverse=True)
+        if len(hits[0]) > len(hits[1]):
+            return hits[0], 'text'
+        return None, ''          # 并列 → 不猜
+    # ② LCS 容错: 必须唯一最高分
+    scored = []
+    for n in names:
+        best = max((_lcs_len(n, line) for line in lines), default=0)
+        if best >= min_lcs:
+            scored.append((best, n))
+    if not scored:
+        return None, ''
+    scored.sort(reverse=True)
+    if len(scored) > 1 and scored[1][0] == scored[0][0]:
+        return None, ''          # 并列最高 → 不猜
+    return scored[0][1], 'text-lcs'
+
+
 def _match_echo_key(name: str, index: dict, chars: set, skins: dict | None = None) -> str | None:
     """声骸名(可能是 OCR 错字) → **索引里的规范声骸名**; 匹配不到返回 None。
 
