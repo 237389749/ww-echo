@@ -155,3 +155,145 @@ def axis_pitch(centers) -> float | None:
         return None
     diffs = [b - a for a, b in zip(vals, vals[1:]) if b - a > 1]
     return min(diffs) if diffs else None
+
+# ---------------------------------------------------------------------------
+# 结构标定（2026-11-14）：不识别任何文字，直接找「网格结构」
+#
+# 真机的格子底部有一条**等级条**（金色顶边 + 白色 "+25"），它在每一格都出现、
+# 而且 6 格的顶边在同一条水平线上。于是：
+#   行 = 等级条顶边的横边（Sobel-y 投影的强峰，5 行等间距）；
+#   列 = 等级条顶边金线的横向亮段（每格一段，段中心≈格子中心，6 段等间距）。
+# 这样每屏都能重新定位（滚动后相位自然跟着变），且与窗口分辨率/DPI 无关。
+# 检测失败时调用方回退到「角标 OCR 并集 + 推断」。
+# ---------------------------------------------------------------------------
+try:  # 纯逻辑单测环境可能没有 cv2/numpy，此时结构标定不可用
+    import cv2
+    import numpy as np
+except ImportError:  # pragma: no cover
+    cv2 = None
+    np = None
+
+
+def _runs(mask_1d, min_len):
+    """一维布尔序列 → [(start, end)] 连续 True 段（长度 ≥ min_len）。"""
+    out = []
+    start = None
+    for i, v in enumerate(mask_1d):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            if i - start >= min_len:
+                out.append((start, i))
+            start = None
+    if start is not None and len(mask_1d) - start >= min_len:
+        out.append((start, len(mask_1d)))
+    return out
+
+
+def _estimate_period(profile, lo, hi):
+    """自相关估间距（行距/列距），返回像素周期或 None。"""
+    p = np.asarray(profile, dtype=np.float32)
+    p = p - p.mean()
+    if not np.any(p):
+        return None
+    ac = np.correlate(p, p, 'full')[len(p) - 1:]
+    lo, hi = max(1, int(lo)), min(len(ac) - 1, int(hi))
+    if hi <= lo:
+        return None
+    lag = int(np.argmax(ac[lo:hi])) + lo
+    return float(lag) if ac[lag] > 0 else None
+
+
+def _fit_lattice(profile, lo, hi, pitch, step=0.5):
+    """在一维剖面上做等间距格点拟合（相位搜索），返回格点位置。"""
+    profile = np.asarray(profile, dtype=np.float32)
+    n = profile.size
+    best = None
+    phase = 0.0
+    while phase < pitch:
+        k_max = int((hi - lo) / pitch) + 2
+        pos = lo + phase + pitch * np.arange(k_max)
+        pos = pos[pos <= hi]
+        if pos.size >= 2:
+            score = float(profile[np.clip(np.round(pos).astype(int), 0, n - 1)].sum())
+            if best is None or score > best[0]:
+                best = (score, pos)
+        phase += step
+    return [] if best is None else [float(p) for p in best[1]]
+
+
+def _detect_rows(gray, x0, x1, y0, y1):
+    """Sobel-y 投影找等级条顶边 → 行线（像素 y）与行距。"""
+    roi = cv2.GaussianBlur(gray[y0:y1, x0:x1].astype(np.float32), (3, 3), 0)
+    gy = np.abs(cv2.Sobel(roi, cv2.CV_32F, 0, 1, ksize=3))
+    prof = gy.mean(axis=1)
+    h = prof.size
+    pitch = _estimate_period(prof, h * 0.05, h * 0.45)
+    if not pitch or pitch < 20:
+        return [], None
+    lines = _fit_lattice(prof, 0, h - 1, pitch)
+    if len(lines) < 3:
+        return [], pitch
+    # 拟合必须落在"强横边"上（等级条顶边），否则是锁到了杂物
+    strong = sum(1 for line in lines if prof[int(round(line))] > prof.mean() * 2.0)
+    if strong < max(3, len(lines) - 1):
+        return [], pitch
+    return [line + y0 for line in lines], pitch
+
+
+def _detect_cols_gold(frame_bgr, rows, x0, x1):
+    """等级条顶边的金色亮段 → 列中心（每格一段；同一段在多行重复 → 去重）。"""
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    gold = ((hsv[:, :, 0] >= 8) & (hsv[:, :, 0] <= 45) &
+            (hsv[:, :, 1] > 60) & (hsv[:, :, 2] > 120))
+    min_len = max(16, int((x1 - x0) * 0.03))
+    hits = []
+    for row in rows:
+        b0, b1 = max(0, int(row) - 2), int(row) + 5
+        prof = gold[b0:b1, x0:x1].sum(axis=0)
+        for a, b in _runs(prof > 0, min_len):
+            hits.append((a + b) / 2.0 + x0)
+    if not hits:
+        return []
+    # 聚类：同一列在多行各出现一次（容差按列距的 15%），只保留 ≥2 行支持的列
+    hits.sort()
+    tol = max(10.0, (x1 - x0) * 0.015)
+    clusters = []
+    for x in hits:
+        if clusters and x - clusters[-1][-1] <= tol:
+            clusters[-1].append(x)
+        else:
+            clusters.append([x])
+    centers = [sum(c) / len(c) for c in clusters if len(c) >= 2]
+    return centers
+
+
+def detect_grid_structure(frame_bgr, rect):
+    """结构标定：返回 {'rows': [y...], 'cols': [x...], 'row_pitch': float} 或 None。
+
+    `rect=(x0, y0, x1, y1)` 像素，取画面中网格所在区域（避免表头/底部按钮）。
+    成功条件：≥3 行、≥5 列。失败返回 None（调用方回退 OCR 方案）。
+    """
+    if cv2 is None or np is None:
+        return None
+    x0, y0, x1, y1 = [int(round(v)) for v in rect]
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(frame_bgr.shape[1], x1), min(frame_bgr.shape[0], y1)
+    if x1 - x0 < 100 or y1 - y0 < 100:
+        return None
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    rows, row_pitch = _detect_rows(gray, x0, x1, y0, y1)
+    if not rows:
+        return None
+    cols = _detect_cols_gold(frame_bgr, rows, x0, x1)
+    if len(cols) < 5:
+        return None
+    return {'rows': rows, 'cols': cols, 'row_pitch': row_pitch}
+
+
+def cells_from_structure(struct, click_dy_ratio=0.08):
+    """结构标定结果 → 点击点（列中心 × 行线下方一点点；行优先排序）。"""
+    if not struct:
+        return []
+    dy = (struct.get('row_pitch') or 0) * click_dy_ratio
+    return [(float(c), float(r) + dy) for r in struct['rows'] for c in struct['cols']]

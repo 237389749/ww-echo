@@ -84,5 +84,46 @@ class TestCellsFromMarks(unittest.TestCase):
         self.assertIsNone(echo_grid.axis_pitch([]))
 
 
+class TestGridStructure(unittest.TestCase):
+    """结构标定：等级条顶边 → 行，金色亮段 → 列（不识别任何文字）。"""
+
+    @staticmethod
+    def _synthetic():
+        import cv2
+        import numpy as np
+        img = np.full((889, 1254, 3), 20, np.uint8)
+        for k in range(5):
+            y = 184 + 138 * k
+            for c in range(6):
+                x = 117 + 115 * c
+                cv2.rectangle(img, (x, y - 125), (x + 110, y + 16), (90, 90, 90), -1)
+                cv2.line(img, (x + 4, y), (x + 106, y), (0, 190, 255), 3)   # 金色条顶线
+                cv2.putText(img, '+25', (x + 55, y + 13), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5, (240, 240, 240), 1)
+        return img
+
+    def test_detects_six_columns_five_rows(self):
+        st = echo_grid.detect_grid_structure(self._synthetic(), (100, 89, 820, 800))
+        self.assertIsNotNone(st, msg='合成网格应能被结构标定')
+        self.assertEqual(len(st['rows']), 5, msg=f'rows={st["rows"]}')
+        self.assertEqual(len(st['cols']), 6, msg=f'cols={st["cols"]}')
+        self.assertAlmostEqual(st['row_pitch'], 138, delta=4)
+        cells = echo_grid.cells_from_structure(st)
+        self.assertEqual(len(cells), 30)
+        # 行优先
+        self.assertEqual(cells[0], (st['cols'][0], st['rows'][0] + st['row_pitch'] * 0.08))
+
+    def test_blank_frame_returns_none(self):
+        import numpy as np
+        img = np.full((889, 1254, 3), 20, np.uint8)
+        self.assertIsNone(echo_grid.detect_grid_structure(img, (100, 89, 820, 800)))
+
+    def test_cells_from_structure_click_offset(self):
+        st = {'rows': [184.0, 322.0], 'cols': [163.0, 278.0], 'row_pitch': 138.0}
+        cells = echo_grid.cells_from_structure(st)
+        self.assertEqual(cells[0], (163.0, 184.0 + 138.0 * 0.08))
+        self.assertEqual(len(cells), 4)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

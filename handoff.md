@@ -20,7 +20,7 @@
 | **三十一** | `09bf8b3`（`engine/vendor`） | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 10.2k 物理行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁。**未合并 main**，等 P4 真机验收 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **196 项**（无素材；素材齐全 200 项 / skipped=1。需 Python 3.11+；
+- `python -m unittest discover -s tests` → **199 项**（无素材；素材齐全 203 项 / skipped=1。需 Python 3.11+；
   3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
 - `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）；**P2 后 `import ww_engine` ≈0.21 s**
   （根包惰性导入，裸 import 不拉 cv2/qfluentwidgets/PIL/rotypes/pynput/外壳 —— 守卫在 `tests/test_engine_lazy.py`）

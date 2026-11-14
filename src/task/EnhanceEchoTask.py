@@ -391,18 +391,27 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
             row_tol = max(20.0, fh * 0.03)   # 行聚类容差(~1200帧→36px)
             col_gap = max(50.0, fw * 0.046)  # 列间距阈值(~1920帧→88px)
+            # 扫描 ROI: 比点击区略宽(容下首/末列角标), 右侧不越过详情面板(挡掉面板自己的 +25)
+            sx0, sx1 = max(0.0, 0.075 * fw), 0.655 * fw
+            sy0, sy1 = 0.10 * fh, 0.90 * fh
             # 小窗口(如 1254x889)下 +25 只有 10~14px 高: 单次裁剪 OCR 只检出 5~14/30,
             # 还会把 +25 拆成 + 与 25 → 单次结果聚行聚列必然残缺(实测漏第一行/第一列、点到隔壁)。
-            # 这里两路 OCR 取并集(裁剪区 + 全帧, 召回互补), 再合并拆框并按等间距补全缺列/缺行。
+            # ① 结构标定优先（不识别文字）：等级条顶边 → 行，金色亮段 → 列。
+            #    滚动后相位自然跟着变；窗口分辨率/DPI 无关；检测失败再走 ② 角标 OCR。
+            struct = echo_grid.detect_grid_structure(self.frame, (sx0, sy0, sx1, sy1))
+            if struct:
+                struct_cells = echo_grid.cells_from_structure(struct)
+                if len(struct_cells) >= 20:
+                    self.log_debug(f'结构标定: {len(struct["cols"])} 列 × {len(struct["rows"])} 行 '
+                                   f'(行距 {struct["row_pitch"]:.0f}px)')
+                    return [(mx / fw, my / fh) for mx, my in struct_cells]
+            # ② 回退：两路 OCR 并集 + 拆框合并 + 等间距推断
             texts = list(self.ocr(*grid_box))
             dbg_ocr('grid', texts)
             try:
                 texts += list(self.ocr(0, 0, 1, 1))
             except Exception as e:
                 self.log_debug(f'全帧 OCR 失败(只用裁剪结果): {e}')
-            # 扫描 ROI: 比点击区略宽(容下首/末列角标), 右侧不越过详情面板(挡掉面板自己的 +25)
-            sx0, sx1 = max(0.0, 0.075 * fw), 0.655 * fw
-            sy0, sy1 = 0.10 * fh, 0.90 * fh
             marks = echo_grid.merge_badge_marks(texts, roi=(sx0, sy0, sx1, sy1))
             if not marks:
                 return []
