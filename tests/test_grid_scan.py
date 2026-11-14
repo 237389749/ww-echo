@@ -212,5 +212,30 @@ class TestRowShift(unittest.TestCase):
         self.assertLess(diff, 1.0)
 
 
+class TestScrollModel(unittest.TestCase):
+    """滚轮距离模型：距离来自布局(行距)与实测 px/格，而不是猜 notches。"""
+
+    def test_notches_from_layout(self):
+        m = echo_grid.ScrollModel(px_per_notch=8.0)
+        # 138px/行 × 4 行 = 552px；8px/格 → 69 格 → 限幅 40
+        self.assertEqual(m.notches_for(4, 138.0), 40)
+        m2 = echo_grid.ScrollModel(px_per_notch=35.0)
+        self.assertEqual(m2.notches_for(4, 138.0), 16)   # 552/35 ≈ 15.8 → 16
+        m3 = echo_grid.ScrollModel(px_per_notch=35.0, min_notches=1, max_notches=100)
+        self.assertLessEqual(m3.notches_for(1, 138.0), 4)
+
+    def test_observe_updates_px_per_notch(self):
+        m = echo_grid.ScrollModel(px_per_notch=8.0)
+        m.observe(15, 15 * 30.0, weight=1.0)   # 实测 30px/格
+        self.assertAlmostEqual(m.px_per_notch, 30.0, delta=0.1)
+        # 距离随之收敛到 4 行所需格数
+        self.assertEqual(m.notches_for(4, 138.0), 18)   # 552/30 ≈ 18.4
+
+    def test_observe_ignores_no_move(self):
+        m = echo_grid.ScrollModel(px_per_notch=12.0)
+        m.observe(15, 0.5)
+        self.assertAlmostEqual(m.px_per_notch, 12.0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

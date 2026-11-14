@@ -412,3 +412,30 @@ def estimate_row_shift(before_bgr, after_bgr, rect, pitch, max_rows=6):
         if d < best_diff:
             best_dy, best_diff = dy, d
     return best_dy / pitch, best_diff
+
+
+class ScrollModel:
+    """滚轮距离模型：用布局行距算"滚 k 行需要几格"，再用实测 px/格 校正。
+
+    抽象点：距离 = k × 行距(布局模型) / 每格像素(实测)；调用方不再猜 notches。
+    """
+
+    def __init__(self, px_per_notch=8.0, min_notches=3, max_notches=40):
+        self.px_per_notch = float(px_per_notch)
+        self.min_notches = int(min_notches)
+        self.max_notches = int(max_notches)
+
+    def notches_for(self, rows, row_pitch):
+        """滚 `rows` 行需要多少格（按当前 px/格 估计，限幅）。"""
+        target = max(1.0, float(rows) * float(row_pitch))
+        n = int(round(target / max(0.5, self.px_per_notch)))
+        return max(self.min_notches, min(self.max_notches, n))
+
+    def observe(self, notches, moved_px, weight=0.5):
+        """用一次实测（notches 格实际移动 moved_px 像素）更新 px/格（指数平滑）。"""
+        notches, moved = abs(int(notches)), abs(float(moved_px))
+        if notches <= 0 or moved < 1.0:
+            return
+        ratio = moved / notches
+        ratio = max(1.0, min(60.0, ratio))
+        self.px_per_notch = (1.0 - weight) * self.px_per_notch + weight * ratio

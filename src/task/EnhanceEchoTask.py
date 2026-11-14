@@ -322,7 +322,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         ZERO_TAIL_STOP = 12        # 连续两行(6 列 ×2) 0 词条 → 视为 0 级尾部
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
-        scroll_notches = 15      # 滚轮格数(按实测位移自适应调整)
+        scroll_model = echo_grid.ScrollModel()   # 滚轮距离模型: 行距×行数 / 实测 px每格
+        scroll_fail = 0          # 连续滚动受阻次数(>=2 中止, 绝不空转)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -459,51 +460,79 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_warning(f'真实鼠标滚轮失败: {e}')
                 return False
 
-        def scroll_grid(notches=None):
-            """滚一屏：真实滚轮优先 + 相位相关测量实际位移，按行距自适应距离。
+        def _drag_scroll(pitch, rows=4):
+            """拖拽兜底：网格下部按住向上拖 rows 行（真实鼠标，SendInput）。"""
+            try:
+                import win32gui
+                from pynput.mouse import Button, Controller
+                dm = self.executor.device_manager
+                hwnd_window = getattr(dm, 'hwnd_window', None)
+                if hwnd_window is None or not hwnd_window.hwnd:
+                    return False
+                hwnd_window.bring_to_front()
+                self.sleep(0.15)
+                target = getattr(hwnd_window, 'top_hwnd', None) or hwnd_window.hwnd
+                sx, sy = win32gui.ClientToScreen(target, (int(self.width * 0.55), int(self.height * 0.72)))
+                mouse = Controller()
+                mouse.position = (sx, sy)
+                self.sleep(0.08)
+                mouse.press(Button.left)
+                for step in range(1, 11):
+                    mouse.position = (sx, sy - int(pitch * rows * step / 10.0))
+                    self.sleep(0.03)
+                mouse.release(Button.left)
+                return True
+            except Exception as e:
+                self.log_warning(f'拖拽滚动失败: {e}')
+                return False
 
-            目标位移 = 4 行(可见 5 行, 留 1 行重叠防漏)；实测 dy 换算成行数写日志，
-            偏离目标(太近/太远)时按比例调整下次 notches。"""
-            nonlocal scroll_notches
-            if notches is None:
-                notches = scroll_notches
+        def scroll_grid(rows=4):
+            """滚一屏：距离=rows×行距（布局模型）/ px每格（实测校正）；依次试 真实滚轮→PostMessage→拖拽。
+
+            返回 True=画面确实动了；False=三种都没动，调用方负责**中止**，绝不空转。
+            """
             fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
             pitch = (layout_model.row_pitch_ratio * fw) if layout_model else 0.11 * fw
             pitch = max(20.0, pitch)
+            notches = scroll_model.notches_for(rows, pitch)
             rect = _grid_rect_px()
             before = self.frame
-            used_real = _real_wheel(notches)
-            if not used_real:
+            sent = _real_wheel(notches)
+            if not sent:
                 try:
                     self.scroll_relative(0.52, 0.5, -notches)
                 except Exception as e:
-                    self.log_debug(f'scroll failed: {e}')
+                    self.log_debug(f'PostMessage 滚轮失败: {e}')
             self.sleep(0.6)
-            after = self.frame
-            moved_rows, diff = echo_grid.estimate_row_shift(before, after, rect, pitch)
-            if abs(moved_rows) >= 0.35:
-                self.log_info(f'滚轮: {notches} 格 → 约 {moved_rows:+.1f} 行 (残差 {diff:.0f})')
-                # 目标 4 行：偏离 >1 行时按比例调整（限幅 3~40 格）
-                if abs(abs(moved_rows) - 4.0) > 1.0:
-                    ratio = 4.0 / max(0.2, abs(moved_rows))
-                    scroll_notches = int(min(40, max(3, round(notches * ratio))))
-                    self.log_info(f'滚轮距离自适应: {moved_rows:.1f} 行 → 下次 {scroll_notches} 格')
-                elif abs(moved_rows) > 5.5:
-                    self.log_warning(f'滚轮一次滚了 {moved_rows:.1f} 行(可见 5 行), 可能漏行')
-                return
-            # 没动（或测不准）→ 退 PostMessage 再试一次；仍不动就报警
-            if used_real:
+            moved, diff = echo_grid.estimate_row_shift(before, self.frame, rect, pitch)
+            if abs(moved) >= 0.35:
+                scroll_model.observe(notches, moved * pitch)
+                self.log_info(f'滚轮: {notches} 格 → {moved:+.1f} 行 '
+                              f'(≈{scroll_model.px_per_notch:.1f}px/格, 残差 {diff:.0f})')
+                if abs(moved) > 5.5:
+                    self.log_warning(f'一次滚了 {moved:.1f} 行(可见 5 行), 可能漏行')
+                return True
+            # 方式 2: PostMessage（真实滚轮没生效时）
+            if sent:
                 try:
                     self.scroll_relative(0.52, 0.5, -notches)
                 except Exception as e:
-                    self.log_debug(f'scroll failed: {e}')
+                    self.log_debug(f'PostMessage 滚轮失败: {e}')
                 self.sleep(0.5)
-                after2 = self.frame
-                moved2, diff2 = echo_grid.estimate_row_shift(before, after2, rect, pitch)
+                moved2, _diff2 = echo_grid.estimate_row_shift(before, self.frame, rect, pitch)
                 if abs(moved2) >= 0.35:
-                    self.log_info(f'真实滚轮无效 → PostMessage 生效 (约 {moved2:.1f} 行)')
-                    return
-            self.log_warning(f'滚轮未生效: 位移 {moved_rows:.1f} 行, 残差 {diff:.0f} (检查游戏前台/滚动热区)')
+                    scroll_model.observe(notches, moved2 * pitch)
+                    self.log_info(f'真实滚轮未生效 → PostMessage 生效 ({moved2:+.1f} 行)')
+                    return True
+            # 方式 3: 拖拽
+            if _drag_scroll(pitch, rows):
+                self.sleep(0.6)
+                moved3, _diff3 = echo_grid.estimate_row_shift(before, self.frame, rect, pitch)
+                if abs(moved3) >= 0.35:
+                    self.log_info(f'滚轮无效 → 拖拽滚动生效 ({moved3:+.1f} 行)')
+                    return True
+            self.log_warning(f'滚动受阻: 位移 {moved:+.1f} 行, 残差 {diff:.0f}')
+            return False
 
         def read_detail():
             """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost):
@@ -680,18 +709,24 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if stop_all or stopped:
                     break
 
-                if not processed_any:
-                    # 本屏无新声骸(空格/未切换占满) → 滚动一屏
-                    scroll_grid()
-                    self.sleep(1.2)
-                    no_new_screen += 1
-                    if no_new_screen >= 3:
-                        self.log_info('连续滚动无进展, 评估结束', notify=True)
-                        break
+                moved_ok = scroll_grid()
+                if moved_ok:
+                    scroll_fail = 0
+                    if processed_any:
+                        no_new_screen = 0
+                    else:
+                        no_new_screen += 1
+                        if no_new_screen >= 3:
+                            self.log_info('连续滚动无新内容, 评估结束', notify=True)
+                            break
                 else:
-                    no_new_screen = 0
-                    scroll_grid()   # 处理完本屏 → 滚下一屏
-                    self.sleep(1.2)
+                    scroll_fail += 1
+                    if scroll_fail >= 2:
+                        self.log_warning(f'连续 {scroll_fail} 次滚动受阻, 评估中止'
+                                         f'(已记录 {evaluated} 条, 生成部分报告)', notify=True)
+                        stop_all = True
+                        break
+                self.sleep(1.2)
 
             if stopped:
                 self.log_info(f'评估已停止, 本次已记录 {evaluated} 个声骸(不生成报告/不打开报告)', notify=True)

@@ -378,11 +378,12 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **停止按钮(2026-11-14)**: 评估跑在 `ui/run_tab` 自己的线程里, 只调 `task.disable()` **打断不了它**
   (executor 的 `check_enabled` 管不到这个线程)。必须 `task.request_stop()`(threading.Event), `evaluate_only`
   每屏/每格检查; 停止后不生成报告、不回调 `on_done`; UI 启动前 `reset_stop()` 防竞争。
-- **滚轮 = 真实滚轮 + 位移测量(2026-11-14)**: PostMessage 的 `WM_MOUSEWHEEL` 会被 UE 忽略(Slate 用真实光标
-  做命中测试) → `scroll_grid` 主路径是 `bring_to_front()` + `SetCursorPos(网格中心)` + **Pynput scroll**，失败回退
-  PostMessage。距离用 `echo_grid.estimate_row_shift`(按行距搜整数行 + ±pitch/2 内 4px 细化，返回"几行 + 残差")，
-  目标 **4 行**(5 行可见留 1 行重叠)，偏 >1 行按比例自适应 notches，>5.5 行告警可能漏行；日志 `滚轮: 15 格 → 约 +4.0 行`。
-  **别用"行线有没有变"判断滚动**(`rows_differ` 已删): 行检测偶发多/少一行会误判"已滚"，真实回退永不触发(实测卡 53 条)。
+- **滚轮 = 布局算距离 + 实测校正(2026-11-14)**: PostMessage 的 `WM_MOUSEWHEEL` 会被 UE 忽略(Slate 用真实光标
+  做命中测试) → `scroll_grid` 主路径 `bring_to_front()`+`SetCursorPos(网格中心)`+**Pynput scroll**，失败退 PostMessage，
+  再失败退**拖拽**。距离 = `ScrollModel.notches_for(4, 行距)`(4 行×行距 / 实测 px每格)；每次滚动用
+  `echo_grid.estimate_row_shift` 测"滚了几行"并 `observe()` 校正 px每格；>5.5 行告警可能漏行。
+  **受阻不空转**: 连续 2 次返回 False → 日志「滚动受阻…生成部分报告」并中止(3 种方式都试过)。
+  **别用"行线有没有变"判断滚动**(`rows_differ` 已删, 行数抖动会误判)。
 - **点选失效兜底**: 进循环前先读一次详情面板做基线; 每格点击后若签名没变(或没读到属性)就**向格子中心偏一点重试一次**
   (角标在格子右下), 仍不变则跳过。名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)会绕过 `dedup_key`, 另用**属性行签名**
   (`seen_stat_sigs`, 不含名字) 防重复记录。
@@ -461,7 +462,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
 **阶段三十一(引擎自持)**: 在分支 **`engine/vendor`**（未合并 `main`，等 P4 真机验收），
 审核补记（OCR 主链路回归 + 台账修正）见 handoff.md / CHANGELOG 补记 22。
-改动后跑: `python -m unittest discover -s tests`(**211 项**; 需 Python 3.11+; 3.13/3.14 已实测)
+改动后跑: `python -m unittest discover -s tests`(**214 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。
