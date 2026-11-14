@@ -886,7 +886,8 @@ def _build_eval_html(data):
         name_title = f' title="OCR 识别为: {name_raw}"' if name_raw != name else ''
         # 套装来源(resolve_set_name): icon=详情面板图标判定 / name=声骸名候选兜底 / default=通用; 旧报告无字段 → "—"
         set_name = r.get("set") or "—"
-        set_src = {"icon": "套装图标判定", "hue": "卡片徽章环色判定", "name": "声骸名兜底",
+        set_src = {"icon": "套装图标判定", "effect": "合鸣效果文本判定",
+                   "hue": "卡片徽章环色判定", "name": "声骸名兜底",
                    "default": "默认(通用)"}.get(r.get("set_src"), "")
         if r.get("badge_hue") is not None:
             set_src += f' (环色 {float(r["badge_hue"]):.0f})'

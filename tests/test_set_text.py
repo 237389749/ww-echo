@@ -15,7 +15,8 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from src.echo_set_templates import get_all_set_names, match_set_text  # noqa: E402
+from src.echo_set_templates import (get_all_set_names, match_set_effect,  # noqa: E402
+                                    match_set_text, set_effect_texts)
 
 # 真机实测: 该声骸名对应的三个候选（名字兜底会错选第一个）
 XIANFENG = ['不绝余音', '幽夜隐匿之帷', '隐世回光']
@@ -65,6 +66,47 @@ class TestMatchSetText(unittest.TestCase):
         for name in get_all_set_names():
             got, _ = match_set_text([name])
             self.assertEqual(got, name)
+
+
+class TestMatchSetEffect(unittest.TestCase):
+    """面板滑到底只有**合鸣效果描述**（没有套装名），用效果文本反查套装。"""
+
+    def test_exact_effect_text(self):
+        text = ' '.join(set_effect_texts('隐世回光'))
+        self.assertTrue(text)
+        self.assertEqual(match_set_effect([text], XIANFENG)[0], '隐世回光')
+
+    def test_survives_ocr_char_loss(self):
+        import random
+        rng = random.Random(1)
+        text = ' '.join(set_effect_texts('隐世回光'))
+        noisy = ''.join(ch for ch in text if rng.random() > 0.15)   # 掉 15% 字符
+        self.assertEqual(match_set_effect([noisy], XIANFENG)[0], '隐世回光')
+
+    def test_works_without_candidates(self):
+        text = ' '.join(set_effect_texts('高天共奏之曲'))
+        self.assertEqual(match_set_effect([text])[0], '高天共奏之曲')
+
+    def test_wrong_candidates_do_not_force_a_guess(self):
+        """喂进来的文本属于候选之外的套装 → 必须不猜（交给环色/名字）。"""
+        text = ' '.join(set_effect_texts('隐世回光'))
+        self.assertIsNone(match_set_effect([text], ['不绝余音', '幽夜隐匿之帷'])[0])
+
+    def test_empty_and_noise(self):
+        self.assertEqual(match_set_effect([''])[0], None)
+        self.assertEqual(match_set_effect(['+25', 'COST 1', '生命 2280'])[0], None)
+
+
+class TestEvalWiring(unittest.TestCase):
+    """评估循环必须把「合鸣效果」文本信号接进 resolve_set_name（否则新 UI 下又退化成猜名字）。"""
+
+    def test_read_set_by_effect_is_wired(self):
+        path = os.path.join(ROOT, 'src', 'task', 'EnhanceEchoTask.py')
+        with open(path, encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('read_set_by_effect(', src)
+        self.assertIn('match_set_effect(texts, cands)', src)
+        self.assertIn('resolve_set_name(echo_name, badge, effect_set)', src)
 
 
 if __name__ == '__main__':

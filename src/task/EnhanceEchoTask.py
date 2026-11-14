@@ -13,7 +13,7 @@ from src.echo_parse import parse_number  # noqa: F401  (旧调用面: from src.t
 from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
                             tier_index, DEFAULT_WEIGHTS)  # noqa
 from src.echo_main_prop import check_main_values
-from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights,
+from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_effect,
                                     get_set_core_first, get_set_low_first,
                                     get_sets_by_echo, normalize_echo_name, load_gamedata)
 from src.echo_icon_match import (match_icon, MIN_MARGIN, MIN_SCORE,
@@ -260,20 +260,38 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
         }
 
-    def resolve_set_name(self, echo_name: str, badge=None) -> tuple[str, str]:
+    def _panel_has_name(self) -> bool:
+        """详情面板顶部是否还有"名字行"（判面板有没有被滚走）。
+
+        面板顶部的名字是 y < 0.28×帧高 的唯一中文行（见 read_detail）；被滚走后那里就空了。
+        读合鸣效果后用它确认**面板已回顶**，否则下一只的 read_detail 会读不到名字。
+        """
+        try:
+            fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+            texts = self.ocr(0.66, 0.10, 0.995, 0.28)
+            return any(len(re.findall(r'[\u4e00-\u9fff]', str(getattr(b, 'name', '') or ''))) >= 2
+                       and 0 <= float(getattr(b, 'y', 0)) < fh * 0.28
+                       for b in texts)
+        except Exception:
+            return True
+
+    def resolve_set_name(self, echo_name: str, badge=None, effect_set=None) -> tuple[str, str]:
         """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
 
-        硬信号两条:
-        ① **详情面板套装图标**(旧 UI): 高置信直接用, 可纠正名字候选;
-        ② **网格卡片左下角徽章的环色**(`badge=(hue|None, ok)`, 2026-11-14 新增): 新 UI(3.x)详情面板
-           不再显示套装图标(实测 155 条 icon 命中 0 次), 套装信号只剩卡片徽章。名字给出多个候选时
-           用环色过滤候选 —— 官方 158 个多义名里 85% 能唯一定位(详情见 `echo_icon_match` 顶部注释)。
-        都没有时回退名字候选(config 套装在候选内则优先), 再不行回退 config(评估=通用)。
-        来源 'icon'/'hue'/'name'/'default' 记入报告, 便于离线核对。
+        信号优先级(2026-11-14 迭代后的现状):
+        ① **详情面板图标**(旧 UI, 3.x 已无): 高置信直接用, 可纠正名字候选;
+        ② **合鸣效果文本**(`effect_set`): 详情面板滚到底能读到 2/5 件套效果描述(没有套装名),
+           用效果文本反查套装 —— 文本信号最稳, 且调用方已按名字候选约束过;
+        ③ **卡片徽章环色**(`badge=(hue|None, ok)`): 名字多个候选时用环色过滤(85% 可唯一定位);
+        ④ 名字候选(config 套装在候选内则优先) → ⑤ config(评估=通用)。
+        来源 'icon'/'effect'/'hue'/'name'/'default' 记入报告, 便于离线核对。
         """
         cfg_set = self.config.get('当前套装', '通用')
-        icon_set, score, margin = match_icon(self.frame)
         cands = get_sets_by_echo(echo_name)
+        if effect_set and (not cands or effect_set in cands):
+            self.log_debug(f'[套装效果文本] {echo_name} → {effect_set} (名字候选 {cands})')
+            return effect_set, 'effect'
+        icon_set, score, margin = match_icon(self.frame)
         if icon_set:
             corrected = f' — 名字候选 {cands} 由图标纠正' if cands and icon_set not in cands else ''
             self.log_debug(f'[套装图标] {echo_name} → {icon_set}'
@@ -343,6 +361,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         SCROLL_CHANGE_MIN = 0.12    # 画面变化占比 < 此值 = 什么都没发生(只有悬停/选中框)
         SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
         SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
+        SET_EFFECT_NOTCHES = 8      # 详情面板往下滚几格能看到「合鸣效果」(面板独立滚动条)
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
         # 滚轮距离模型: px/格 随窗口缩放(8.0 是 1920 宽帧的实测值)
@@ -431,6 +450,52 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             cx = nx * fw - 0.235 * col_px
             cy = ny * fh - (dy_ratio + 0.116) * row_px
             return badge_hue(self.frame, cx, cy, 0.101 * row_px)
+
+        def read_set_by_effect(cands, notches=SET_EFFECT_NOTCHES):
+            """滚详情面板到底 → OCR「合鸣效果」→ 按效果文本反查套装；读完滚回顶部。
+
+            **面板与背包是独立滚动条**（用户实测）：滚这里不会动网格。
+            面板滑下去依次是「声骸技能描述」→「合鸣效果（2/5 件套说明）」，**没有套装名**，
+            所以只能拿效果文本反查 —— 文本来自客户端同一份字符串，比 28px 徽章稳得多。
+            返回 `(套装名 | None, 最佳分, 次优分)`；任何异常都返回未命中，不影响主流程。
+            """
+            dm = self.executor.device_manager
+            hwnd_window = getattr(dm, 'hwnd_window', None)
+            if hwnd_window is None or not hwnd_window.hwnd:
+                return None, 0.0, 0.0
+            fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+            fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+            try:
+                import ctypes
+                import win32gui
+                from pynput.mouse import Controller
+                hwnd_window.bring_to_front()
+                self.sleep(0.12)
+                target = getattr(hwnd_window, 'top_hwnd', None) or hwnd_window.hwnd
+                # 光标放副词条区（面板中部，避开按钮与结算条）
+                ax, ay = win32gui.ClientToScreen(target, (int(fw * 0.83), int(fh * 0.55)))
+                ctypes.windll.user32.SetCursorPos(int(ax), int(ay))
+                self.sleep(0.08)
+                mouse = Controller()
+                mouse.scroll(0, -int(notches))          # 向下（面板到底）
+                self.sleep(0.50)
+                texts = self.ocr(*detail_box)
+                dbg_ocr('effect', texts)
+                best, score, second = match_set_effect(texts, cands)
+                mouse.scroll(0, int(notches))           # 滚回顶部（面板滚动是确定的；选中新件也会重置）
+                self.sleep(0.25)
+                # 保险: 面板没回顶会让下一次 read_detail 读不到名字 → 再往上滚(最多 2 次)
+                for _ in range(2):
+                    if self._panel_has_name():
+                        break
+                    self.log_debug('面板未回顶, 再向上滚一次')
+                    mouse.scroll(0, int(notches))
+                    self.sleep(0.30)
+                self.log_debug(f'[合鸣效果] 最佳={best} {score:.2f} 次优={second:.2f}')
+                return best, score, second
+            except Exception as e:
+                self.log_debug(f'读合鸣效果失败(忽略): {e}')
+                return None, 0.0, 0.0
 
         def scan_grid():
             """OCR 网格区角标 → 聚行 → 按 6 列基准补全缺列(防 OCR 漏格), 返回完整网格点
@@ -858,7 +923,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
                         # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
                         badge = badge_hue_at(nx, ny)
-                        set_name, set_src = self.resolve_set_name(echo_name, badge)
+                        # 名字多义时读「合鸣效果」文字反查(文本最稳)；单义名不必多这一次滚动
+                        cand_list = get_sets_by_echo(echo_name) if echo_name else []
+                        effect_set = None
+                        if len(cand_list) > 1:
+                            effect_set, _s1, _s2 = read_set_by_effect(cand_list)
+                        set_name, set_src = self.resolve_set_name(echo_name, badge, effect_set)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         rec = self.evaluate_one(echo_name, stats, set_name, set_src,

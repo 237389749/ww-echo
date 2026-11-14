@@ -268,6 +268,72 @@ def _cjk_only(text: str) -> str:
     return ''.join(ch for ch in (text or '') if '\u4e00' <= ch <= '\u9fff')
 
 
+def _render_effect(text: str, params) -> str:
+    """把 `{0}`/`{1}` 占位符换成 params(官方 `effects[].text` 的渲染口径)。"""
+    for i, p in enumerate(params or []):
+        text = text.replace('{%d}' % i, str(p))
+    return text
+
+
+def set_effect_texts(set_name: str) -> list[str]:
+    """套装 → 渲染后的「合鸣效果」文本列表(2 件套 / 5 件套 …); 缺生成物返回 []。
+
+    用途: 详情面板往下滑到最底部能看到**合鸣效果文字**(没有套装名), 拿这段文字反查套装
+    —— 文本比 28px 徽章图标稳得多, 再配"声骸名候选"约束, 基本是唯一解。
+    """
+    gd = load_gamedata() or {}
+    info = (gd.get('sets') or {}).get(set_name) or {}
+    out = []
+    for eff in (info.get('effects') or {}).values():
+        txt = _render_effect(eff.get('text', ''), eff.get('params'))
+        if txt:
+            out.append(txt)
+    out.sort(key=len)          # 短的(2件)在前, 便于按长度加权
+    return out
+
+
+def _bigrams(s: str) -> set:
+    s = ''.join(ch for ch in (s or '') if ch.isalnum() or '\u4e00' <= ch <= '\u9fff')
+    return {s[i:i + 2] for i in range(len(s) - 1)}
+
+
+def match_set_effect(texts, candidates=None, min_score: float = 0.35, min_margin: float = 0.12):
+    """OCR 文本(**合鸣效果区**) → 套装名。返回 `(套装名 | None, 最佳分, 次优分)`。
+
+    为什么用效果文本而不是套装名(2026-11-14 七次): 详情面板滑到底只有**合鸣效果描述**,
+    没有套装名。效果文本来自客户端同一份字符串, 所以拿它反查是精确的; OCR 有错字也不怕,
+    用**字符二元组覆盖率**打分(而不是逐字相等)。
+
+    打分 = 该套装全部效果文本的 bigram 被 OCR 文本覆盖的比例(长的 5 件套自然权重更大)。
+    接受条件: 最佳 ≥ `min_score` 且领先次优 ≥ `min_margin`; 否则不猜(交给环色/名字)。
+    """
+    names = list(candidates or []) or list(get_all_set_names())
+    names = [n for n in names if n]
+    if not names:
+        return None, 0.0, 0.0
+    blob = _cjk_only(''.join(str(getattr(t, 'name', t) or '') for t in (texts or [])))
+    if len(blob) < 6:
+        return None, 0.0, 0.0
+    ocr_bg = _bigrams(blob)
+    if not ocr_bg:
+        return None, 0.0, 0.0
+    scored = []
+    for n in names:
+        eff = set_effect_texts(n)
+        ref = _bigrams(''.join(eff))
+        if not ref:
+            continue
+        scored.append((len(ref & ocr_bg) / len(ref), n))
+    if not scored:
+        return None, 0.0, 0.0
+    scored.sort(reverse=True)
+    best_score, best = scored[0]
+    second = scored[1][0] if len(scored) > 1 else 0.0
+    if best_score < min_score or (best_score - second) < min_margin:
+        return None, best_score, second
+    return best, best_score, second
+
+
 def match_set_text(texts, candidates=None, min_lcs: int = 3) -> tuple[str | None, str]:
     """OCR 文本行 → **套装名**(文字信号, 不依赖图标)。返回 `(套装名 | None, 命中方式)`。
 
