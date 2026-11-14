@@ -320,9 +320,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         stop_all = False           # 到底 / 0 级尾部 → 正常收尾并输出报告
         zero_run = 0               # 连续 0 词条格数(排序正确时 0 级在尾部, 可提前结束)
         ZERO_TAIL_STOP = 12        # 连续两行(6 列 ×2) 0 词条 → 视为 0 级尾部
+        # ── 滚动调参(2026-11-14 真机实测后定的量) ────────────────────────────
+        SCROLL_TARGET_ROWS = 4.0    # 每次滚 4 行(可见 5 行, 留 1 行重叠给去重吸收)
+        SCROLL_SETTLE_STEP = 0.15   # 位移采样间隔(动画期间轮询)
+        SCROLL_SETTLE_TIMEOUT = 2.4  # 动画最长等这么久; 连续两次读数一致即提前结束
+        SHIFT_DIFF_OK = 18.0        # 对齐残差 ≤ 此值才认为位移可信
+        SCROLL_CHANGE_MIN = 0.12    # 画面变化占比 < 此值 = 什么都没发生(只有悬停/选中框)
+        SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
-        scroll_model = echo_grid.ScrollModel()   # 滚轮距离模型: 行距×行数 / 实测 px每格
+        # 滚轮距离模型: px/格 随窗口缩放(8.0 是 1920 宽帧的实测值)
+        scroll_model = echo_grid.ScrollModel(
+            frame_width=float(getattr(self.executor.method, 'width', 0) or 1920.0))
         scroll_fail = 0          # 连续滚动受阻次数(>=2 中止, 绝不空转)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
@@ -378,6 +387,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             good = [ocr_conf(b) for b in (texts or []) if ocr_conf(b) >= self.OCR_RETRY_CONF]
             return len(good), sum(good)
 
+        def _log_grid_geometry(cols, rows, row_pitch):
+            """本屏网格几何只在**变化时**记一条 INFO —— 排查"点歪/漏格"时这是第一手证据。"""
+            sig = f'{cols}x{rows}@{row_pitch:.0f}'
+            if grid_pitch.get('sig') == sig:
+                return
+            grid_pitch['sig'] = sig
+            self.log_info(f'本屏网格: {cols} 列 × {rows} 行 (行距 {row_pitch:.0f}px)')
+
         def scan_grid():
             """OCR 网格区角标 → 聚行 → 按 6 列基准补全缺列(防 OCR 漏格), 返回完整网格点
             (nx, ny) 归一化列表, 按行从上到下、行内从左到右。全部按实际帧尺寸换算, 分辨率自适应。"""
@@ -397,7 +414,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             rows, row_pitch = echo_grid.detect_row_lines(frame, (sx0, sy0, sx1, sy1))
             if layout_model is not None and rows and layout_model.matches(row_pitch, fw):
                 cells_model = layout_model.cells(fw, rows)
-                self.log_debug(f'模型标定: {layout_model.cols} 列 × {len(rows)} 行 (行距 {row_pitch:.0f}px)')
+                grid_pitch['row'] = row_pitch
+                grid_pitch['dy'] = layout_model.click_dy_ratio
+                self._log_grid_geometry(layout_model.cols, len(rows), row_pitch)
                 return [(mx / fw, my / fh) for mx, my in cells_model]
             # ② 完整结构标定：等级条顶边 → 行，金色亮段 → 列；成功则更新模型
             struct = echo_grid.detect_grid_structure(frame, (sx0, sy0, sx1, sy1))
@@ -405,8 +424,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 struct_cells = echo_grid.cells_from_structure(struct)
                 if len(struct_cells) >= 20:
                     layout_model = echo_grid.GridModel.from_structure(struct, fw)
-                    self.log_debug(f'结构标定: {len(struct["cols"])} 列 × {len(struct["rows"])} 行 '
-                                   f'(行距 {struct["row_pitch"]:.0f}px)')
+                    grid_pitch['row'] = struct['row_pitch']
+                    grid_pitch['dy'] = struct.get('click_dy', 0.08)
+                    self._log_grid_geometry(len(struct['cols']), len(struct['rows']),
+                                            struct['row_pitch'])
                     return [(mx / fw, my / fh) for mx, my in struct_cells]
             # ③ 回退：两路 OCR 并集 + 拆框合并 + 等间距推断
             texts = list(self.ocr(*grid_box))
@@ -461,7 +482,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 return False
 
         def _drag_scroll(pitch, rows=4):
-            """拖拽兜底：网格下部按住向上拖 rows 行（真实鼠标，SendInput）。"""
+            """拖拽兜底：网格下部按住向上拖 rows 行（真实鼠标，SendInput）。
+
+            距离**故意限到 2.5 行**：拖拽带惯性，真机实测一次能滑 5~6 行（可见 5 行），
+            而 5 行以上在 711px 视口里没有足够重叠 → 位移测不出来，漏行也发现不了。
+            拖不够由 `scroll_grid` 的补滚闭环补齐。
+            """
+            rows = min(float(rows), 2.5)
             try:
                 import win32gui
                 from pynput.mouse import Button, Controller
@@ -486,53 +513,121 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_warning(f'拖拽滚动失败: {e}')
                 return False
 
-        def scroll_grid(rows=4):
-            """滚一屏：距离=rows×行距（布局模型）/ px每格（实测校正）；依次试 真实滚轮→PostMessage→拖拽。
+        def _measure_shift(before, pitch, rect):
+            """等滚动动画**停稳**再量位移 → (rows, diff, change_ratio, seconds)。
 
-            返回 True=画面确实动了；False=三种都没动，调用方负责**中止**，绝不空转。
+            为什么不能单次 0.6s 采样（2026-11-14 真机）：40 格滚轮到 0.6s 时只量到 +0.5 行，
+            动画停下后实际约 4 行 —— 读数错，后面的"残余校正 / 受阻判定"就全错。
+            判定分两层：①`frame_change_ratio` 不依赖对齐，区分"没动"与"动了"；
+            ②能对齐到整行位移才用 `rows` 做闭环，残差过高就只当"动了、但量不出"。
+            """
+            t0 = time.time()
+            last = None
+            rows, diff, change = 0.0, 1e9, 0.0
+            while True:
+                self.sleep(SCROLL_SETTLE_STEP)
+                frame = self.frame
+                rows, diff = echo_grid.estimate_row_shift(before, frame, rect, pitch)
+                change = echo_grid.frame_change_ratio(before, frame, rect)
+                settled = last is not None and abs(rows - last) < 0.15
+                # "稳定"还不够: 动画有启动延迟, 前两次都可能读到 0 行 → 必须同时
+                # 看到画面确实变了(或位移非零/已等满 1.2s)才收工, 否则会误判成"没滚动"
+                if settled and (abs(rows) >= 0.1 or change >= SCROLL_CHANGE_MIN
+                                or time.time() - t0 >= 1.2):
+                    break
+                last = rows
+                if time.time() - t0 >= SCROLL_SETTLE_TIMEOUT or self.stop_requested():
+                    break
+            return rows, diff, change, time.time() - t0
+
+        def scroll_grid(rows=SCROLL_TARGET_ROWS):
+            """滚一屏（目标 rows 行）。返回 True=画面确实动了（哪怕没滚够）。
+
+            2026-11-14 重写（真机三次"越滚越少/滚不动"，最终只收到 54/229）：
+              ① 每种输入方式**单独测量**，动了就停 —— 旧版把「真实滚轮 → PostMessage → 拖拽」
+                 一股脑全发出去，三次叠加能滚 6 行（可见 5 行）→ 中间整行被跳过；
+              ② 测到**动画停稳**再读数（单次 0.6s 采样低估 8 倍）；
+              ③ 距离**闭环**：不够补残余（最多 2 次），够了就停，绝不叠加；
+              ④ "动了但量不出位移"单独识别，不再当"受阻"再叠一次输入。
             """
             fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
             pitch = (layout_model.row_pitch_ratio * fw) if layout_model else 0.11 * fw
             pitch = max(20.0, pitch)
-            notches = scroll_model.notches_for(rows, pitch)
             rect = _grid_rect_px()
             before = self.frame
-            sent = _real_wheel(notches)
-            if not sent:
-                try:
-                    self.scroll_relative(0.52, 0.5, -notches)
-                except Exception as e:
-                    self.log_debug(f'PostMessage 滚轮失败: {e}')
-            self.sleep(0.6)
-            moved, diff = echo_grid.estimate_row_shift(before, self.frame, rect, pitch)
-            if abs(moved) >= 0.35:
+            total = 0.0
+            used = None
+            # 首滚保守：px/格 还没实测过(默认值有 ±50% 误差)，先滚 ≤2.5 行再把残余补到目标。
+            # 宁可多一屏，也不要第一次就滚过 5 行 —— 越过 5 行就没有重叠，漏行连发现都发现不了。
+            first_scroll = scroll_model.observations == 0
+            goal = min(rows, SCROLL_FIRST_ROWS) if first_scroll else rows
+            for name in ('真实滚轮', 'PostMessage', '拖拽'):
+                notches = scroll_model.notches_for(goal - total, pitch)
+                if name == '真实滚轮':
+                    sent = _real_wheel(notches)
+                elif name == 'PostMessage':
+                    sent = True
+                    try:
+                        self.scroll_relative(0.52, 0.5, -notches)
+                    except Exception as e:
+                        self.log_debug(f'PostMessage 滚轮失败: {e}')
+                        sent = False
+                else:
+                    sent = _drag_scroll(pitch, max(1, int(round(rows - total))))
+                if not sent:
+                    continue
+                moved, diff, change, secs = _measure_shift(before, pitch, rect)
+                if change < SCROLL_CHANGE_MIN:
+                    self.log_debug(f'{name}: 画面无变化({change:.0%}), 换下一种方式')
+                    continue
+                used = name
+                total = abs(moved)
+                self.log_info(f'滚动({name}): {notches} 格 → {moved:+.1f} 行 '
+                              f'(≈{scroll_model.px_per_notch:.1f}px/格, 残差 {diff:.0f}, '
+                              f'停稳 {secs:.2f}s, 画面变化 {change:.0%})')
+                if diff > SHIFT_DIFF_OK:
+                    # 量不出位移(超出可测范围/动画抖动): 保守按"已滚动"处理, 绝不叠加输入
+                    self.log_warning(f'动了但量不出位移(残差 {diff:.0f} > {SHIFT_DIFF_OK:.0f}), '
+                                     f'按已滚动处理, 不再叠加输入')
+                    return True
+                scroll_model.observe(notches, moved * pitch,
+                                     weight=0.7 if first_scroll else 0.5)
+                break
+            if used is None:
+                self.log_warning('滚动受阻: 三种输入都没让画面发生变化')
+                return False
+            # ③ 闭环补残余：动画/限幅/加速度都可能让实际位移小于目标
+            for _ in range(2):
+                remaining = rows - total
+                if remaining <= 0.6:
+                    break
+                before = self.frame
+                notches = scroll_model.notches_for(remaining, pitch)
+                if used == '拖拽':
+                    if not _drag_scroll(pitch, max(1, int(round(remaining)))):
+                        break
+                elif used == 'PostMessage':
+                    try:
+                        self.scroll_relative(0.52, 0.5, -notches)
+                    except Exception as e:
+                        self.log_debug(f'补滚 PostMessage 失败: {e}')
+                        break
+                elif not _real_wheel(notches):
+                    break
+                moved, diff, change, secs = _measure_shift(before, pitch, rect)
+                if change < SCROLL_CHANGE_MIN or diff > SHIFT_DIFF_OK or abs(moved) < 0.35:
+                    self.log_warning(f'补滚无效: {notches} 格 → {moved:+.1f} 行 '
+                                     f'(残差 {diff:.0f}), 停在 {total:.1f} 行')
+                    break
                 scroll_model.observe(notches, moved * pitch)
-                self.log_info(f'滚轮: {notches} 格 → {moved:+.1f} 行 '
-                              f'(≈{scroll_model.px_per_notch:.1f}px/格, 残差 {diff:.0f})')
-                if abs(moved) > 5.5:
-                    self.log_warning(f'一次滚了 {moved:.1f} 行(可见 5 行), 可能漏行')
-                return True
-            # 方式 2: PostMessage（真实滚轮没生效时）
-            if sent:
-                try:
-                    self.scroll_relative(0.52, 0.5, -notches)
-                except Exception as e:
-                    self.log_debug(f'PostMessage 滚轮失败: {e}')
-                self.sleep(0.5)
-                moved2, _diff2 = echo_grid.estimate_row_shift(before, self.frame, rect, pitch)
-                if abs(moved2) >= 0.35:
-                    scroll_model.observe(notches, moved2 * pitch)
-                    self.log_info(f'真实滚轮未生效 → PostMessage 生效 ({moved2:+.1f} 行)')
-                    return True
-            # 方式 3: 拖拽
-            if _drag_scroll(pitch, rows):
-                self.sleep(0.6)
-                moved3, _diff3 = echo_grid.estimate_row_shift(before, self.frame, rect, pitch)
-                if abs(moved3) >= 0.35:
-                    self.log_info(f'滚轮无效 → 拖拽滚动生效 ({moved3:+.1f} 行)')
-                    return True
-            self.log_warning(f'滚动受阻: 位移 {moved:+.1f} 行, 残差 {diff:.0f}')
-            return False
+                total += abs(moved)
+                self.log_info(f'补滚({used}): {notches} 格 → {moved:+.1f} 行 '
+                              f'(累计 {total:.1f}/{rows:.0f} 行, 停稳 {secs:.2f}s)')
+            if total > 5.5:
+                self.log_warning(f'一次滚了 {total:.1f} 行(可见 5 行), 可能漏行')
+            elif total < rows - 1.5:
+                self.log_warning(f'本次只滚了 {total:.1f} 行(目标 {rows:.0f} 行), 重叠会被去重吸收')
+            return True
 
         def read_detail():
             """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost):
@@ -615,16 +710,26 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 empty_scan = 0
 
                 processed_any = False
-                empty_hits = 0       # 连续点空/未切换/已处理的格数, 防止空转
+                eval_before = evaluated
+                dups = 0             # 本屏"重复/点空"格数 —— 与新增一起看可知重叠对不对
+                zero_cells = 0       # 本屏 0 词条格数
                 for nx, ny in cells:
                     if self.stop_requested():
                         stopped = True
                         self.log_info('已请求停止, 结束评估(未生成报告)')
                         break
-                    # 点格子 → 右侧详情。角标中心在格子右下角，空白格/边框点不中时详情不会变：
-                    # 第一次没切换就**往格子中心偏一点**重试一次（往左上 = 格子内部）；
-                    # 仍不切换则跳过（不再无限点同一格）。
-                    click_points = ((nx, ny), (max(0.02, nx - 0.02), max(0.02, ny - 0.035)))
+                    # 点格子 → 右侧详情。第一次没切换就**换到行线的另一侧**再点一次：
+                    # 行线是"等级条"的横边，卡片可能在线上方（批量管理视图）也可能压在线的下沿
+                    # （普通列表）。主点按亮度判过一侧，重试点就取**相反那一侧**，两次合起来覆盖
+                    # 两种解释；仍不切换则跳过（不再无限点同一格）。
+                    fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+                    pitch_px = float(grid_pitch['row'] or 0.0)
+                    dy_ratio = grid_pitch.get('dy')
+                    if dy_ratio is None:
+                        dy_ratio = 0.08
+                    alt_ratio = 0.08 if dy_ratio < 0 else -0.30
+                    delta = (alt_ratio - dy_ratio) * pitch_px / fh if pitch_px > 1 else -0.035
+                    click_points = ((nx, ny), (nx, max(0.02, ny + delta)))
                     for attempt, (cx, cy) in enumerate(click_points):
                         self.click(cx, cy, after_sleep=0.8)
                         dbg_shot(f'click_{cx:.2f}_{cy:.2f}')
@@ -632,7 +737,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         if paired_all and sig != last_sig:
                             break
                         if attempt == 0:
-                            self.log_debug(f'点选未切换 → 向格子中心偏移重试: ({nx:.3f},{ny:.3f})')
+                            self.log_debug(f'点选未切换 → 换行线另一侧重试: ({nx:.3f},{ny:.3f})')
                     # 属性行签名(不含名字): 名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)时防重复记录
                     stat_key = '|'.join(f'{n}={round(parse_number(v), 1)}' for n, v in paired_all)
                     key = self.dedup_key(echo_name, paired_all) if paired_all else ''
@@ -641,15 +746,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             or (key and key in seen_sigs)
                             or (stat_key and stat_key in seen_stat_sigs)):
                         # 空格/点选未切换(行尾补全的空白格)/已处理过的声骸(滚动重叠/名字抖动)
-                        # → 跳过本格继续, 避免提前滚动漏掉本行后面真实格; 空转过多再滚屏
-                        empty_hits += 1
-                        if empty_hits >= 8:
-                            self.log_debug('连续点选无新声骸, 本屏滚屏')
-                            break
+                        # → 跳过本格继续。
+                        # **不要"连续 8 格重复就提前滚屏"**（旧逻辑）：滚动只走 2~3 行时本屏前 2 行
+                        # 都是重复，提前滚 4 行会把本屏还没扫的那些行**整段跳过**（漏行）。
+                        # 卡住时不空转由 scroll_grid 返回 False + 连续 2 次中止兜底，不靠这里提前跳。
+                        dups += 1
                         continue
 
                     processed_any = True
-                    empty_hits = 0
                     if stat_key:
                         seen_stat_sigs.add(stat_key)
 
@@ -683,6 +787,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         processed_any = True
                         seen_sigs.add(key)
                         zero_run += 1
+                        zero_cells += 1
                         self.log_debug(f'[评估跳过] {echo_name} | 0级(无词条)')
                         if zero_run >= ZERO_TAIL_STOP:
                             # 按等级排序时 0 级在列表尾部 → 连续两行 0 词条即视为到底, 不再往下点
@@ -708,6 +813,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                 if stop_all or stopped:
                     break
+                # 本屏小结: "新增 + 重复" 直接反映滚动重叠对不对(滚 4 行应只有首行 ~6 格重复)
+                self.log_info(f'本屏完成: {len(cells)} 格, 新增 {evaluated - eval_before} 条, '
+                              f'重复/点空 {dups} 格, 0词条 {zero_cells} 格')
 
                 moved_ok = scroll_grid()
                 if moved_ok:

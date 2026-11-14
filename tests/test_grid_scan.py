@@ -96,7 +96,8 @@ class TestGridStructure(unittest.TestCase):
             y = 184 + 138 * k
             for c in range(6):
                 x = 117 + 115 * c
-                cv2.rectangle(img, (x, y - 125), (x + 110, y + 16), (90, 90, 90), -1)
+                # 卡片高度 ~1 行距的 0.8, 下方留深色间隙（真机就是这么排的, 点击偏移靠它判卡片侧）
+                cv2.rectangle(img, (x, y - 107), (x + 110, y + 2), (90, 90, 90), -1)
                 cv2.line(img, (x + 4, y), (x + 106, y), (0, 190, 255), 3)   # 金色条顶线
                 cv2.putText(img, '+25', (x + 55, y + 13), cv2.FONT_HERSHEY_SIMPLEX,
                             0.5, (240, 240, 240), 1)
@@ -110,8 +111,9 @@ class TestGridStructure(unittest.TestCase):
         self.assertAlmostEqual(st['row_pitch'], 138, delta=4)
         cells = echo_grid.cells_from_structure(st)
         self.assertEqual(len(cells), 30)
-        # 行优先
-        self.assertEqual(cells[0], (st['cols'][0], st['rows'][0] + st['row_pitch'] * 0.08))
+        # 行优先; 点击偏移 = 标定给出的"卡片侧"(这帧卡片在行线上方 → 负偏移)
+        self.assertEqual(cells[0], (st['cols'][0], st['rows'][0] + st['row_pitch'] * st['click_dy']))
+        self.assertLess(st['click_dy'], 0)
 
     def test_blank_frame_returns_none(self):
         import numpy as np
@@ -123,6 +125,53 @@ class TestGridStructure(unittest.TestCase):
         cells = echo_grid.cells_from_structure(st)
         self.assertEqual(cells[0], (163.0, 184.0 + 138.0 * 0.08))
         self.assertEqual(len(cells), 4)
+
+    def test_truncated_edge_column_is_recovered(self):
+        """ROI 切到第一格金条中间：那个半截段不能当列中心(偏 34px), 但必须把整列补回来。
+
+        真机 7 列视图实测: 第一格金条只剩 (94,115)、中心 104.5, 真值 70.5;
+        旧实现把它当列中心 → 整行列点偏三分之一列距(点选未切换), 且第一列永远点不到。
+        """
+        import cv2
+        import numpy as np
+        img = np.full((889, 1254, 3), 20, np.uint8)
+        centers = [70.5 + 112.5 * c for c in range(7)]
+        for k in range(5):
+            y = 200 + 135 * k
+            for cx in centers:
+                x = int(cx - 46)
+                cv2.rectangle(img, (x, y - 105), (x + 92, y + 6), (90, 90, 90), -1)
+                cv2.line(img, (x + 2, y), (x + 90, y), (0, 190, 255), 3)
+        st = echo_grid.detect_grid_structure(img, (94, 89, 821, 800))
+        self.assertIsNotNone(st)
+        self.assertEqual(len(st['cols']), 7, msg=f'cols={st["cols"]}')
+        self.assertAlmostEqual(st['cols'][0], 70.5, delta=3.0)
+        self.assertAlmostEqual(st['cols'][-1], 745.5, delta=3.0)
+
+
+class TestLatticeFit(unittest.TestCase):
+    """等间距拟合：个别列偏了不能把整行列距/锚点带偏（端点法的老坑）。"""
+
+    def test_drops_outlier_and_keeps_spacing(self):
+        # 真机 7 列帧实测: 第一个金段贴在 ROI 边界, 中心偏 34px
+        anchor, pitch, grid = echo_grid.fit_lattice(
+            [104.5, 183.5, 296.5, 409.0, 521.4, 634.5, 747.0])
+        self.assertIsNotNone(anchor)
+        self.assertAlmostEqual(pitch, 112.7, delta=1.0)
+        self.assertEqual(len(grid), 6)                 # 离群列被剔掉
+        self.assertAlmostEqual(grid[0], 183.5, delta=1.0)
+        self.assertAlmostEqual(grid[-1], 747.0, delta=1.0)
+
+    def test_fills_interior_gap(self):
+        # 中间漏检一列(金线被图标挡掉) → 用格点补回, 不能整列消失
+        _, pitch, grid = echo_grid.fit_lattice([163.0, 278.0, 508.5, 623.5, 739.0])
+        self.assertEqual(len(grid), 6)
+        self.assertAlmostEqual(grid[2], 393.5, delta=2.0)
+
+    def test_too_few_columns(self):
+        anchor, pitch, grid = echo_grid.fit_lattice([100.0, 200.0])
+        self.assertIsNone(anchor)
+        self.assertEqual(len(grid), 2)
 
 
 class TestGridModel(unittest.TestCase):
@@ -211,25 +260,72 @@ class TestRowShift(unittest.TestCase):
         self.assertAlmostEqual(rows, 0.0, delta=0.05)
         self.assertLess(diff, 1.0)
 
+    def test_five_rows_measurable(self):
+        """5 行位移必须能量出来（旧实现把搜索范围限在"高-80"，711px 视口只到 4 行 →
+        真机兜底滚屏走 5~6 行时估出 0，被当成"滚动受阻"又叠一次输入）。
+
+        注：视口 711px、行距 138 → 6 行只剩 3px 重叠，**物理上无法用对齐测量**
+        （真实滚动也不该一次走 6 行：拖拽兜底已限到 2.5 行）。超过 5 行由调用方用
+        `frame_change_ratio` 判"动了但量不出"，不再叠加输入。
+        """
+        import numpy as np
+        rng = np.random.RandomState(7)
+        canvas = rng.randint(0, 255, (889 + 6 * 138, 1254, 3), dtype=np.uint8)
+        before = canvas[:889]
+        for k in (3, 4, 5):
+            after = canvas[k * 138:k * 138 + 889]
+            rows, diff = echo_grid.estimate_row_shift(before, after, (100, 89, 820, 800), self.PITCH)
+            self.assertAlmostEqual(rows, float(k), delta=0.35, msg=f'k={k} rows={rows} diff={diff}')
+
+
+class TestFrameChange(unittest.TestCase):
+    """画面变化占比：不依赖对齐，用来判"到底动没动"。"""
+
+    RECT = (100, 89, 820, 800)
+
+    def test_identical(self):
+        f = TestRowShift._frame()
+        self.assertLess(echo_grid.frame_change_ratio(f, f.copy(), self.RECT), 0.01)
+
+    def test_scroll_changes_most_pixels(self):
+        f = TestRowShift._frame()
+        after = TestRowShift._shift(f, -138.0)
+        # 合成帧的整行灰阶只差 25（正好压在默认阈值上），这里用 10 只验证"位移会让大半区域变"
+        self.assertGreater(echo_grid.frame_change_ratio(f, after, self.RECT, thresh=10), 0.35)
+
+    def test_small_hover_change(self):
+        import cv2
+        f = TestRowShift._frame()
+        after = f.copy()
+        cv2.rectangle(after, (130, 100), (210, 170), (250, 250, 250), -1)   # 一格高光
+        self.assertLess(echo_grid.frame_change_ratio(f, after, self.RECT), 0.12)
+
 
 class TestScrollModel(unittest.TestCase):
     """滚轮距离模型：距离来自布局(行距)与实测 px/格，而不是猜 notches。"""
 
     def test_notches_from_layout(self):
-        m = echo_grid.ScrollModel(px_per_notch=8.0)
-        # 138px/行 × 4 行 = 552px；8px/格 → 69 格 → 限幅 40
-        self.assertEqual(m.notches_for(4, 138.0), 40)
+        # 8px/格 是 1920 宽帧的实测值; 552px/8 = 69 格, 不该再被 40 截断(截断=只滚 2.3 行)
+        m = echo_grid.ScrollModel(frame_width=1920.0)
+        self.assertAlmostEqual(m.px_per_notch, 8.0, delta=0.01)
+        self.assertEqual(m.notches_for(4, 138.0), 69)
         m2 = echo_grid.ScrollModel(px_per_notch=35.0)
-        self.assertEqual(m2.notches_for(4, 138.0), 16)   # 552/35 ≈ 15.8 → 16
+        self.assertEqual(m2.notches_for(4, 138.0), 16)   # 552/35 ≈ 15.8 → 向上取整 16
         m3 = echo_grid.ScrollModel(px_per_notch=35.0, min_notches=1, max_notches=100)
         self.assertLessEqual(m3.notches_for(1, 138.0), 4)
+
+    def test_px_per_notch_scales_with_window(self):
+        # 1254 宽(200% DPI 小窗): px/格 按 UI scale 缩到 5.2, 4 行 540px 要 104 格
+        m = echo_grid.ScrollModel(frame_width=1254.0)
+        self.assertAlmostEqual(m.px_per_notch, 8.0 * 1254 / 1920, delta=0.01)
+        self.assertEqual(m.notches_for(4, 135.0), 104)
 
     def test_observe_updates_px_per_notch(self):
         m = echo_grid.ScrollModel(px_per_notch=8.0)
         m.observe(15, 15 * 30.0, weight=1.0)   # 实测 30px/格
         self.assertAlmostEqual(m.px_per_notch, 30.0, delta=0.1)
-        # 距离随之收敛到 4 行所需格数
-        self.assertEqual(m.notches_for(4, 138.0), 18)   # 552/30 ≈ 18.4
+        # 距离随之收敛到 4 行所需格数（向上取整: 552/30 = 18.4 → 19）
+        self.assertEqual(m.notches_for(4, 138.0), 19)
 
     def test_observe_ignores_no_move(self):
         m = echo_grid.ScrollModel(px_per_notch=12.0)
