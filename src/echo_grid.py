@@ -365,12 +365,50 @@ def detect_row_lines(frame_bgr, rect):
     return _detect_rows(gray, x0, x1, y0, y1)
 
 
-def rows_differ(before, after, tol=4.0):
-    """两组行线是否不同（判断"滚动是否真的生效"）。空列表/行数变化都视为不同。"""
-    a = [float(v) for v in (before or [])]
-    b = [float(v) for v in (after or [])]
-    if not a and not b:
-        return False          # 两边都没检测到行线（例如列表底部）→ 视为没变化
-    if not a or not b or len(a) != len(b):
-        return True
-    return any(abs(x - y) > tol for x, y in zip(a, b))
+def estimate_row_shift(before_bgr, after_bgr, rect, pitch, max_rows=6):
+    """用已知行距估两帧之间的竖向滚动量（行数，带亚行细化）。
+
+    返回 `(rows, diff)`：`rows>0` 表示内容**向上滚了约 rows 行**（列表向下翻）；
+    `diff` 是最佳对齐后的灰度平均差（越小越可信，参考：>25 说明没对齐/画面变化大）。
+    做法：先按 k×pitch 搜索整数行，再在 ±pitch/2 内以 4px 步长细化。
+    """
+    if cv2 is None or np is None or before_bgr is None or after_bgr is None:
+        return 0.0, 1e9
+    x0, y0, x1, y1 = [int(round(v)) for v in rect]
+    h, w = before_bgr.shape[:2]
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(w, x1), min(h, y1)
+    if x1 - x0 < 32 or y1 - y0 < 32 or pitch <= 1:
+        return 0.0, 1e9
+    before = cv2.cvtColor(before_bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    after = cv2.cvtColor(after_bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    if before.shape != after.shape:
+        return 0.0, 1e9
+    height = before.shape[0]
+    max_k = int(min(max_rows, max(0, (height - 80) // max(1.0, pitch))))
+
+    def _diff(dy_int):
+        if dy_int < 0:
+            a = after[-dy_int:]
+            b = before[:height + dy_int]
+        else:
+            a = after[:height - dy_int]
+            b = before[dy_int:]
+        if a.shape[0] < 40:
+            return 1e9
+        return float(np.abs(a - b).mean())
+
+    best_k, best_diff = 0, _diff(0)
+    for k in range(1, max_k + 1):
+        d = _diff(int(round(k * pitch)))
+        if d < best_diff:
+            best_k, best_diff = k, d
+    # 亚行细化：在 best_k*pitch ± pitch/2 内 4px 步长
+    best_dy = best_k * pitch
+    lo = int(best_k * pitch - pitch / 2)
+    hi = int(best_k * pitch + pitch / 2)
+    for dy in range(max(-height + 60, lo), min(height - 60, hi) + 1, 4):
+        d = _diff(dy)
+        if d < best_diff:
+            best_dy, best_diff = dy, d
+    return best_dy / pitch, best_diff

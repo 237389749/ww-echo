@@ -322,6 +322,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         ZERO_TAIL_STOP = 12        # 连续两行(6 列 ×2) 0 词条 → 视为 0 级尾部
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
+        scroll_notches = 15      # 滚轮格数(按实测位移自适应调整)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -427,23 +428,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.log_debug(f'网格扫描: 角标 {len(marks)} 个 → {len(xs)} 列 × {len(ys)} 行')
             return [(mx / fw, my / fh) for mx, my in cells]
 
-        def _scan_rows():
-            """当前帧的行线（轻量，仅用于判断滚动是否生效）。"""
-            try:
-                fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
-                fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
-                rect = (max(0.0, 0.075 * fw), 0.10 * fh, 0.655 * fw, 0.90 * fh)
-                rows, _pitch = echo_grid.detect_row_lines(self.frame, rect)
-                return rows
-            except Exception as e:
-                self.log_debug(f'行线检测失败(忽略): {e}')
-                return []
+        def _grid_rect_px():
+            fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+            fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+            return (max(0.0, 0.075 * fw), 0.10 * fh, 0.655 * fw, 0.90 * fh)
 
-        def _real_wheel(notches=15):
-            """真实鼠标滚轮（SendInput）：需要窗口前台，但游戏/UE 只认真实输入时这是唯一有效路径。
+        def _real_wheel(notches):
+            """真实鼠标滚轮（SendInput）：先把窗口拉前、光标放到网格中心，保证命中。
 
             为什么需要它：PostMessage 的 WM_MOUSEWHEEL 不移动真实光标，UE 的 Slate 用真实光标做命中测试，
-            本地窗口模式下经常被忽略（2026-11-14 真机：29 条后列表完全不动）。
+            本地窗口模式下会被忽略（2026-11-14 真机：首屏 30 条后列表不动）。
             """
             try:
                 import ctypes
@@ -465,21 +459,51 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_warning(f'真实鼠标滚轮失败: {e}')
                 return False
 
-        def scroll_grid(notches=15):
-            """滚一屏；PostMessage 无效时自动回退真实鼠标滚轮，并用行线变化验证。"""
-            before = _scan_rows()
-            try:
-                self.scroll_relative(0.52, 0.5, -notches)
-            except Exception as e:
-                self.log_debug(f'scroll failed: {e}')
-            self.sleep(0.45)
-            if not echo_grid.rows_differ(before, _scan_rows()):
-                if _real_wheel(notches):
-                    self.sleep(0.6)
-                    if echo_grid.rows_differ(before, _scan_rows()):
-                        self.log_info('PostMessage 滚轮无效 → 已切换真实鼠标滚轮(生效)')
-                    else:
-                        self.log_warning('滚轮仍未生效: 行线没有变化(请检查游戏是否前台/滚动热区)')
+        def scroll_grid(notches=None):
+            """滚一屏：真实滚轮优先 + 相位相关测量实际位移，按行距自适应距离。
+
+            目标位移 = 4 行(可见 5 行, 留 1 行重叠防漏)；实测 dy 换算成行数写日志，
+            偏离目标(太近/太远)时按比例调整下次 notches。"""
+            nonlocal scroll_notches
+            if notches is None:
+                notches = scroll_notches
+            fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+            pitch = (layout_model.row_pitch_ratio * fw) if layout_model else 0.11 * fw
+            pitch = max(20.0, pitch)
+            rect = _grid_rect_px()
+            before = self.frame
+            used_real = _real_wheel(notches)
+            if not used_real:
+                try:
+                    self.scroll_relative(0.52, 0.5, -notches)
+                except Exception as e:
+                    self.log_debug(f'scroll failed: {e}')
+            self.sleep(0.6)
+            after = self.frame
+            moved_rows, diff = echo_grid.estimate_row_shift(before, after, rect, pitch)
+            if abs(moved_rows) >= 0.35:
+                self.log_info(f'滚轮: {notches} 格 → 约 {moved_rows:+.1f} 行 (残差 {diff:.0f})')
+                # 目标 4 行：偏离 >1 行时按比例调整（限幅 3~40 格）
+                if abs(abs(moved_rows) - 4.0) > 1.0:
+                    ratio = 4.0 / max(0.2, abs(moved_rows))
+                    scroll_notches = int(min(40, max(3, round(notches * ratio))))
+                    self.log_info(f'滚轮距离自适应: {moved_rows:.1f} 行 → 下次 {scroll_notches} 格')
+                elif abs(moved_rows) > 5.5:
+                    self.log_warning(f'滚轮一次滚了 {moved_rows:.1f} 行(可见 5 行), 可能漏行')
+                return
+            # 没动（或测不准）→ 退 PostMessage 再试一次；仍不动就报警
+            if used_real:
+                try:
+                    self.scroll_relative(0.52, 0.5, -notches)
+                except Exception as e:
+                    self.log_debug(f'scroll failed: {e}')
+                self.sleep(0.5)
+                after2 = self.frame
+                moved2, diff2 = echo_grid.estimate_row_shift(before, after2, rect, pitch)
+                if abs(moved2) >= 0.35:
+                    self.log_info(f'真实滚轮无效 → PostMessage 生效 (约 {moved2:.1f} 行)')
+                    return
+            self.log_warning(f'滚轮未生效: 位移 {moved_rows:.1f} 行, 残差 {diff:.0f} (检查游戏前台/滚动热区)')
 
         def read_detail():
             """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost):

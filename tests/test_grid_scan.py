@@ -165,19 +165,51 @@ class TestGridModel(unittest.TestCase):
         self.assertAlmostEqual(pitch or 0, 138, delta=4)
 
 
-class TestRowsDiffer(unittest.TestCase):
-    """判断"滚轮是否真的滚动"：行线变化比较。"""
+class TestRowShift(unittest.TestCase):
+    """滚轮位移测量：按已知行距估"滚了几行"（用于自适应滚动距离）。"""
 
-    def test_same_rows(self):
-        self.assertFalse(echo_grid.rows_differ([184, 322, 460], [184, 322, 460]))
-        self.assertFalse(echo_grid.rows_differ([], []))
+    PITCH = 138.0
 
-    def test_shifted_rows(self):
-        self.assertTrue(echo_grid.rows_differ([184, 322, 460], [64, 202, 340]))
-        self.assertTrue(echo_grid.rows_differ([184, 322], [184, 322, 460]))
+    @staticmethod
+    def _frame():
+        import cv2
+        import numpy as np
+        img = np.full((889, 1254, 3), 20, np.uint8)
+        for k in range(5):
+            y = 184 + 138 * k
+            for c in range(6):
+                x = 117 + 115 * c
+                # 每行不同灰度 + 随机斑点，保证跨行可区分
+                gray = 60 + 25 * k
+                cv2.rectangle(img, (x, y - 120), (x + 110, y + 16), (gray, gray, gray), -1)
+                cv2.circle(img, (x + 40 + 8 * k, y - 60), 12, (200, 200, 200), -1)
+        return img
 
-    def test_one_side_empty(self):
-        self.assertTrue(echo_grid.rows_differ([], [184, 322]))
+    @staticmethod
+    def _shift(img, dy):
+        import cv2
+        import numpy as np
+        m = np.float32([[1, 0, 0], [0, 1, dy]])
+        return cv2.warpAffine(img, m, (img.shape[1], img.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+
+    def test_exact_rows(self):
+        f = self._frame()
+        for k in (0, 1, 2, 3, 4):
+            rows, diff = echo_grid.estimate_row_shift(f, self._shift(f, -self.PITCH * k),
+                                                      (100, 89, 820, 800), self.PITCH)
+            self.assertAlmostEqual(rows, k, delta=0.25, msg=f'k={k} got rows={rows} diff={diff}')
+
+    def test_sub_row(self):
+        f = self._frame()
+        rows, _ = echo_grid.estimate_row_shift(f, self._shift(f, -self.PITCH * 0.5),
+                                               (100, 89, 820, 800), self.PITCH)
+        self.assertAlmostEqual(rows, 0.5, delta=0.25)
+
+    def test_no_shift(self):
+        f = self._frame()
+        rows, diff = echo_grid.estimate_row_shift(f, f.copy(), (100, 89, 820, 800), self.PITCH)
+        self.assertAlmostEqual(rows, 0.0, delta=0.05)
+        self.assertLess(diff, 1.0)
 
 
 if __name__ == '__main__':
