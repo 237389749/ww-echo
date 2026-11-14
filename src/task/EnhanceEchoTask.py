@@ -323,10 +323,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         # ── 滚动调参(2026-11-14 真机实测后定的量) ────────────────────────────
         SCROLL_TARGET_ROWS = 4.0    # 每次滚 4 行(可见 5 行, 留 1 行重叠给去重吸收)
         SCROLL_SETTLE_STEP = 0.15   # 位移采样间隔(动画期间轮询)
-        SCROLL_SETTLE_TIMEOUT = 2.4  # 动画最长等这么久; 连续两次读数一致即提前结束
+        SCROLL_SETTLE_TIMEOUT = 3.0  # 等画面静止的最长时间(真机 ease-in 动画约 1s 收尾)
+        SCROLL_STILL_RATIO = 0.02   # 相邻两帧变化像素占比 < 此值 = 画面静止(动画结束)
         SHIFT_DIFF_OK = 18.0        # 对齐残差 ≤ 此值才认为位移可信
         SCROLL_CHANGE_MIN = 0.12    # 画面变化占比 < 此值 = 什么都没发生(只有悬停/选中框)
         SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
+        SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
         # 滚轮距离模型: px/格 随窗口缩放(8.0 是 1920 宽帧的实测值)
@@ -513,30 +515,59 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_warning(f'拖拽滚动失败: {e}')
                 return False
 
+        def _wait_still(rect, timeout=SCROLL_SETTLE_TIMEOUT):
+            """等画面**停止变化**再返回这一帧（滚动动画的收尾）。
+
+            **为什么不能只看位移读数**（2026-11-14 真机 16:21 那轮）：
+            滚轮是 ease-in 动画 —— 前 0.5s 只走 0.2 行，之后才加速。旧判据"连续两次读数一致"
+            在慢启动阶段就满足了 → 报"停稳 0.52s / +0.2 行"，实际最后走了 4~5 行。
+            读数错 → 不校正 → 越滚越多 → 整行被跳过（那轮 113 只 / 应为 153）。
+            这里改成看**相邻两帧的差异**：还在动就继续等，动了多久/动了多少都不影响判据。
+            """
+            prev = self.frame
+            t0 = time.time()
+            stable = 0
+            while time.time() - t0 < timeout:
+                self.sleep(SCROLL_SETTLE_STEP)
+                cur = self.frame
+                delta = echo_grid.frame_change_ratio(prev, cur, rect)
+                prev = cur
+                if delta < SCROLL_STILL_RATIO:
+                    stable += 1
+                    if stable >= 2:       # 连续两次"几乎不变"才算真停稳(防单次巧合)
+                        return cur
+                else:
+                    stable = 0
+                if self.stop_requested():
+                    break
+            self.log_debug(f'等静止超时({timeout:.1f}s): 画面一直在变(可能背景有动效), 用当前帧')
+            return self.frame
+
         def _measure_shift(before, pitch, rect):
             """等滚动动画**停稳**再量位移 → (rows, diff, change_ratio, seconds)。
 
-            为什么不能单次 0.6s 采样（2026-11-14 真机）：40 格滚轮到 0.6s 时只量到 +0.5 行，
-            动画停下后实际约 4 行 —— 读数错，后面的"残余校正 / 受阻判定"就全错。
-            判定分两层：①`frame_change_ratio` 不依赖对齐，区分"没动"与"动了"；
-            ②能对齐到整行位移才用 `rows` 做闭环，残差过高就只当"动了、但量不出"。
+            判据同 `_wait_still`：看**相邻两帧**是否还在变，而不是看位移读数是否"稳定"
+            （ease-in 动画的慢启动会让位移读数长时间停在很小的值上）。
             """
             t0 = time.time()
-            last = None
+            prev = before
             rows, diff, change = 0.0, 1e9, 0.0
+            stable = 0
             while True:
                 self.sleep(SCROLL_SETTLE_STEP)
                 frame = self.frame
                 rows, diff = echo_grid.estimate_row_shift(before, frame, rect, pitch)
                 change = echo_grid.frame_change_ratio(before, frame, rect)
-                settled = last is not None and abs(rows - last) < 0.15
-                # "稳定"还不够: 动画有启动延迟, 前两次都可能读到 0 行 → 必须同时
-                # 看到画面确实变了(或位移非零/已等满 1.2s)才收工, 否则会误判成"没滚动"
-                if settled and (abs(rows) >= 0.1 or change >= SCROLL_CHANGE_MIN
-                                or time.time() - t0 >= 1.2):
-                    break
-                last = rows
+                delta = echo_grid.frame_change_ratio(prev, frame, rect)
+                prev = frame
+                if delta < SCROLL_STILL_RATIO:
+                    stable += 1
+                    if stable >= 2:
+                        break
+                else:
+                    stable = 0
                 if time.time() - t0 >= SCROLL_SETTLE_TIMEOUT or self.stop_requested():
+                    self.log_debug(f'滚动静止超时({SCROLL_SETTLE_TIMEOUT:.1f}s), 用最后一次读数')
                     break
             return rows, diff, change, time.time() - t0
 
@@ -554,7 +585,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             pitch = (layout_model.row_pitch_ratio * fw) if layout_model else 0.11 * fw
             pitch = max(20.0, pitch)
             rect = _grid_rect_px()
-            before = self.frame
+            before = _wait_still(rect)      # 先等上一屏的收尾动画停下来, 否则基准帧是糊的
             total = 0.0
             used = None
             # 首滚保守：px/格 还没实测过(默认值有 ±50% 误差)，先滚 ≤2.5 行再把残余补到目标。
@@ -563,6 +594,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             goal = min(rows, SCROLL_FIRST_ROWS) if first_scroll else rows
             for name in ('真实滚轮', 'PostMessage', '拖拽'):
                 notches = scroll_model.notches_for(goal - total, pitch)
+                if total <= 0.0:
+                    # 首发送略欠一点（宁可下一次补，绝不一次过滚）：过滚会整行漏，欠滚有去重兜底
+                    notches = max(scroll_model.min_notches, int(round(notches * SCROLL_SAFETY)))
                 if name == '真实滚轮':
                     sent = _real_wheel(notches)
                 elif name == 'PostMessage':
@@ -590,8 +624,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     self.log_warning(f'动了但量不出位移(残差 {diff:.0f} > {SHIFT_DIFF_OK:.0f}), '
                                      f'按已滚动处理, 不再叠加输入')
                     return True
-                scroll_model.observe(notches, moved * pitch,
-                                     weight=0.7 if first_scroll else 0.5)
+                # 测量已验证可信(静止判据 + 残差门槛) → **全信这一次实测**。
+                # 旧的 0.5/0.7 平滑要 3~4 屏才收敛，收敛前每一屏都可能过滚(真机就是这么漏掉 40 只的)。
+                scroll_model.observe(notches, moved * pitch, weight=1.0)
                 break
             if used is None:
                 self.log_warning('滚动受阻: 三种输入都没让画面发生变化')
@@ -601,7 +636,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 remaining = rows - total
                 if remaining <= 0.6:
                     break
-                before = self.frame
+                before = _wait_still(rect)
                 notches = scroll_model.notches_for(remaining, pitch)
                 if used == '拖拽':
                     if not _drag_scroll(pitch, max(1, int(round(remaining)))):
