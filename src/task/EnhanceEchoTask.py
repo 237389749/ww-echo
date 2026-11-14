@@ -321,7 +321,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         zero_run = 0               # 连续 0 词条格数(排序正确时 0 级在尾部, 可提前结束)
         ZERO_TAIL_STOP = 12        # 连续两行(6 列 ×2) 0 词条 → 视为 0 级尾部
         # ── 滚动调参(2026-11-14 真机实测后定的量) ────────────────────────────
-        SCROLL_TARGET_ROWS = 4.0    # 每次滚 4 行(可见 5 行, 留 1 行重叠给去重吸收)
+        SCROLL_TARGET_ROWS = 3.0    # 每次滚 3 行(可见 5 行 → 留 ~2 行重叠, 滚过头也还有 1 行缓冲)
         SCROLL_SETTLE_STEP = 0.15   # 位移采样间隔(动画期间轮询)
         SCROLL_SETTLE_TIMEOUT = 3.0  # 等画面静止的最长时间(真机 ease-in 动画约 1s 收尾)
         SCROLL_STILL_RATIO = 0.02   # 相邻两帧变化像素占比 < 此值 = 画面静止(动画结束)
@@ -335,6 +335,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         scroll_model = echo_grid.ScrollModel(
             frame_width=float(getattr(self.executor.method, 'width', 0) or 1920.0))
         scroll_fail = 0          # 连续滚动受阻次数(>=2 中止, 绝不空转)
+        screens_done = 0         # 已扫完的屏数(首屏"0 重复"是正常的, 守卫要跳过它)
+        back_steps = 0           # 本屏"滚过头"后的回滚次数(每屏最多 2 次, 防来回拉锯)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -570,6 +572,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     self.log_debug(f'滚动静止超时({SCROLL_SETTLE_TIMEOUT:.1f}s), 用最后一次读数')
                     break
             return rows, diff, change, time.time() - t0
+
+        def scroll_up(rows=1.0):
+            """向上回滚 rows 行 —— 只为"这次滚过头"时把跳过的行捞回来，不做精确测量。"""
+            fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+            pitch = max(20.0, (layout_model.row_pitch_ratio * fw) if layout_model else 0.11 * fw)
+            notches = scroll_model.notches_for(rows, pitch)
+            rect = _grid_rect_px()
+            before = _wait_still(rect)
+            if not _real_wheel(-notches):      # 负格数 = 向上
+                return False
+            _measure_shift(before, pitch, rect)   # 只为等动画停稳
+            self.log_info(f'回滚: {notches} 格(向上, 捞回被跳过的行)')
+            return True
 
         def scroll_grid(rows=SCROLL_TARGET_ROWS):
             """滚一屏（目标 rows 行）。返回 True=画面确实动了（哪怕没滚够）。
@@ -848,9 +863,20 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                 if stop_all or stopped:
                     break
-                # 本屏小结: "新增 + 重复" 直接反映滚动重叠对不对(滚 4 行应只有首行 ~6 格重复)
+                # 本屏小结: "新增 + 重复" 直接反映滚动重叠对不对(滚 3 行应剩 ~2 行重复)
                 self.log_info(f'本屏完成: {len(cells)} 格, 新增 {evaluated - eval_before} 条, '
                               f'重复/点空 {dups} 格, 0词条 {zero_cells} 格')
+                # ── 无重叠守卫(内容级，不依赖像素测量) ─────────────────────────
+                # 非首屏却**一格重复都没有** = 这次滚过头了(≥5 行)，中间整行被跳过。
+                # 像素测不准也能发现漏行：重复数是"真滚了几行"的直接证据。
+                if screens_done >= 1 and dups == 0 and evaluated > 0 and back_steps < 2:
+                    back_steps += 1
+                    self.log_warning(f'本屏无重叠(滚过头, 中间整行被跳过) → 回滚 1 行重扫'
+                                     f' (第 {back_steps} 次)')
+                    scroll_up(1.0)
+                    continue
+                screens_done += 1
+                back_steps = 0
 
                 moved_ok = scroll_grid()
                 if moved_ok:

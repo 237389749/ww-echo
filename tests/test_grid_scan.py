@@ -314,11 +314,14 @@ class TestScrollModel(unittest.TestCase):
         m3 = echo_grid.ScrollModel(px_per_notch=35.0, min_notches=1, max_notches=100)
         self.assertLessEqual(m3.notches_for(1, 138.0), 4)
 
-    def test_px_per_notch_scales_with_window(self):
-        # 1254 宽(200% DPI 小窗): px/格 按 UI scale 缩到 5.2, 4 行 540px 要 104 格
+    def test_px_per_notch_does_not_scale(self):
+        """px/格 不随窗口缩放（真机 1254 帧实测 8.2~10.4，与 1920 帧的 8.0 一致）。
+
+        曾按 `8.0 × 帧宽/1920` 缩放成 5.2 → 3 行的距离算成 80 格、实际滚 5~6 行 → 整行被跳过。
+        """
         m = echo_grid.ScrollModel(frame_width=1254.0)
-        self.assertAlmostEqual(m.px_per_notch, 8.0 * 1254 / 1920, delta=0.01)
-        self.assertEqual(m.notches_for(4, 135.0), 104)
+        self.assertAlmostEqual(m.px_per_notch, 8.0, delta=0.01)
+        self.assertEqual(m.notches_for(3, 138.0), 52)      # 414px / 8 = 51.75 → 52
 
     def test_observe_updates_px_per_notch(self):
         m = echo_grid.ScrollModel(px_per_notch=8.0)

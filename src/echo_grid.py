@@ -567,18 +567,17 @@ class ScrollModel:
 
     抽象点：距离 = k × 行距(布局模型) / 每格像素(实测)；调用方不再猜 notches。
 
-    **px/格 必须随窗口缩放**：8.0 px/格 是 1920 宽帧的实测值（UI scale = 帧宽/1920），
-    1254 宽时只有约 5.2 —— 按 8.0 算会把 4 行（540px）算成 69 格，再被旧的
-    `max_notches=40` 一截，实际只滚了 2.3 行（2026-11-14 真机：这一截是"越滚越少"的来源之一）。
+    **px/格 不随窗口缩放**（2026-11-14 真机二次实测，改口）：此前按 `8.0 × 帧宽/1920` 缩放，
+    1254 宽帧算出 5.2；真机日志反推实际是 **8.2~10.4 px/格**（64 格滚了约 4 行 = 552px），
+    也就是和 1920 帧的 8.0 基本一致 —— 游戏内滚轮步长跟 UI 缩放无关。用错的 5.2 会把
+    3 行的距离算成 80 格，实际滚出 5~6 行，**整行被跳过**（真机 115/153 就是这么来的）。
     """
 
-    REF_WIDTH = 1920.0
-    PX_PER_NOTCH_REF = 8.0
+    PX_PER_NOTCH = 8.0          # 1920/1254 实测都≈8（详见 docstring）
 
-    def __init__(self, frame_width=REF_WIDTH, px_per_notch=None, min_notches=3, max_notches=160):
-        if px_per_notch is None:
-            px_per_notch = self.PX_PER_NOTCH_REF * float(frame_width) / self.REF_WIDTH
-        self.px_per_notch = float(px_per_notch)
+    def __init__(self, frame_width=1920.0, px_per_notch=None, min_notches=3, max_notches=160):
+        self.px_per_notch = float(px_per_notch) if px_per_notch else float(self.PX_PER_NOTCH)
+        self.frame_width = float(frame_width)
         self.min_notches = int(min_notches)
         self.max_notches = int(max_notches)
         self.observations = 0       # 实测校正次数(0 = 还没量过, 首滚要保守)
