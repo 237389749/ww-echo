@@ -1989,3 +1989,16 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 **修复**：`EnhanceEchoTask._stop_event`（threading.Event）+ `request_stop/stop_requested/reset_stop`；
 `evaluate_only` 每屏/每格检查，停止后跳出循环且**不生成报告/不回调**（删临时目录，日志记录已处理数量）；
 UI 启动前 `reset_stop()`、停止时先 `request_stop()`，线程 join 3s→5s。静态接线守卫 `tests/test_eval_stop.py` 2 项，全量 205 项 OK。
+
+---
+
+**补记 35（2026-11-14：PostMessage 滚轮被 UE 忽略 → 自动回退真实鼠标滚轮）**
+
+**现象**：复跑评估只有 29 条（第一屏），之后 36 秒无新记录并报"连续滚动无进展"；首格已正确。
+
+**根因**：`WM_MOUSEWHEEL` 即使 lParam 用屏幕坐标，UE 的 Slate 用**真实光标**做命中测试，而 PostMessage
+不移动真实光标 → 滚轮被忽略。
+
+**修复**：`scroll_grid` 滚前/滚后比较行线（`echo_grid.rows_differ`）；PostMessage 无效时
+`bring_to_front()` + `SetCursorPos(网格中心)` + Pynput 真实滚轮（SendInput），再次验证并打日志。
+**待真机复跑**：预期条数 29 → 60+，日志出现"已切换真实鼠标滚轮(生效)"。

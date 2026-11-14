@@ -363,3 +363,14 @@ def detect_row_lines(frame_bgr, rect):
         return [], None
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     return _detect_rows(gray, x0, x1, y0, y1)
+
+
+def rows_differ(before, after, tol=4.0):
+    """两组行线是否不同（判断"滚动是否真的生效"）。空列表/行数变化都视为不同。"""
+    a = [float(v) for v in (before or [])]
+    b = [float(v) for v in (after or [])]
+    if not a and not b:
+        return False          # 两边都没检测到行线（例如列表底部）→ 视为没变化
+    if not a or not b or len(a) != len(b):
+        return True
+    return any(abs(x - y) > tol for x, y in zip(a, b))

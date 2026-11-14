@@ -381,6 +381,9 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   每屏/每格检查; 停止后不生成报告、不回调 `on_done`; UI 启动前 `reset_stop()` 防竞争。
 - **PostMessage 滚轮**: `WM_MOUSEWHEEL` 的 lParam 是**屏幕坐标**(其它鼠标消息才是客户区), 且要逐格 `WHEEL_DELTA` 发送。
   旧实现把客户区坐标塞进去 → 本地窗口模式列表**根本不滚**(每屏重复扫同一批 → 报告重复、空转几十秒)。云模式 Pynput 没暴露。
+  **真机 2026-11-14 复跑：坐标改对后 PostMessage 仍被 UE 忽略**(Slate 用真实光标做命中测试) → `scroll_grid`
+  现在滚前/滚后比较行线(`echo_grid.rows_differ`), 无效则 `bring_to_front` + `SetCursorPos(网格中心)` +
+  **Pynput 真实滚轮(SendInput)**，日志会打印是否切换/是否生效。
 - **点选失效兜底**: 进循环前先读一次详情面板做基线; 每格点击后若签名没变(或没读到属性)就**向格子中心偏一点重试一次**
   (角标在格子右下), 仍不变则跳过。名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)会绕过 `dedup_key`, 另用**属性行签名**
   (`seen_stat_sigs`, 不含名字) 防重复记录。
@@ -456,7 +459,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 **阶段三十(2026-11-13)**: ok-ww 农场残留剥离 + Lv5/Lv10 首条/`_low_first` 规则（见 CHANGELOG / handoff.md）。
 **阶段三十一(引擎自持)**: 在分支 **`engine/vendor`**（未合并 `main`，等 P4 真机验收），
 审核补记（OCR 主链路回归 + 台账修正）见 handoff.md / CHANGELOG 补记 22。
-改动后跑: `python -m unittest discover -s tests`(**205 项**; 需 Python 3.11+; 3.13/3.14 已实测)
+改动后跑: `python -m unittest discover -s tests`(**208 项**; 需 Python 3.11+; 3.13/3.14 已实测)
 + `python tools/ui_shot.py`(界面自检, 7 页) + `python tools/offline_eval_report.py`(离线重放, 需 `logs/eval_debug/` 素材)
 + `python tools/echo_plan.py --list`(库存)。
 基线口径(提交号/期望输出/skip 数)见 `docs/BASELINE.md`。

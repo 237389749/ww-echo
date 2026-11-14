@@ -165,5 +165,20 @@ class TestGridModel(unittest.TestCase):
         self.assertAlmostEqual(pitch or 0, 138, delta=4)
 
 
+class TestRowsDiffer(unittest.TestCase):
+    """判断"滚轮是否真的滚动"：行线变化比较。"""
+
+    def test_same_rows(self):
+        self.assertFalse(echo_grid.rows_differ([184, 322, 460], [184, 322, 460]))
+        self.assertFalse(echo_grid.rows_differ([], []))
+
+    def test_shifted_rows(self):
+        self.assertTrue(echo_grid.rows_differ([184, 322, 460], [64, 202, 340]))
+        self.assertTrue(echo_grid.rows_differ([184, 322], [184, 322, 460]))
+
+    def test_one_side_empty(self):
+        self.assertTrue(echo_grid.rows_differ([], [184, 322]))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

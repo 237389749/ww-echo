@@ -214,7 +214,7 @@ P2 把引擎根包从 0.9 s 拉到 0.2 s 量级，第三阶段把 QtWidgets 彻�
 python tools/analysis/import_coupling.py --check
 python tools/analysis/import_coupling.py --timing --out logs/analysis/coupling.md
 python tools/analysis/p1_equiv_check.py      # 纯函数抽取前后逐例对比（默认对比 3e698cf）
-python -m unittest discover -s tests         # 205 项（含惰性导入 + 外壳边界 + 运行模式/网格几何/结构标定与布局模型/评估停止守卫）
+python -m unittest discover -s tests         # 208 项（含惰性导入 + 外壳边界 + 运行模式/网格几何/结构标定与布局模型/评估停止守卫）
 python -X importtime -c "import ww_engine"   # 根包导入成本（裸 import 不应出现 qfluentwidgets/cv2/shell）
 python tools/echo_plan.py --list             # 纯 CLI 冒烟（P1 后不再需要 Qt）
 ```

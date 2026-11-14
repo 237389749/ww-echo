@@ -452,12 +452,59 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.log_debug(f'网格扫描: 角标 {len(marks)} 个 → {len(xs)} 列 × {len(ys)} 行')
             return [(mx / fw, my / fh) for mx, my in cells]
 
+        def _scan_rows():
+            """当前帧的行线（轻量，仅用于判断滚动是否生效）。"""
+            try:
+                fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+                fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+                rect = (max(0.0, 0.075 * fw), 0.10 * fh, 0.655 * fw, 0.90 * fh)
+                rows, _pitch = echo_grid.detect_row_lines(self.frame, rect)
+                return rows
+            except Exception as e:
+                self.log_debug(f'行线检测失败(忽略): {e}')
+                return []
+
+        def _real_wheel(notches=15):
+            """真实鼠标滚轮（SendInput）：需要窗口前台，但游戏/UE 只认真实输入时这是唯一有效路径。
+
+            为什么需要它：PostMessage 的 WM_MOUSEWHEEL 不移动真实光标，UE 的 Slate 用真实光标做命中测试，
+            本地窗口模式下经常被忽略（2026-11-14 真机：29 条后列表完全不动）。
+            """
+            try:
+                import ctypes
+                import win32gui
+                from pynput.mouse import Controller
+                dm = self.executor.device_manager
+                hwnd_window = getattr(dm, 'hwnd_window', None)
+                if hwnd_window is None or not hwnd_window.hwnd:
+                    return False
+                hwnd_window.bring_to_front()
+                self.sleep(0.15)
+                target = getattr(hwnd_window, 'top_hwnd', None) or hwnd_window.hwnd
+                ax, ay = win32gui.ClientToScreen(target, (int(self.width * 0.52), int(self.height * 0.5)))
+                ctypes.windll.user32.SetCursorPos(int(ax), int(ay))
+                self.sleep(0.08)
+                Controller().scroll(0, -int(notches))
+                return True
+            except Exception as e:
+                self.log_warning(f'真实鼠标滚轮失败: {e}')
+                return False
+
         def scroll_grid(notches=15):
-            """光标移到滚动热区并下滑"""
+            """滚一屏；PostMessage 无效时自动回退真实鼠标滚轮，并用行线变化验证。"""
+            before = _scan_rows()
             try:
                 self.scroll_relative(0.52, 0.5, -notches)
             except Exception as e:
                 self.log_debug(f'scroll failed: {e}')
+            self.sleep(0.45)
+            if not echo_grid.rows_differ(before, _scan_rows()):
+                if _real_wheel(notches):
+                    self.sleep(0.6)
+                    if echo_grid.rows_differ(before, _scan_rows()):
+                        self.log_info('PostMessage 滚轮无效 → 已切换真实鼠标滚轮(生效)')
+                    else:
+                        self.log_warning('滚轮仍未生效: 行线没有变化(请检查游戏是否前台/滚动热区)')
 
         def read_detail():
             """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost):
