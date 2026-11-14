@@ -62,5 +62,30 @@ class TestEvalTraverseNoGap(unittest.TestCase):
         self.assertIn('本屏完成', src)
 
 
+class TestNestedHelperReceiver(unittest.TestCase):
+    """`evaluate_only` 里的嵌套函数只能直接调用，**不能写成 `self.xxx()`**。
+
+    2026-11-14 真机踩过：`_log_grid_geometry` 是 `evaluate_only` 内的闭包，却写成
+    `self._log_grid_geometry(...)` → 点「开始」立刻 AttributeError 中止，而 UI 只弹了一条
+    InfoBar、日志里连 traceback 都没有。这里用 AST 静态挡住同类错误。
+    """
+
+    def test_no_self_reference_to_nested_functions(self):
+        import ast
+        path = os.path.join(ROOT, 'src', 'task', 'EnhanceEchoTask.py')
+        with open(path, encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+        nested = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                for ch in ast.walk(node):
+                    if isinstance(ch, ast.FunctionDef) and ch is not node:
+                        nested.add(ch.name)
+        bad = [(n.attr, n.lineno) for n in ast.walk(tree)
+               if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+               and n.value.id == 'self' and n.attr in nested]
+        self.assertEqual(bad, [], msg=f'嵌套函数被误写成 self.<name>: {bad}')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

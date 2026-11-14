@@ -2077,6 +2077,18 @@ UI 启动前 `reset_stop()`、停止时先 `request_stop()`，线程 join 3s→5
   —— 下次真机一眼能看出重叠对不对、有没有漏行。
 - 新工具 `tools/analysis/probe_scroll.py`：`--capture` 只读出几何报告；`--scroll` 实测滚轮位移曲线（需管理员）。
 
-**验证**：全量 **226 项 OK (skipped=2)**（新增 9 项：5 行位移可测 / 画面变化占比 3 项 / 列拟合 3 项 /
+**验证**：全量 **228 项 OK (skipped=2)**（新增 9 项：5 行位移可测 / 画面变化占比 3 项 / 列拟合 3 项 /
 贴边截断列恢复 / 滚轮模型缩放）。真帧实测：结构标定 7 列 → `[70.9 … 747.0]`、行距 135、`click_dy=-0.30`。
 **真机待验**：日志出现 `滚动(真实滚轮): N 格 → +4.0 行 (… 停稳 0.7xs …)` + `本屏完成 … 新增 24~30`，条数应接近 229。
+
+**补充（同日）：一次回归 + 两层防线**
+
+改完立刻上真机时发现「点开始直接失败」：新加的 `_log_grid_geometry` 是 `evaluate_only` 内的**闭包**，
+却写成了 `self._log_grid_geometry(...)` → `AttributeError` 秒退。三件事：
+① 改成直接调用；② `tests/test_eval_traverse.py` 加 **AST 守卫**：`src/task/EnhanceEchoTask.py` 里任何
+`self.<嵌套函数名>` 一律报错（这类错误 pyflakes 与静态字符串检查都抓不到）；
+③ 新增 `tests/test_eval_smoke.py`：用一张合成帧 + 桩件**真跑一遍 `evaluate_only`**
+（结构标定 → 30 格点击 → 读详情 → 每屏小结 → 滚动受阻 → 连续 2 次中止 → 出报告），2.7s。
+已验证它确实能抓住上面那个 bug（把 `self.` 重新插入 → 测试 ERROR）。
+④ `ui/run_tab._run_eval` 的 `except` 现在会 `task.log_error(..., exception=e)` —— 之前只弹 InfoBar，
+日志里只剩"评估遍历: ..."一行，排查时看不到原因。**全量 228 项 OK**。

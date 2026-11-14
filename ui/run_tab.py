@@ -513,6 +513,9 @@ class RunTab(QWidget):
                         hwnd_window.bring_to_front()
                     task.evaluate_only(on_done=_on_eval_done)
                 except Exception as e:
+                    # 立刻失败的异常必须落到日志里（带 traceback）：只弹 InfoBar 的话，
+                    # 日志里只剩"评估遍历: ..."一行，排查时完全看不到原因（2026-11-14 踩过）。
+                    task.log_error('评估异常, 已中止', exception=e)
                     self._eval_error_signal.emit(str(e))
 
             self._thread = threading.Thread(target=_run_eval, daemon=True)

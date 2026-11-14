@@ -416,7 +416,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 cells_model = layout_model.cells(fw, rows)
                 grid_pitch['row'] = row_pitch
                 grid_pitch['dy'] = layout_model.click_dy_ratio
-                self._log_grid_geometry(layout_model.cols, len(rows), row_pitch)
+                _log_grid_geometry(layout_model.cols, len(rows), row_pitch)
                 return [(mx / fw, my / fh) for mx, my in cells_model]
             # ② 完整结构标定：等级条顶边 → 行，金色亮段 → 列；成功则更新模型
             struct = echo_grid.detect_grid_structure(frame, (sx0, sy0, sx1, sy1))
@@ -426,7 +426,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     layout_model = echo_grid.GridModel.from_structure(struct, fw)
                     grid_pitch['row'] = struct['row_pitch']
                     grid_pitch['dy'] = struct.get('click_dy', 0.08)
-                    self._log_grid_geometry(len(struct['cols']), len(struct['rows']),
+                    _log_grid_geometry(len(struct['cols']), len(struct['rows']),
                                             struct['row_pitch'])
                     return [(mx / fw, my / fh) for mx, my in struct_cells]
             # ③ 回退：两路 OCR 并集 + 拆框合并 + 等间距推断
