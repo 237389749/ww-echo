@@ -488,6 +488,9 @@ class RunTab(QWidget):
             return
 
         is_eval = "评估" in self.task_combo.currentText()
+        reset_stop = getattr(task, 'reset_stop', None)
+        if callable(reset_stop):
+            reset_stop()
         task.config['强化策略'] = self.strategy_combo.currentText()
         # 评估按声骸名自动映射套装(见 evaluate_only); 这里置"通用"仅作映射失败时的兜底
         task.config['当前套装'] = '通用' if is_eval else self.set_combo.currentText()
@@ -540,10 +543,15 @@ class RunTab(QWidget):
     def _stop(self):
         task = self._get_task()
         if task:
+            # 评估跑在本页自己的线程里(不是 executor 线程), disable() 打断不了它;
+            # 先置任务的停止事件, evaluate_only 会在每格/每屏之间退出。
+            request_stop = getattr(task, 'request_stop', None)
+            if callable(request_stop):
+                request_stop()
             task.disable()
             task.unpause()
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=3)
+            self._thread.join(timeout=5)
             if self._thread.is_alive():
                 self._append_log("⚠ 任务线程仍在运行, 将在后台自行结束")
         self._running = False

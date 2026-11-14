@@ -1976,3 +1976,16 @@ qfluentwidgets 的 `FluentIcon` 依赖（影响 `import ww_engine` 冷启动 ~0.
 
 **验证**：合成帧单测 4 项（模型重建列中心误差 <0.8px / 滚动位移后格点跟随 / 行距突变判失效 / 纯行检测），
 全量 **203 项 OK (skipped=2)**。文档：`CLAUDE.md` 评估遍历节、`docs/SESSION_2026-11-13.md` §6.8 追加。
+
+---
+
+**补记 34（2026-11-14：「停止」按钮不生效 —— 评估线程没有协作取消）**
+
+**现象**：点停止后 UI 显示已停止，后台评估线程继续点击/OCR/滚屏。
+
+**根因**：评估在 `ui/run_tab` 自己的线程里跑，`_stop()` 只调 `task.disable()/unpause()`；executor 的
+`check_enabled` 只作用于 executor 线程里的任务，`evaluate_only` 从不检查停止标志。
+
+**修复**：`EnhanceEchoTask._stop_event`（threading.Event）+ `request_stop/stop_requested/reset_stop`；
+`evaluate_only` 每屏/每格检查，停止后跳出循环且**不生成报告/不回调**（删临时目录，日志记录已处理数量）；
+UI 启动前 `reset_stop()`、停止时先 `request_stop()`，线程 join 3s→5s。静态接线守卫 `tests/test_eval_stop.py` 2 项，全量 205 项 OK。

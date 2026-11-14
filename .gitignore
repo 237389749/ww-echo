@@ -30,3 +30,6 @@ zlib-ng2.dll
 oodle-data-shared.dll.gz
 eval_report_*.html
 eval_report_*.json
+
+# 本机启动器(路径含本机 venv)
+run.cmd

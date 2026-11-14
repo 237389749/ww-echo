@@ -1,5 +1,6 @@
 # EnhanceEchoTask.py
 import re
+import threading
 import time
 import os
 
@@ -219,6 +220,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.group_icon = None
         self.fail_reason = ""
         self.supported_languages = ["zh_CN", "zh_TW"]
+        # 评估跑在 UI 自己的线程里(不是 executor 线程), task.disable() 打断不了它;
+        # 用 threading.Event 让「停止」按钮能真正终止遍历(每格/每屏之间检查)。
+        self._stop_event = threading.Event()
         self.default_config.update({
             '必须有双爆': True,
             '双爆出现之前必须全有效词条': True,
@@ -276,6 +280,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                        f' 图标未达置信线 s1={score:.3f}/{MIN_SCORE} margin={margin:.3f}/{MIN_MARGIN})')
         return set_name, 'name' if cands else 'default'
 
+    def request_stop(self):
+        """UI「停止」调用: 置停止事件, evaluate_only 在每格/每屏之间检查后退出。"""
+        self._stop_event.set()
+
+    def stop_requested(self):
+        return self._stop_event.is_set()
+
+    def reset_stop(self):
+        """开始新一轮评估前清掉上一次的停止标记(在启动线程前调用, 避免和「刚开始就停止」竞争)。"""
+        self._stop_event.clear()
+
     def evaluate_only(self, on_done=None):
         """
         评估模式 v2: 遍历背包声骸(每行6格) — 点格子→读右侧详情→评分记录→指纹去重→滚屏→到底结束。
@@ -284,6 +299,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """
         import json as _json, tempfile, shutil
 
+        stopped = False            # 用户点「停止」→ 不生成报告, 直接收尾
         results: list[dict] = []
         evaluated = 0
         tmp_dir = tempfile.mkdtemp(prefix="okecho_eval_")
@@ -517,6 +533,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_debug(f'读初始详情失败(忽略): {e}')
 
             while not stop_all:
+                if self.stop_requested():
+                    stopped = True
+                    self.log_info('已请求停止, 结束评估(未生成报告)')
+                    break
                 # 每屏动态重读上限: "声骸N/3000" 的 N 若是滚动位置, 向下滚会单调增大,
                 # max 跟随保证不误截断(且防 OCR 抖动回退); 若是背包总数则恒等
                 new_lim = read_count()
@@ -541,6 +561,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 processed_any = False
                 empty_hits = 0       # 连续点空/未切换/已处理的格数, 防止空转
                 for nx, ny in cells:
+                    if self.stop_requested():
+                        stopped = True
+                        self.log_info('已请求停止, 结束评估(未生成报告)')
+                        break
                     # 点格子 → 右侧详情。角标中心在格子右下角，空白格/边框点不中时详情不会变：
                     # 第一次没切换就**往格子中心偏一点**重试一次（往左上 = 格子内部）；
                     # 仍不切换则跳过（不再无限点同一格）。
@@ -626,7 +650,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         stop_all = True
                         break
 
-                if stop_all:
+                if stop_all or stopped:
                     break
 
                 if not processed_any:
@@ -642,6 +666,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     scroll_grid()   # 处理完本屏 → 滚下一屏
                     self.sleep(1.2)
 
+            if stopped:
+                self.log_info(f'评估已停止, 本次已记录 {evaluated} 个声骸(不生成报告/不打开报告)', notify=True)
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return
             # 汇总 JSON(顶层 set = 本次评估的 config 套装; 逐条的 set/set_src 见 resolve_set_name)
             output_set = self.config.get('当前套装', '通用')
             output = {
