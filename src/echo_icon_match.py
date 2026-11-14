@@ -140,6 +140,10 @@ def match_icon(frame):
 
     置信不足(ZNCC < MIN_SCORE 或与次优间隔 < MIN_MARGIN)返回 (None, …) ——
     例如详情面板没有套装图标时, 由调用方回退"声骸名 → 套装候选"。
+
+    ⚠ **2026-11-14: 新版 UI(3.x) 详情面板不再有套装图标** —— ICON_BOX 落到了等级旁那个
+    绿色「+」按钮上(实测 155 条评估记录 icon 命中 0 次)。本函数保留给旧 UI/其它面板,
+    新 UI 下套装消歧走下面的**网格卡片徽章环色**(`badge_hue` / `filter_by_set_hue`)。
     """
     names, matrix, norms, sel = _bank()
     gray = crop_icon(frame)
@@ -168,3 +172,105 @@ def match_icon(frame):
         logger.debug(f'套装图标低置信: top1={top1} s1={score1:.3f} margin={margin:.3f} → 回退名字候选')
         return None, score1, margin
     return top1, score1, margin
+
+
+# ---------------------------------------------------------------------------
+# 网格卡片徽章环色(2026-11-14 二次): 新 UI 下唯一的套装信号
+#
+# 背包网格里每个卡片**左下角**有一个 28px 的圆形套装徽章(彩色环 + 深色底 + 白色符号)。
+# 它比 76px 模板小且糊(灰度 ZNCC 只有 0.2~0.3, 不可用), 但**环色**非常稳:
+# 37 个模板按环色中位 hue 聚成 8 个色组 + 1 个无彩色组(白/灰环)。
+# 于是: 名字给出多个候选套装时, 用徽章环色**过滤候选** ——
+# 官方数据里 158 个声骸名属 ≥2 套装, 环色能唯一定位其中 135 个(85%)。
+# 实测样例: `先锋幼岩` 候选 {不绝余音(h1), 幽夜隐匿之帷(h135), 隐世回光(h41)},
+# 徽章环色 41 → 唯一命中 `隐世回光`(名字兜底会错选 `不绝余音`)。
+# ---------------------------------------------------------------------------
+HUE_REFS = (1.0, 7.0, 18.0, 26.0, 41.0, 77.0, 102.0, 109.0, 135.0)
+_hue_cache: dict | None = None
+
+
+def _ring_hue_bgr(rgb) -> float | None:
+    """模板图 → 外环的中位 hue; 环是无彩色(白/灰)返回 None。"""
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_BGR2HSV)
+    h, w = hsv.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    dd = np.hypot(xx - (w / 2 - 0.5), yy - (h / 2 - 0.5))
+    band = (dd >= 0.62 * w / 2) & (dd <= 0.99 * w / 2)
+    hues, sats, vals = hsv[:, :, 0][band], hsv[:, :, 1][band], hsv[:, :, 2][band]
+    m = (sats > 100) & (vals > 90)
+    if m.sum() < 5:
+        return None
+    return float(np.median(hues[m]))
+
+
+def set_hue_map() -> dict:
+    """套装名 → 图标环色中位 hue(OpenCV 0~180); 无彩色环(白/灰)为 None。首次调用构建并缓存。"""
+    global _hue_cache
+    if _hue_cache is not None:
+        return _hue_cache
+    out = {}
+    for path in sorted(glob.glob(os.path.join(icons_dir(), '*.png'))):
+        raw = None
+        try:
+            raw = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        except OSError:
+            raw = None
+        if raw is None:
+            continue
+        if raw.ndim == 3 and raw.shape[2] == 4:
+            a = raw[:, :, 3:4].astype(np.float32) / 255.0
+            raw = (raw[:, :, :3].astype(np.float32) * a + 255.0 * (1.0 - a)).astype(np.uint8)
+        elif raw.ndim == 3:
+            raw = raw[:, :, :3]
+        out[os.path.splitext(os.path.basename(path))[0]] = _ring_hue_bgr(raw)
+    _hue_cache = out
+    return out
+
+
+def hue_group(hue) -> str:
+    """环色 → 粗分组标记: 最近的参考色('h41'), 或 'ach'(无彩色)。"""
+    if hue is None:
+        return 'ach'
+    near = min(HUE_REFS, key=lambda r: abs(r - float(hue)))
+    return f'h{int(near)}'
+
+
+def badge_hue(frame, cx, cy, radius):
+    """帧上 (cx,cy) 半径 radius 的圆形徽章 → `(hue | None, ok)`。
+
+    `ok=False` 表示**没读到**(裁剪越界/帧为空); `ok=True, hue=None` 表示**无彩色环**(白/灰)。
+    环带取 0.62~0.99R(排除内部符号与外部发光), 只统计饱和且够亮的像素的中位 hue。
+    """
+    if frame is None or getattr(frame, 'size', 0) == 0 or radius < 6:
+        return None, False
+    h, w = frame.shape[:2]
+    r = int(round(radius))
+    x0, x1 = max(0, int(round(cx)) - r), min(w, int(round(cx)) + r + 1)
+    y0, y1 = max(0, int(round(cy)) - r), min(h, int(round(cy)) + r + 1)
+    if x1 - x0 < 2 * r - 2 or y1 - y0 < 2 * r - 2:
+        return None, False
+    sub = frame[y0:y1, x0:x1]
+    hsv = cv2.cvtColor(sub, cv2.COLOR_BGR2HSV)
+    hh, ww = hsv.shape[:2]
+    yy, xx = np.mgrid[0:hh, 0:ww]
+    dd = np.hypot(xx - (ww / 2 - 0.5), yy - (hh / 2 - 0.5))
+    band = (dd >= 0.62 * r) & (dd <= 0.99 * r)
+    n_band = int(band.sum())
+    if n_band < 20:
+        return None, False
+    hues, sats, vals = hsv[:, :, 0][band], hsv[:, :, 1][band], hsv[:, :, 2][band]
+    m = (sats > 100) & (vals > 90)
+    if m.sum() < 8:
+        return None, True          # 环无彩色(白/灰)
+    return float(np.median(hues[m])), True
+
+
+def filter_by_set_hue(candidates, hue, ok=True):
+    """用徽章环色过滤候选套装; 读不到/滤空时**原样返回**(绝不因为读错而丢候选)。"""
+    cands = list(candidates or [])
+    if not ok or len(cands) < 2:
+        return cands
+    target = hue_group(hue)
+    hues = set_hue_map()
+    kept = [c for c in cands if hue_group(hues.get(c)) == target]
+    return kept or cands

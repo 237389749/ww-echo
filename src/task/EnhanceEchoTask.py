@@ -14,9 +14,10 @@ from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
                             tier_index, DEFAULT_WEIGHTS)  # noqa
 from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights,
-                                    get_set_core_first, get_set_low_first, get_set_by_echo,
+                                    get_set_core_first, get_set_low_first,
                                     get_sets_by_echo, normalize_echo_name, load_gamedata)
-from src.echo_icon_match import match_icon, MIN_MARGIN, MIN_SCORE
+from src.echo_icon_match import (match_icon, MIN_MARGIN, MIN_SCORE,
+                                 badge_hue, filter_by_set_hue, hue_group)
 from src.task.BaseEchoTask import BaseEchoTask
 
 logger = Logger.get_logger(__name__)
@@ -259,13 +260,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             '最低得分>=': '传统模式满级5词条总分>=此值保留',
         }
 
-    def resolve_set_name(self, echo_name: str) -> tuple[str, str]:
-        """评估用: 声骸名 + 详情面板套装图标 → (套装名, 来源)。
+    def resolve_set_name(self, echo_name: str, badge=None) -> tuple[str, str]:
+        """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
 
-        图标是硬信号: 名字天生多义(当前官方索引 229 个显示名里 158 个属 ≥2 套装; 旧索引 181/120) + OCR 错字 → 名字层无法
-        唯一确定套装(见 CHANGELOG 阶段十一/十二)。match_icon 内部已判置信(高置信才给套装名);
-        低置信/面板无图标时回退名字候选(config 套装在候选内则优先), 再不行回退 config(评估=通用)。
-        来源 'icon'/'name'/'default' 记入报告, 便于离线核对图标映射。
+        硬信号两条:
+        ① **详情面板套装图标**(旧 UI): 高置信直接用, 可纠正名字候选;
+        ② **网格卡片左下角徽章的环色**(`badge=(hue|None, ok)`, 2026-11-14 新增): 新 UI(3.x)详情面板
+           不再显示套装图标(实测 155 条 icon 命中 0 次), 套装信号只剩卡片徽章。名字给出多个候选时
+           用环色过滤候选 —— 官方 158 个多义名里 85% 能唯一定位(详情见 `echo_icon_match` 顶部注释)。
+        都没有时回退名字候选(config 套装在候选内则优先), 再不行回退 config(评估=通用)。
+        来源 'icon'/'hue'/'name'/'default' 记入报告, 便于离线核对。
         """
         cfg_set = self.config.get('当前套装', '通用')
         icon_set, score, margin = match_icon(self.frame)
@@ -275,10 +279,20 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.log_debug(f'[套装图标] {echo_name} → {icon_set}'
                            f' (s1={score:.3f} margin={margin:.3f}){corrected}')
             return icon_set, 'icon'
-        set_name = get_set_by_echo(echo_name, prefer=cfg_set) or cfg_set
-        self.log_debug(f'[套装映射] {echo_name} → {set_name} (名字候选: {cands or "无"};'
-                       f' 图标未达置信线 s1={score:.3f}/{MIN_SCORE} margin={margin:.3f}/{MIN_MARGIN})')
-        return set_name, 'name' if cands else 'default'
+        if len(cands) > 1 and badge is not None:
+            narrowed = filter_by_set_hue(cands, badge[0], badge[1])
+            if len(narrowed) == 1:
+                self.log_debug(f'[套装环色] {echo_name} → {narrowed[0]}'
+                               f' (候选 {cands} 按环色 {hue_group(badge[0])} 过滤)')
+                return narrowed[0], 'hue'
+            cands = narrowed            # 收窄后仍多义 → 继续走名字兜底(顺序按收窄结果)
+        if cands:
+            set_name = cfg_set if cfg_set in cands else cands[0]
+            self.log_debug(f'[套装映射] {echo_name} → {set_name} (名字候选: {cands};'
+                           f' 图标未达置信线 s1={score:.3f}/{MIN_SCORE} margin={margin:.3f}/{MIN_MARGIN})')
+            return set_name, 'name'
+        self.log_debug(f'[套装映射] {echo_name} → {cfg_set} (名字未收录, 用默认)')
+        return cfg_set, 'default'
 
     def request_stop(self):
         """UI「停止」调用: 置停止事件, evaluate_only 在每格/每屏之间检查后退出。"""
@@ -398,6 +412,25 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 return
             grid_pitch['sig'] = sig
             self.log_info(f'本屏网格: {cols} 列 × {rows} 行 (行距 {row_pitch:.0f}px)')
+
+        def badge_hue_at(nx, ny):
+            """格子左下角的套装徽章 → `(hue|None, ok)`（新 UI 下唯一的套装信号）。
+
+            位置由**布局比例**算: 徽章中心 ≈ (点击点 x - 0.235 列距, 行线 y - 0.116 行距) ——
+            实测 1254 帧列距 115/行距 138 → 偏移 (-27, -16) px, 与行线独立于滚动相位。
+            """
+            if layout_model is None:
+                return None, False
+            fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+            fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+            col_px = layout_model.col_pitch_ratio * fw
+            row_px = layout_model.row_pitch_ratio * fw
+            dy_ratio = grid_pitch.get('dy')
+            if dy_ratio is None:
+                dy_ratio = 0.08
+            cx = nx * fw - 0.235 * col_px
+            cy = ny * fh - (dy_ratio + 0.116) * row_px
+            return badge_hue(self.frame, cx, cy, 0.101 * row_px)
 
         def scan_grid():
             """OCR 网格区角标 → 聚行 → 按 6 列基准补全缺列(防 OCR 漏格), 返回完整网格点
@@ -824,7 +857,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         zero_run = 0
                         # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
                         # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
-                        set_name, set_src = self.resolve_set_name(echo_name)
+                        set_name, set_src = self.resolve_set_name(echo_name, badge_hue_at(nx, ny))
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         rec = self.evaluate_one(echo_name, stats, set_name, set_src,
