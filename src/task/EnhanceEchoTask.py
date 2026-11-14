@@ -311,18 +311,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         #   "声骸技能"行 y≈0.62 由 read_detail 按行过滤; "前 2 行=主属性"是相对行序判断, 不依赖帧高
         grid_box = (0.10, 0.15, 0.72, 0.92)
         detail_box = (0.66, 0.10, 0.995, 0.635)
-        count_box = (0.02, 0.02, 0.25, 0.09)
 
         seen_sigs = set()          # 已处理声骸的去重签名(名字+全行档位值, 防滚动重叠漏拦)
         seen_stat_sigs = set()     # 只按属性行(不含名字)的去重签名: OCR 名字抖动(无常凶驾/无常冈驾)时防重复记录
         last_sig = None            # 上一次成功处理的详情全量签名(判点选未切换)
         no_new_screen = 0          # 连续滚动后无新格的次数 → 到底
         empty_scan = 0             # 网格区连续扫描为空的次数 → 真到底(0级角标 +0 也能被识别, 空=列表底)
-        stop_all = False           # 到底/达上限 → 正常收尾并输出报告
-        handled = 0                # 已记录数量(与左上总数比对做步数上限)
-        total_limit = None         # 左上 "声骸N/3000" 的上限
-        count_text = ''            # 最近一次左上计数区的原始 OCR 文本(页面锚点用)
-        anchor_ok = False          # 左上「声骸N/3000」锚点是否识别到(仅用于错误提示, 不单独中断)
+        stop_all = False           # 到底 / 0 级尾部 → 正常收尾并输出报告
+        zero_run = 0               # 连续 0 词条格数(排序正确时 0 级在尾部, 可提前结束)
+        ZERO_TAIL_STOP = 12        # 连续两行(6 列 ×2) 0 词条 → 视为 0 级尾部
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
 
@@ -360,35 +357,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)   # 灰度帧转彩色, 否则 rectangle 画不出
             cv2.imwrite(os.path.join(dbg_dir, f'{tag}_full.png'), frame)
             boxed = frame.copy()
-            for box, color in ((detail_box, (0, 0, 255)), (grid_box, (0, 255, 0)), (count_box, (255, 0, 0))):
+            for box, color in ((detail_box, (0, 0, 255)), (grid_box, (0, 255, 0))):
                 x1, y1, x2, y2 = int(box[0] * fw), int(box[1] * fh), int(box[2] * fw), int(box[3] * fh)
                 cv2.rectangle(boxed, (x1, y1), (x2, y2), color, max(2, fw // 600))
             cv2.imwrite(os.path.join(dbg_dir, f'{tag}_boxes.png'), boxed)
-            for name, box in (('detail', detail_box), ('grid', grid_box), ('count', count_box)):
+            for name, box in (('detail', detail_box), ('grid', grid_box)):
                 x1, y1, x2, y2 = int(box[0] * fw), int(box[1] * fh), int(box[2] * fw), int(box[3] * fh)
                 cv2.imwrite(os.path.join(dbg_dir, f'{tag}_{name}.png'), frame[y1:y2, x1:x2])
-
-        def read_count():
-            """OCR 左上 '声骸166/3000': 前者=背包声骸总数(或当前滚动位置), 后者=容量上限。
-            返回**前者**作为步数上限(评估不得超过它); 失败返回 None。
-            放大 OCR 防小字/斜杠被拆: 全部文本按坐标拼接后再解析; 无斜杠时取第一段数字。
-            同时更新 `count_text` 供页面锚点判断(左上计数区必须出现"声骸"/"背包"之类文字)。"""
-            nonlocal count_text
-            try:
-                texts = self.ocr(*count_box, target_height=300)
-                dbg_ocr('count', texts)
-                ordered = sorted(texts, key=lambda b: (getattr(b, 'y', 0), getattr(b, 'x', 0)))
-                joined = ''.join(getattr(b, 'name', '') or '' for b in ordered)
-                count_text = joined
-                m = re.search(r'(\d+)\s*/\s*(\d+)', joined)
-                if m:
-                    return int(m.group(1))
-                nums = re.findall(r'\d+', joined)
-                if nums:
-                    return int(nums[0])
-            except Exception:
-                pass
-            return None
 
         def ocr_conf(box):
             try:
@@ -556,22 +531,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             ok, msg = self._check_set_keys(self.config.get('当前套装', '通用'))
             if not ok:
                 raise Exception(msg)
-            total_limit = None
-            # 页面锚点: 背包声骸列表左上必有「声骸N/3000」。OCR 偶发抖动 → 重试 3 次;
-            # 仍没有也不立刻中断(网格角标是更强的信号), 只在首屏空网格的报错里带上锚点信息。
-            for _ in range(3):
-                total_limit = read_count()
-                if total_limit is not None or '声骸' in count_text or '背包' in count_text:
-                    anchor_ok = True
-                    break
-                self.sleep(0.5)
-            if anchor_ok:
-                self.log_debug(f'页面锚点: {count_text[:60]!r}')
-            else:
-                self.log_warning('未识别到右上/左上「声骸N/3000」页面锚点, 继续用网格角标检测')
             if dbg_dir:
                 self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
-            self.log_info(f'背包声骸总数/位置: {total_limit}' if total_limit else '未识别到数量, 用滚动检测兜底')
+            self.log_info('评估遍历: 不识别声骸数量, 直到「连续两行 0 词条 / 网格为空」结束')
             # 先读一次当前详情面板作为基线: 第一次点击若没生效(点在空白/边框),
             # 面板还是上一次选中的声骸 → 会被误记成本屏第一只(实测报告 #1 变成了之前手选的那只)
             try:
@@ -584,11 +546,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     stopped = True
                     self.log_info('已请求停止, 结束评估(未生成报告)')
                     break
-                # 每屏动态重读上限: "声骸N/3000" 的 N 若是滚动位置, 向下滚会单调增大,
-                # max 跟随保证不误截断(且防 OCR 抖动回退); 若是背包总数则恒等
-                new_lim = read_count()
-                if new_lim:
-                    total_limit = new_lim if total_limit is None else max(total_limit, new_lim)
                 cells = scan_grid()
                 if not cells:
                     # 网格区 OCR 不到角标: 0级角标 +0 也能被识别, 连续为空 ≈ 列表真到底;
@@ -596,8 +553,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     empty_scan += 1
                     if empty_scan >= 2:
                         if evaluated == 0 and not results:
-                            hint = '' if anchor_ok else '; 页面锚点也未识别到「声骸N/3000」'
-                            raise Exception(f'未在背包界面检测到声骸网格(角标){hint}, 请确认在背包声骸列表界面')
+                            raise Exception('未在背包界面检测到声骸网格(角标/结构线), 请确认在背包声骸列表界面')
                         self.log_info('到达背包底部(网格区无角标), 评估结束', notify=True)
                         break
                     scroll_grid()
@@ -658,6 +614,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                     tier = len(stats)
                     if stats:
+                        zero_run = 0
                         # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
                         # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
                         set_name, set_src = self.resolve_set_name(echo_name)
@@ -672,7 +629,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         # 列表真到底由"网格连续为空(empty_scan)"判定; key 入 seen_sigs 防重叠重复扫。
                         processed_any = True
                         seen_sigs.add(key)
+                        zero_run += 1
                         self.log_debug(f'[评估跳过] {echo_name} | 0级(无词条)')
+                        if zero_run >= ZERO_TAIL_STOP:
+                            # 按等级排序时 0 级在列表尾部 → 连续两行 0 词条即视为到底, 不再往下点
+                            self.log_info(f'连续 {zero_run} 格 0 词条, 视为 0 级尾部, 评估结束', notify=True)
+                            stop_all = True
                         continue
 
                     last_sig = sig
@@ -689,13 +651,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     results.append({"index": evaluated + 1, "screenshot": ss_name, **rec})
                     self.log_info(f"[评估#{evaluated + 1}] {echo_name} | {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
                     evaluated += 1
-                    handled += 1
                     self.info_set('评估数量', evaluated)
-
-                    if total_limit and handled >= total_limit:
-                        self.log_info(f'已达背包声骸总数/步数上限 {total_limit}, 评估结束', notify=True)
-                        stop_all = True
-                        break
 
                 if stop_all or stopped:
                     break

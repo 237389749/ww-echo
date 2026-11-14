@@ -2002,3 +2002,13 @@ UI 启动前 `reset_stop()`、停止时先 `request_stop()`，线程 join 3s→5
 **修复**：`scroll_grid` 滚前/滚后比较行线（`echo_grid.rows_differ`）；PostMessage 无效时
 `bring_to_front()` + `SetCursorPos(网格中心)` + Pynput 真实滚轮（SendInput），再次验证并打日志。
 **待真机复跑**：预期条数 29 → 60+，日志出现"已切换真实鼠标滚轮(生效)"。
+
+---
+
+**补记 36（2026-11-14：评估不再识别「声骸N/3000」，改为遍历到 0 词条尾部）**
+
+**动机**：数量 OCR 每屏一次、且 N 的语义（总数 / 滚动位置）不确定；用户提出直接看右侧副词条数是否为 0。
+
+**改动**：删除 `read_count`/`count_box`/页面锚点/`total_limit`/`handled` 与步数上限；
+新增 `zero_run` + `ZERO_TAIL_STOP=12`（连续两行 0 词条 → 0 级尾部，提前结束）；保留"网格连续为空"兜底与首屏空网格报错。
+**取舍**：未按等级排序时可能提前两行结束；可调大阈值。**验证**：`tests/test_eval_traverse.py` 3 项，全量 211 项 OK。
