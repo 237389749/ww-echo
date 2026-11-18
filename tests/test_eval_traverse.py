@@ -59,6 +59,8 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('SET_PANEL_FIRST_STEP = 12', src)   # 第一步放大（主词条区没有套装名）
         self.assertIn('SET_PANEL_STEP = 6', src)         # 之后小步
         self.assertIn('_effect_box_px', src)             # 整块面板，不能只读上半截
+        # 名字没认出来（候选为空）时也要读面板 —— 实测 格洛玛图→格洛犸图 就是这样
+        self.assertIn('if len(cand_list) != 1:', src)
 
 
 class TestEvalTraverseNoGap(unittest.TestCase):

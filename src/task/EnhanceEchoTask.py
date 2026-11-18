@@ -1053,10 +1053,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
                         # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
                         badge = badge_hue_at(nx, ny)
-                        # 名字多义时读「合鸣效果」文字反查(文本最稳)；单义名不必多这一次滚动
+                        # 名字多义，或**名字根本没认出来**（OCR 错字 → 候选为空）时读「合鸣效果」；
+                        # 只有"唯一候选"才省这一次滚动。实测 格洛玛图→格洛犸图 就属于后者，
+                        # 跳过面板会直接落"通用"，而面板上明明写着套装名。
                         cand_list = get_sets_by_echo(echo_name) if echo_name else []
                         effect_set = None
-                        if len(cand_list) > 1:
+                        if len(cand_list) != 1:
                             effect_set, _s1, _s2 = read_set_by_effect(cand_list)
                         set_name, set_src = self.resolve_set_name(echo_name, badge, effect_set)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
