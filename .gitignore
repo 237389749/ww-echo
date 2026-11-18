@@ -31,5 +31,5 @@ oodle-data-shared.dll.gz
 eval_report_*.html
 eval_report_*.json
 
-# 本机启动器(路径含本机 venv)
-run.cmd
+# 虚拟环境(可移植启动器 run.cmd 已入库，它优先用 .venv)
+.venv/
