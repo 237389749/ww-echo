@@ -127,6 +127,12 @@ class TestEvaluateOnlySmoke(unittest.TestCase):
         return _Task()
 
     def test_full_traversal_does_not_crash(self):
+        """桩件下 OCR 永远读不到东西 → 现在会**连续 6 格(一整行)计失败后中止**并出部分报告。
+
+        2026-11-19 用户口径："按布局点了但没识别到应计入失败，而不是一直继续" ——
+        所以这条路不再走"每屏小结 → 滚动受阻 → 中止"，而是更快地失败并留下报告。
+        每屏小结/滚动受阻由 `tests/test_eval_traverse.py` 的静态守卫继续看着。
+        """
         task = self._make_task()
         done = {}
 
@@ -143,12 +149,13 @@ class TestEvaluateOnlySmoke(unittest.TestCase):
 
         texts = [m for _, m in task.logs]
         self.assertTrue(any('本屏网格' in m for m in texts), msg=f'缺每屏几何日志: {texts[:8]}')
-        self.assertTrue(any('本屏完成' in m for m in texts), msg='缺每屏小结日志')
-        self.assertTrue(any('滚动受阻' in m for m in texts), msg='滚不动时应明确报受阻')
-        self.assertTrue(any('连续 2 次滚动受阻' in m for m in texts), msg='受阻两次应中止，不空转')
-        # 一屏 6×5=30 格，每格点一次（读不到详情 → 再补一次）→ 至少 30 次点击
-        self.assertGreaterEqual(len(task.clicks), 30)
-        # 无 OCR 数据 → 一条记录都没有，但仍应产出报告
+        self.assertTrue(any('[失败]' in m for m in texts), msg='点了读不到属性必须记一条失败')
+        self.assertTrue(any('点击后都读不到属性' in m for m in texts),
+                        msg='连续失败应中止，不空转')
+        # 第一屏 6×5=30 格；连续 6 格失败即中止(每格最多点 2 次)
+        self.assertGreaterEqual(len(task.clicks), 6)
+        self.assertLessEqual(len(task.clicks), 14)
+        # 读不到任何详情 → 一条记录都没有，但仍应产出报告
         self.assertIn('json', done, msg='未产出报告 JSON')
         self.assertTrue(os.path.exists(done['ss']), msg='截图目录不存在')
 

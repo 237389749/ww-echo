@@ -56,11 +56,47 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('_name_own_line', src)
         self.assertIn('_has_heading', src)
         self.assertIn('seen_heading is not None or _name_own_line', src)
-        self.assertIn('SET_PANEL_FIRST_STEP = 12', src)   # 第一步放大（主词条区没有套装名）
-        self.assertIn('SET_PANEL_STEP = 6', src)         # 之后小步
-        self.assertIn('_effect_box_px', src)             # 整块面板，不能只读上半截
-        # 名字没认出来（候选为空）时也要读面板 —— 实测 格洛玛图→格洛犸图 就是这样
-        self.assertIn('if len(cand_list) != 1:', src)
+        self.assertIn('SET_PANEL_FIRST_STEP = 8', src)    # 第一步放大（主词条区没有套装名）
+        self.assertIn('SET_PANEL_STEP = 4', src)          # 之后小步
+        self.assertIn('_effect_box_px', src)              # 整块面板，不能只读上半截
+        # 名字没认出来（候选为空）时也要读面板 —— 实测 格洛玛图→格洛犸图 就是这样;
+        # 反过来: **只属于一套的件不读面板**(2026-11-19 用户口径)
+        self.assertIn('elif len(cand_list) == 1:', src)
+        # 滚过面板就必须回顶(滚动条是所有声骸共用的)，且回顶要闭环验(名字行可见 / 滚不动了)
+        self.assertIn('restore_panel_top', src)
+        self.assertIn('PANEL_UP_STEP', src)
+        self.assertIn('_panel_top_ok', src)
+
+    def test_ocr_boxes_are_normalized(self):
+        """`self.ocr(...)` 收的是**归一化比例**，不是像素 —— 2026-11-19 真机踩过。
+
+        `_effect_box_px()` 返回像素，直接 `self.ocr(*box)` 会让 `relative_box` 再乘一次帧宽高，
+        裁出 (0,0) 的空图 → 面板 OCR 永远空 → 套装名文字链**从未生效**、面板滚到底还回不来。
+        守卫: 找套装的 OCR 必须用归一化的 `EFFECT_BOX`，源码里不许再把像素框喂给 `ocr`。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('EFFECT_BOX = (0.66, 0.08, 0.995, 0.95)', src)
+        self.assertIn('self.ocr(*EFFECT_BOX)', src)
+        self.assertNotIn('texts = self.ocr(*box)', src)   # 像素框不能喂给 ocr
+        # 像素框只给图像比较(frame_change_ratio), 它要的是像素
+        self.assertIn('frame_change_ratio(prev, cur, box)', src)
+
+    def test_failed_cells_are_counted_not_swallowed(self):
+        """点了读不到属性 → 计入失败(可见) 且连续 N 格中止, 不能悄悄当"重复"混过去。"""
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('[失败]', src)
+        self.assertIn('click_fail_stop', src)
+        self.assertIn('点击后都读不到属性, 评估中止', src)
+        self.assertIn('重复 {dups} 格, 失败 {miss} 格', src)
+
+    def test_effect_box_geometry(self):
+        """归一化的 EFFECT_BOX → 像素框要正好盖住右侧详情面板(不能是 0 尺寸/越界)。"""
+        from ww_engine.feature.Box import relative_box
+        b = relative_box(1254, 889, *(0.66, 0.08, 0.995, 0.95))
+        self.assertGreater(b.width, 300)
+        self.assertGreater(b.height, 600)
+        self.assertLessEqual(b.x + b.width, 1254)
+        self.assertLessEqual(b.y + b.height, 889)
 
 
 class TestEvalTraverseNoGap(unittest.TestCase):

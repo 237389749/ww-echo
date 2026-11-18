@@ -32,7 +32,8 @@ if str(ROOT) not in sys.path:
 
 RE_START = '评估遍历: 不识别声骸数量'
 RE_DONE = re.compile(r'评估完成, 共(\d+)个声骸')
-RE_SCREEN = re.compile(r'本屏完成: (\d+) 格, 新增 (\d+) 条, 重复/点空 (\d+) 格, 0词条 (\d+) 格')
+RE_SCREEN = re.compile(r'本屏完成: (\d+) 格, 新增 (\d+) 条, 重复(?:/点空)? (\d+) 格'
+                       r'(?:, 失败 (\d+) 格)?, 0词条 (\d+) 格')
 RE_SCROLL = re.compile(r'滚动\((.*?)\): (-?\d+) 格 → ([+-]?\d+\.\d) 行 \(≈([\d.]+)px/格, '
                        r'残差 (\d+), 停稳 ([\d.]+)s, 画面变化 (\d+)%\)')
 RE_GRID = re.compile(r'本屏网格: (\d+) 列 × (\d+) 行 \(行距 (\d+)px\)')
@@ -42,12 +43,15 @@ RE_OVER = re.compile(r'一次滚了 ([\d.]+) 行\(可见 (\d+) 行\)')
 RE_SHORT = re.compile(r'本次只滚了 ([\d.]+) 行\(目标 (\d+) 行\)')
 RE_SETTEXT = re.compile(r'\[套装\] 合鸣效果区读到套装名: (.*?)\((.*?), 滚 (\d+) 格\)')
 RE_SETEFFECT = re.compile(r'\[套装\] 按合鸣效果文本命中: (.*?) \(')
+RE_SETNONE = re.compile(r'\[套装\] 面板没读到套装信息\(滚 (\d+) 格\)')
+RE_MISSLINE = re.compile(r'\[失败\] 格\(')
+RE_CLICKABORT = re.compile(r'连续 (\d+) 格点击后都读不到属性')
 RE_ECHO = re.compile(r'\[评估#(\d+)\] (.*?) \| (\d)/5词条 \| 得分=([\d.]+) \| (.*?) \| 套装=(.*?)\((.*?)\)')
 TS = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(\d{3}) ')
 
 
 class Screen:
-    __slots__ = ('idx', 'cells', 'new', 'dup', 'zero', 'cols', 'rows', 'row_pitch',
+    __slots__ = ('idx', 'cells', 'new', 'dup', 'miss', 'zero', 'cols', 'rows', 'row_pitch',
                  'scroll_px', 'moved', 'resid', 'still', 'change', 'input', 'guarded', 'secs')
 
     def __init__(self, idx):
@@ -97,7 +101,9 @@ def parse_log(path: Path):
         m = RE_SCREEN.search(ln)
         if m:
             cur = Screen(len(screens))
-            cur.cells, cur.new, cur.dup, cur.zero = (int(x) for x in m.groups())
+            cur.cells, cur.new, cur.dup = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            cur.miss = int(m.group(4) or 0)
+            cur.zero = int(m.group(5))
             if grid:
                 cur.cols, cur.rows, cur.row_pitch = grid
             screens.append(cur)
@@ -141,6 +147,18 @@ def parse_log(path: Path):
         m = RE_SETEFFECT.search(ln)
         if m:
             stats['set_effect'] += 1
+            continue
+        m = RE_SETNONE.search(ln)
+        if m:
+            stats['set_none'] += 1
+            stats['set_none_max_scroll'] = max(stats.get('set_none_max_scroll', 0), int(m.group(1)))
+            continue
+        if RE_MISSLINE.search(ln):
+            stats['miss_lines'] += 1
+            continue
+        m = RE_CLICKABORT.search(ln)
+        if m:
+            stats['click_abort'] = int(m.group(1))
             continue
         m = RE_ECHO.search(ln)
         if m:
@@ -274,8 +292,14 @@ def main() -> int:
         cells = sum(s.cells for s in screens)
         new = sum(s.new for s in screens)
         dup = sum(s.dup for s in screens)
+        miss = sum(s.miss for s in screens)
         zero = sum(s.zero for s in screens)
-        print(f'\n[每屏] {len(screens)} 屏 / {cells} 格 / 新增 {new} / 重复 {dup} / 0词条 {zero}')
+        print(f'\n[每屏] {len(screens)} 屏 / {cells} 格 / 新增 {new} / 重复 {dup} / '
+              f'失败 {miss} / 0词条 {zero}')
+        if miss:
+            warns.append(f'点击后读不到属性 {miss} 格（面板滚走/点空）')
+        if stats.get('click_abort'):
+            problems.append(f'连续 {stats["click_abort"]} 格点击后读不到属性 → 评估中止')
         print(f'  网格: ' + ', '.join(sorted({f'{s.cols}列×{s.rows}行(行距{s.row_pitch}px)'
                                             for s in screens if s.cols})))
         dups = [s.dup for s in screens[1:]]  # 首屏没有重叠
@@ -308,15 +332,17 @@ def main() -> int:
             print(f'  [!] 滚动距离不足告警 {stats["short"]} 次（重叠会被去重吸收）')
         print(f'  套装: 面板文字命中 {stats.get("set_text", 0)} 条'
               f'（其中放开到 37 套 {stats.get("set_text_all", 0)} 条, 最多滚 '
-              f'{stats.get("set_text_max_scroll", 0)} 格）/ 效果文本命中 {stats.get("set_effect", 0)} 条')
+              f'{stats.get("set_text_max_scroll", 0)} 格）/ 效果文本命中 {stats.get("set_effect", 0)} 条'
+              f' / 面板没读到 {stats.get("set_none", 0)} 条'
+              f'（最多滚 {stats.get("set_none_max_scroll", 0)} 格）')
         if stats.get('duration'):
             print(f'  平均每屏 {stats["duration"] / max(1, len(screens)):.1f}s')
 
         if args.screens:
             print('\n  逐屏:')
-            print('    #   格 新增 重复 0词条  网格        滚轮格 px/格 位移 残差 停稳 变化 守卫 耗时')
+            print('    #   格 新增 重复 失败 0词条  网格        滚轮格 px/格 位移 残差 停稳 变化 守卫 耗时')
             for s in screens:
-                print(f'   {s.idx:>3} {s.cells:>4} {s.new:>4} {s.dup:>4} {s.zero:>5}   '
+                print(f'   {s.idx:>3} {s.cells:>4} {s.new:>4} {s.dup:>4} {s.miss:>4} {s.zero:>5}   '
                       f'{str(s.cols) + "x" + str(s.rows):<10} {s.scroll_px if s.scroll_px else "-":>5} '
                       f'{s.moved if s.moved is not None else "-":>5} {s.resid if s.resid is not None else "-":>4} '
                       f'{s.still if s.still is not None else "-":>4} '

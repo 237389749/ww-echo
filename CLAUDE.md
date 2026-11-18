@@ -399,9 +399,16 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   `_click_dy_ratio` 按亮度判"卡片在行线上方/下方"(真机批量管理视图里卡片在线上方 → -0.30 行距;
   旧的固定 +0.08 落在格子间隙 → 每次都要重试)。重试点也从"偏 5px"改成"行线上方 0.38 行距"(半个行距的相位差才救得回来)。
 - **点选失效兜底**: 进循环前先读一次详情面板做基线; 每格点击后若签名没变(或没读到属性)就**向格子中心偏一点重试一次**
-  (角标在格子右下), 仍不变则跳过。名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)会绕过 `dedup_key`, 另用**属性行签名**
+  (角标在格子右下), 仍不变则**计入失败**(`[失败] 格(x,y) 点击后没读到属性`), 连续 **6 格(一整行)** 失败 →
+  中止并出部分报告。**别把"失败"混进"重复"**: 重复 = 内容与已记录的一致(滚动重叠), 失败 = 根本没读到 ——
+  两者一起计数就看不出"这屏是重叠对了还是坏了"(2026-11-19 用户口径)。名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)会绕过 `dedup_key`, 另用**属性行签名**
   (`seen_stat_sigs`, 不含名字) 防重复记录。
-- **评估按详情面板的套装信息映射套装**(2026-11-19): `resolve_set_name` → 合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**反查(`effect`) → 面板图标(旧 UI) → 卡片徽章环色 → `get_sets_by_echo` 候选(prefer=config 套装) → 回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底。只有"唯一候选"才省掉读面板那一次滚动
+- **评估按详情面板的套装信息映射套装**(2026-11-19): `resolve_set_name` → 合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**反查(`effect`) → 卡片徽章环色(`hue`) → `get_sets_by_echo` 候选(prefer=config 套装) → 回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底。
+  **什么时候才滚面板**: 只有「名字有 ≥2 个候选 / 没认出来」才滚; **只属于一套的件直接用名字, 不 OCR 面板**(用户口径);
+  同名多只走 `panel_set_cache`(名→(套装,来源)), 全场只滚一次。**面板图标在评估链里默认关**(`use_icon=False`)。
+- **⚠ 面板 OCR 区必须是归一化比例**(2026-11-19 真机): `self.ocr(x,y,to_x,to_y)` 收的是**比例**，`_effect_box_px()` 给的是**像素** ——
+  直接 `self.ocr(*box)` 会让 `relative_box` 再乘一次帧宽高、裁出 (0,0) 空图 → OCR 恒空 → 套装名链**从未生效**。
+  OCR 用 `EFFECT_BOX`(归一化)，像素串只给 `frame_change_ratio` 这类图像比较。守卫 `tests/test_eval_traverse.py::test_ocr_boxes_are_normalized`。
 - **面板 COST 与主属性**(L2): `read_detail` 用 `parse_cost` 读 COST 角标(合框 `COST 4` 或"标签 + 同行右侧数字框"; 该批 219 张素材实测 219/219 可读), 前 2 行主属性与 COST 一起交给 `evaluate_one` → 报告「COST/主属性」列 + 官方管理方案判定。
   **真机 20261008 那批漏读 27/135**(小字数字框整个没检出, 复跑截图可复现: `eval_062` 只剩 `COST`) →
   现在 1× 读不到时走 `read_cost_badge()`: 只截 `_COST_ROI`(0.685,0.19–0.792,0.25)放大 3× 再 OCR
@@ -462,7 +469,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**271 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**274 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`

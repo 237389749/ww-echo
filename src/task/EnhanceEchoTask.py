@@ -3,6 +3,7 @@ import re
 import threading
 import time
 import os
+from collections import Counter
 
 import cv2
 
@@ -294,16 +295,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         return ''
 
     def resolve_set_name(self, echo_name: str, badge=None, effect_set=None,
-                         effect_src: str = '') -> tuple[str, str]:
+                         effect_src: str = '', use_icon: bool = False) -> tuple[str, str]:
         """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
 
         信号优先级(2026-11-19 现状):
         ① **详情面板「合鸣效果」区**(`effect_set` + `effect_src`): 先在效果区读到**套装名明文**
            (`text`, 最稳), 读不到再用**效果原文**的字符覆盖率反查(`effect`); 调用方已按名字候选约束过;
-        ② **详情面板图标**(旧 UI, 3.x 已无): 高置信直接用, 可纠正名字候选;
-        ③ **卡片徽章环色**(`badge=(hue|None, ok)`): 名字多个候选时用环色过滤(85% 可唯一定位);
-        ④ 名字候选(config 套装在候选内则优先) → ⑤ config(评估=通用)。
-        来源 'text'/'effect'/'icon'/'hue'/'name'/'default' 记入报告, 便于离线核对。
+        ② **卡片徽章环色**(`badge=(hue|None, ok)`): 名字多个候选时用环色过滤(85% 可唯一定位);
+        ③ **名字候选**(config 套装在候选内则优先) → ④ config(评估=通用)。
+        来源 'text'/'effect'/'hue'/'name'/'default' 记入报告, 便于离线核对。
+
+        **`use_icon` 默认关**(2026-11-19): 3.x 详情面板没有套装图标, 那个裁剪区落在绿色「+」按钮上;
+        11-14 那批 155 条 icon 命中 0 次, 2026-11-19 却**误命中**一次(`雪落无声之愿`), 会把套装判错。
+        保留 `match_icon` 只给旧 UI 截图/离线回归用(`tools/eval_icon_match.py`), 评估链不再信它。
         """
         cfg_set = self.config.get('当前套装', '通用')
         cands = get_sets_by_echo(echo_name)
@@ -311,7 +315,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             src = effect_src or 'effect'
             self.log_debug(f'[套装{src}] {echo_name} → {effect_set} (名字候选 {cands})')
             return effect_set, src
-        icon_set, score, margin = match_icon(self.frame)
+        icon_set, score, margin = (None, 0.0, 0.0)
+        if use_icon:
+            icon_set, score, margin = match_icon(self.frame)
         if icon_set:
             corrected = f' — 名字候选 {cands} 由图标纠正' if cands and icon_set not in cands else ''
             self.log_debug(f'[套装图标] {echo_name} → {icon_set}'
@@ -363,6 +369,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         #   "声骸技能"行 y≈0.62 由 read_detail 按行过滤; "前 2 行=主属性"是相对行序判断, 不依赖帧高
         grid_box = (0.10, 0.15, 0.72, 0.92)
         detail_box = (0.66, 0.10, 0.995, 0.635)
+        # 找套装要读**整块**详情面板(含最下面的合鸣效果区) —— `detail_box` 只到 0.635，
+        # 套装名在面板下半截，会漏。**归一化比例**(self.ocr 的入参口径; 别传像素, 见 _effect_box_px)
+        EFFECT_BOX = (0.66, 0.08, 0.995, 0.95)
 
         seen_sigs = set()          # 已处理声骸的去重签名(名字+全行档位值, 防滚动重叠漏拦)
         seen_stat_sigs = set()     # 只按属性行(不含名字)的去重签名: OCR 名字抖动(无常凶驾/无常冈驾)时防重复记录
@@ -381,9 +390,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         SCROLL_CHANGE_MIN = 0.12    # 画面变化占比 < 此值 = 什么都没发生(只有悬停/选中框)
         SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
         SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
-        SET_PANEL_STEP = 6          # 找套装时每次只滚 6 格(小步: 大步会一步跨过目标文本)
-        SET_PANEL_FIRST_STEP = 12   # 但第一步放大: 主词条区肯定没有套装名, 先跳过那一段
-        SET_PANEL_MAX_STEPS = 9     # 12 + 8×6 = 60 格上限
+        SET_PANEL_STEP = 4          # 找套装时每次只滚 4 格(小步: 大步会一步跨过目标文本)
+        SET_PANEL_FIRST_STEP = 8    # 但第一步放大: 主词条区肯定没有套装名, 先跳过那一段
+        SET_PANEL_MAX_STEPS = 16    # 8 + 15×4 = 68 格上限(滚到底仍没命中就回退其它信号)
+        PANEL_UP_STEP = 4           # 回顶: 每次只滚一小步, 每步都验 —— 位移与格数不成正比(实测)
+        PANEL_UP_MAX = 12           # 回顶最多 12 步(48 格), 超出就判"回不去"并告警
 
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
@@ -393,6 +404,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         scroll_fail = 0          # 连续滚动受阻次数(>=2 中止, 绝不空转)
         screens_done = 0         # 已扫完的屏数(首屏"0 重复"是正常的, 守卫要跳过它)
         back_steps = 0           # 本屏"滚过头"后的回滚次数(每屏最多 2 次, 防来回拉锯)
+        panel_dirty = False      # 找套装后没回顶(滚动条是共用的) → 读下一格前先回顶
+        panel_set_cache = {}     # 声骸名 → (套装, 来源): 同名多只只滚一次面板
+        click_fail = 0           # 连续"点了却读不到属性"的格数(到 click_fail_stop 就中止)
+        click_fail_stop = 6      # 连续这么多格"点了却读不到属性"就中止(一整行; 用户口径: 计入失败)
+        click_fail_total = 0     # 全场"点了没读到属性"的格数(报告里可查)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -475,15 +491,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return badge_hue(self.frame, cx, cy, 0.101 * row_px)
 
         def _effect_box_px():
-            """寻套装文本用的 OCR 区：**整块详情面板**（含最下面的合鸣效果区）。
+            """寻套装文本用的区域**像素**矩形（给 `frame_change_ratio` 用）。
 
-            为什么不用 `detail_box`（下界 0.635）：那是给"读词条"用的，只覆盖面板上半截；
-            用户实测合鸣效果/套装名落在面板下半截（截图里 y≈0.45~0.55 帧高，长描述还会更低），
-            OCR 框不放开就会出现"滚了但读不到"。
+            ⚠ **单位坑(2026-11-19 真机抓到)**: `self.ocr(*box)` 要的是**归一化比例**，而这里返回的是
+            **像素**；把像素直接喂给 ocr 会让 `relative_box` 再乘一次帧宽高 → 裁出 (0,0) 的空图 →
+            OCR 永远返回空 → "合鸣效果区套装名"这条链在真机上**一个字都没读到过**(一路滚到底还回不去)。
+            所以 OCR 一律用 `EFFECT_BOX`(归一化)，像素串只给图像比较类函数。
             """
             fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
             fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
-            return (0.66 * fw, 0.08 * fh, 0.995 * fw, 0.95 * fh)
+            return (EFFECT_BOX[0] * fw, EFFECT_BOX[1] * fh, EFFECT_BOX[2] * fw, EFFECT_BOX[3] * fh)
 
         def _panel_scroll(notches):
             """把光标放到面板中部并滚 notches 格（负=向下）。返回 True=已发送。"""
@@ -521,7 +538,67 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     return True
             return False
 
-        def read_set_by_effect(cands):
+        def _panel_top_ok(name=''):
+            """详情面板是否**回到了顶部** —— 判据是顶部区能看到名字行。
+
+            只认"名字里任意相邻两字出现在某一行"：面板滚下去以后那块区域是技能/合鸣效果描述，
+            与名字无交集 —— 比"只要有汉字就算回顶"可靠(那个判据在描述行上恒为真，等于没判)。
+            返回 True/False；**判不了**(没读到 OCR / 不知道名字)返回 None。
+            """
+            try:
+                texts = self.ocr(0.66, 0.06, 0.995, 0.30)
+            except Exception:                       # noqa: BLE001 - OCR 失败不该中断
+                return None
+            lines = []
+            for b in texts or []:
+                line = ''.join(ch for ch in str(getattr(b, 'name', '') or '')
+                               if '\u4e00' <= ch <= '\u9fff')
+                if len(line) >= 2:
+                    lines.append(line)
+            if not lines:
+                return False
+            key = ''.join(ch for ch in (name or '') if '\u4e00' <= ch <= '\u9fff')
+            if not key:
+                return None                         # 不知道名字 → 判不了
+            for line in lines:
+                for i in range(len(line) - 1):
+                    if line[i:i + 2] in key:
+                        return True
+            return False
+
+        def restore_panel_top(name=''):
+            """把详情面板滚回顶部，**闭环**：每次只滚一小步、每步都验。
+
+            2026-11-19 真机踩的坑：滚动条是**所有声骸共用**的 —— 找完套装若没回顶，
+            下一只的 read_detail 会连名字/COST/词条都读不到(实测"第一个滚到底后全废")。
+            旧实现"一次滚回累计格数 + 只看一次"在真机上回不去(一次大 delta 与多次小 delta
+            走的距离不等价)。
+            判据: 名字行可见 → 回顶；画面**滚不动了**(到底/到顶) → 也算回顶。
+            """
+            prev = self.frame
+            box = _effect_box_px()
+            moved_steps = 0
+            for _ in range(PANEL_UP_MAX):
+                state = _panel_top_ok(name)
+                if state is True:
+                    return True
+                if not _panel_scroll(PANEL_UP_STEP):
+                    break
+                moved_steps += 1
+                self.sleep(0.15)
+                cur = self.frame
+                moved = echo_grid.frame_change_ratio(prev, cur, box) >= SCROLL_STILL_RATIO
+                prev = cur
+                if not moved and moved_steps >= 2:
+                    break                            # 滚不动了 → 到顶(或者面板根本不响应)
+            ok = _panel_top_ok(name)
+            if ok is False:
+                self.log_warning(f'详情面板没回顶(上滚 {moved_steps} 次仍看不到名字) '
+                                 f'— 下一只会读不到词条')
+            return ok is not False
+
+
+        def read_set_by_effect(cands, echo_name=''):
             """滚详情面板找套装：**套装名文字优先**（合鸣效果区每条都会写套装名），
             其次按合鸣效果原文反查；以 **OCR 标题锚点** 判"到位没到位"，不用固定格数/像素静止。
 
@@ -558,7 +635,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     total += advance
                     self.sleep(0.16)
                     cur = self.frame
-                    texts = self.ocr(*box)
+                    texts = self.ocr(*EFFECT_BOX)
                     dbg_ocr(f'effect{step}', texts)
                     if _has_heading(texts, '合鸣效果'):
                         seen_heading = step
@@ -595,14 +672,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     prev = cur
             finally:
                 if total:
-                    _panel_scroll(total)               # 滚回顶部
-                    self.sleep(0.25)
-                    for _ in range(2):
-                        if self._panel_has_name():
-                            break
-                        self.log_debug('面板未回顶, 再向上滚一次')
-                        _panel_scroll(total)
-                        self.sleep(0.30)
+                    # 滚过就必须回顶：下一只的词条区在面板上半截，面板滚下去就全读不到
+                    nonlocal panel_dirty
+                    if not restore_panel_top(echo_name):
+                        panel_dirty = True
+            if not best[0]:
+                # 让"套装到底认没认出来"在日志里可见(用户 2026-11-19 提的: 看不出来)
+                self.log_info(f'[套装] 面板没读到套装信息(滚 {total} 格) → 回退环色/名字')
             return best
 
         def scan_grid():
@@ -992,7 +1068,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                 processed_any = False
                 eval_before = evaluated
-                dups = 0             # 本屏"重复/点空"格数 —— 与新增一起看可知重叠对不对
+                dups = 0             # 本屏"真重复"格数(内容与已记录的一致) —— 与新增一起看可知重叠对不对
+                miss = 0             # 本屏"点了但读不到属性"的格数 —— 这是**失败**，不是重复
                 zero_cells = 0       # 本屏 0 词条格数
                 for nx, ny in cells:
                     if self.stop_requested():
@@ -1011,26 +1088,43 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     alt_ratio = 0.08 if dy_ratio < 0 else -0.30
                     delta = (alt_ratio - dy_ratio) * pitch_px / fh if pitch_px > 1 else -0.035
                     click_points = ((nx, ny), (nx, max(0.02, ny + delta)))
+                    echo_name, paired_all, sig, cost = '', [], '', None
                     for attempt, (cx, cy) in enumerate(click_points):
                         self.click(cx, cy, after_sleep=0.8)
                         dbg_shot(f'click_{cx:.2f}_{cy:.2f}')
                         echo_name, paired_all, sig, cost = read_detail()
                         if paired_all and sig != last_sig:
                             break
+                        if not paired_all and panel_dirty and restore_panel_top():
+                            # 面板还停在上一次的滚动位置(滚动条共用) → 回顶后再读一次
+                            panel_dirty = False
+                            echo_name, paired_all, sig, cost = read_detail()
+                            if paired_all and sig != last_sig:
+                                break
                         if attempt == 0:
                             self.log_debug(f'点选未切换 → 换行线另一侧重试: ({nx:.3f},{ny:.3f})')
                     # 属性行签名(不含名字): 名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)时防重复记录
                     stat_key = '|'.join(f'{n}={round(parse_number(v), 1)}' for n, v in paired_all)
                     key = self.dedup_key(echo_name, paired_all) if paired_all else ''
-                    if (not paired_all
-                            or (last_sig is not None and sig == last_sig)
-                            or (key and key in seen_sigs)
-                            or (stat_key and stat_key in seen_stat_sigs)):
-                        # 空格/点选未切换(行尾补全的空白格)/已处理过的声骸(滚动重叠/名字抖动)
-                        # → 跳过本格继续。
-                        # **不要"连续 8 格重复就提前滚屏"**（旧逻辑）：滚动只走 2~3 行时本屏前 2 行
-                        # 都是重复，提前滚 4 行会把本屏还没扫的那些行**整段跳过**（漏行）。
-                        # 卡住时不空转由 scroll_grid 返回 False + 连续 2 次中止兜底，不靠这里提前跳。
+                    known_repeat = (key and key in seen_sigs) or (stat_key and stat_key in seen_stat_sigs)
+                    still_same = last_sig is not None and sig == last_sig
+                    if not paired_all or (still_same and not known_repeat):
+                        # 按布局点了、但**没读到属性**(面板滚走/点空/没切换) —— 计入失败。
+                        # 用户口径(2026-11-19): 这种不能悄悄当"重复"混过去，要能看见、且不能无限继续。
+                        click_fail += 1
+                        click_fail_total += 1
+                        miss += 1
+                        self.log_info(f'[失败] 格({nx:.3f},{ny:.3f}) 点击后没读到属性 '
+                                      f'(本屏第 {miss} 格, 连续 {click_fail} 次)')
+                        if click_fail >= click_fail_stop:
+                            self.log_warning(f'连续 {click_fail} 格点击后都读不到属性, 评估中止'
+                                             f'(已记录 {evaluated} 条, 生成部分报告)', notify=True)
+                            stop_all = True
+                            break
+                        continue
+                    click_fail = 0
+                    if known_repeat:
+                        # 滚动重叠导致的重扫(内容与已记录的一致) —— 这才是"重复"，用于判重叠对不对
                         dups += 1
                         continue
 
@@ -1053,18 +1147,22 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     tier = len(stats)
                     if stats:
                         zero_run = 0
-                        # 套装 = 详情面板「合鸣效果」区(套装名明文 → 效果原文)优先, 其次图标/环色,
-                        # 最后回退"声骸名 → 候选套装"(名字多义 + OCR 错字在名字层无解, 见 resolve_set_name)
                         badge = badge_hue_at(nx, ny)
-                        # 名字多义，或**名字根本没认出来**（OCR 错字 → 候选为空）时读「合鸣效果」；
-                        # 只有"唯一候选"才省这一次滚动。实测 格洛玛图→格洛犸图 就属于后者，
-                        # 跳过面板会直接落"通用"，而面板上明明写着套装名。
                         cand_list = get_sets_by_echo(echo_name) if echo_name else []
-                        effect_set, effect_src = None, ''
-                        if len(cand_list) != 1:
-                            effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list)
-                        set_name, set_src = self.resolve_set_name(echo_name, badge, effect_set,
-                                                                  effect_src)
+                        cached = panel_set_cache.get(echo_name) if echo_name else None
+                        if cached:
+                            # 同名多只: 套装只滚一次面板，之后直接复用(省时且避免反复滚)
+                            set_name, set_src = cached
+                        elif len(cand_list) == 1:
+                            # **只属于一套** → 名字就是答案，不滚面板、不做 OCR(用户口径)
+                            set_name, set_src = self.resolve_set_name(echo_name, badge)
+                        else:
+                            # 名字多义/没认出来 → 滚面板读「合鸣效果」区的套装名明文
+                            effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list, echo_name)
+                            set_name, set_src = self.resolve_set_name(echo_name, badge,
+                                                                      effect_set, effect_src)
+                            if echo_name and set_src in ('text', 'effect'):
+                                panel_set_cache[echo_name] = (set_name, set_src)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         rec = self.evaluate_one(echo_name, stats, set_name, set_src,
@@ -1106,13 +1204,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                 if stop_all or stopped:
                     break
-                # 本屏小结: "新增 + 重复" 直接反映滚动重叠对不对(滚 3 行应剩 ~2 行重复)
+                # 本屏小结: "新增 + 重复" 直接反映滚动重叠对不对(滚 3 行应剩 ~2 行重复);
+                # 失败 = 点了但读不到属性(面板滚走/点空) —— 与"重复"分开计数，否则分不清是重叠还是坏了
                 self.log_info(f'本屏完成: {len(cells)} 格, 新增 {evaluated - eval_before} 条, '
-                              f'重复/点空 {dups} 格, 0词条 {zero_cells} 格')
+                              f'重复 {dups} 格, 失败 {miss} 格, 0词条 {zero_cells} 格')
                 # ── 无重叠守卫(内容级，不依赖像素测量) ─────────────────────────
                 # 非首屏却**一格重复都没有** = 这次滚过头了(≥5 行)，中间整行被跳过。
                 # 像素测不准也能发现漏行：重复数是"真滚了几行"的直接证据。
-                if screens_done >= 1 and dups == 0 and evaluated > 0 and back_steps < 2:
+                # 有"点了读不到"的格子时不判重叠 —— 那屏的结果本来就不可信，先别拿它当证据。
+                if screens_done >= 1 and dups == 0 and miss == 0 and evaluated > 0 and back_steps < 2:
                     back_steps += 1
                     self.log_warning(f'本屏无重叠(滚过头, 中间整行被跳过) → 回滚 1 行重扫'
                                      f' (第 {back_steps} 次)')
@@ -1146,17 +1246,22 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 return
             # 汇总 JSON(顶层 set = 本次评估的 config 套装; 逐条的 set/set_src 见 resolve_set_name)
             output_set = self.config.get('当前套装', '通用')
+            src_stat = Counter(r.get('set_src') or 'default' for r in results)
             output = {
                 "set": output_set,
                 "total": evaluated,
                 "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "click_fail": click_fail_total,
+                "set_src": dict(src_stat),
                 "results": results,
             }
             json_path = os.path.join(tmp_dir, "eval_result.json")
             with open(json_path, "w", encoding="utf-8") as f:
                 _json.dump(output, f, ensure_ascii=False, indent=2)
 
-            self.log_info(f'评估完成, 共{evaluated}个声骸', notify=True)
+            self.log_info(f'评估完成, 共{evaluated}个声骸 '
+                          f'(套装来源: {" / ".join(f"{k}={v}" for k, v in src_stat.most_common())}'
+                          f'; 点击失败 {click_fail_total} 格)', notify=True)
             if on_done:
                 self.handler.post(lambda: on_done(json_path, ss_dir))
         except Exception:

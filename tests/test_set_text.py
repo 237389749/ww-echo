@@ -106,7 +106,7 @@ class TestEvalWiring(unittest.TestCase):
             src = f.read()
         self.assertIn('read_set_by_effect(', src)
         self.assertIn('match_set_effect(texts, cands)', src)
-        self.assertIn('resolve_set_name(echo_name, badge, effect_set', src)
+        self.assertIn('resolve_set_name(echo_name, badge', src)
 
     def test_panel_name_source_is_propagated(self):
         """读到套装名明文时 `set_src` 必须是 `text`（不是一律 `effect`）。
@@ -120,8 +120,7 @@ class TestEvalWiring(unittest.TestCase):
             src = f.read()
         self.assertIn("best = (named, 1.0, 0.0, 'text')", src)
         self.assertIn("best = (cand, s1, s2, 'effect')", src)
-        self.assertIn('effect_set, _s1, _s2, effect_src = read_set_by_effect('
-                      'cand_list)', src)
+        self.assertIn('effect_src = read_set_by_effect(cand_list, echo_name)', src)
 
     def test_resolver_returns_panel_source(self):
         """`resolve_set_name(..., effect_src='text')` 原样回传，缺省仍回落 'effect'。"""

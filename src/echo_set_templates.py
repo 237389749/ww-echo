@@ -244,6 +244,19 @@ def _strip_echo_prefix(name: str) -> str:
     return name
 
 
+# OCR 常把名字里的间隔号 `·` 读成别的点号(实测 `共鸣回响・鸣式・虚造神型` → 候选为空,
+# 于是白滚一趟详情面板、还退化成通用)或整个丢掉 → 匹配前统一成 `·`, 另外再试一次"去点"比较。
+_ECHO_DOTS = '·・•‧･⋅∙'
+
+
+def _normalize_echo_dots(name: str) -> str:
+    return ''.join('·' if ch in _ECHO_DOTS else ch for ch in (name or ''))
+
+
+def _strip_echo_dots(name: str) -> str:
+    return ''.join(ch for ch in (name or '') if ch not in _ECHO_DOTS)
+
+
 def _lcs_len(a: str, b: str) -> int:
     """最长公共连续子串长度。"""
     best = 0
@@ -393,6 +406,7 @@ def _match_echo_key(name: str, index: dict, chars: set, skins: dict | None = Non
     """
     if not name:
         return None
+    name = _normalize_echo_dots(name)
     skins = skins or {}
     is_skin = any(name.startswith(p) for p in _ECHO_SKIN_PREFIXES)
     if skins:
@@ -404,6 +418,14 @@ def _match_echo_key(name: str, index: dict, chars: set, skins: dict | None = Non
     for v in variants:
         if v and v in pool:
             return v
+    # ①.5 去点比较: OCR 把间隔号读成别的点号/整个丢掉时, 剥掉所有点再比 —— 唯一命中才认
+    for v in variants:
+        cand = _strip_echo_dots(v)
+        if len(cand) < 2:
+            continue
+        hits = [k for k in pool if _strip_echo_dots(k) == cand]
+        if len(hits) == 1:
+            return hits[0]
     for v in variants:
         if not v:
             continue
