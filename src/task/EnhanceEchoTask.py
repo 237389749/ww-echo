@@ -380,7 +380,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
         SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
         SET_PANEL_STEP = 6          # 找套装时每次只滚 6 格(小步: 大步会一步跨过目标文本)
-        SET_PANEL_MAX_STEPS = 10    # 最多滚 10×6 格(读不到套装名就放弃, 交给环色/名字兜底)
+        SET_PANEL_FIRST_STEP = 12   # 但第一步放大: 主词条区肯定没有套装名, 先跳过那一段
+        SET_PANEL_MAX_STEPS = 9     # 12 + 8×6 = 60 格上限
 
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
@@ -532,11 +533,27 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             prev = self.frame
             still = 0
             seen_heading = None
+
+            def _name_own_line(texts, name):
+                """套装名是否**独占一行**。
+
+                官方套装分两类：2+5 件套（套装名在合鸣效果区出现**两次**）/ 单条目（1 或 3 件，
+                只出现一次）。不管几次，它都是**单独一行**（后面跟个图标）。所以"独占一行"既能
+                确认已经滚到合鸣效果区（哪怕标题已经滚出视野），又能挡掉技能描述里偶然出现的套装名。
+                """
+                for b in texts or []:
+                    line = ''.join(ch for ch in str(getattr(b, 'name', '') or '')
+                                   if '\u4e00' <= ch <= '\u9fff')
+                    if line == name:
+                        return True
+                return False
+
             try:
                 for step in range(SET_PANEL_MAX_STEPS):
-                    if not _panel_scroll(-SET_PANEL_STEP):
+                    advance = SET_PANEL_FIRST_STEP if step == 0 else SET_PANEL_STEP
+                    if not _panel_scroll(-advance):
                         break
-                    total += SET_PANEL_STEP
+                    total += advance
                     self.sleep(0.16)
                     cur = self.frame
                     texts = self.ocr(*box)
@@ -550,10 +567,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         named_all, how_all = match_set_text(texts)
                         if named_all:
                             named, how = named_all, how_all + '/all'
-                    if named:
+                    if named and (seen_heading is not None or _name_own_line(texts, named)):
                         self.log_info(f'[套装] 合鸣效果区读到套装名: {named}({how}, 滚 {total} 格)')
                         best = (named, 1.0, 0.0)
                         break
+                    named = None
                     cand, s1, s2 = match_set_effect(texts, cands)
                     if cand:
                         self.log_info(f'[套装] 按合鸣效果文本命中: {cand} '
