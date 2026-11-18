@@ -1,12 +1,21 @@
-# Python >=3.11（3.13 / 3.14 已实测）
-# 引擎已 vendored 到 ww_engine/（源自 ok-script 1.0.160, MIT），不再依赖 ok-script 包，
+# Python >=3.10
+#
+# 为什么是 3.10（不是 3.11）:
+#   - 下界由**依赖**决定: openvino 2026.0.0 要 >=3.10, PySide6 6.12 要 >=3.10,<3.16；
+#   - 本仓库代码语法更宽松: 145 个 .py 用 ast.parse(feature_version=(3,8)) 全部通过，
+#     也没有用 tomllib / typing.Self / StrEnum / ExceptionGroup 这类 3.11 专属特性；
+#   - numpy **没有**写在这里: 它是 opencv/openvino 的传递依赖(>=2, <2.5)。pip 在 3.10 上会选
+#     numpy 2.2.x、在 3.13 上选 2.4.x —— "3.11" 只是 numpy 2.4 的 Requires-Python，不是本项目要求。
+#
+# 直接依赖用 `==` 钉死(2026-11-18 按 Python 3.13.16 实测环境锁定)；传递依赖未锁，
+# 需要"每次 clone 装出完全一致的一整套"时再上 requirements.lock(方案 B，尚未启用)。
+# 引擎已 vendored 到 ww_engine/(源自 ok-script 1.0.160, MIT)，不再依赖 ok-script 包，
 # 也不再需要 tools/patches/apply_patches.py。
-# opencv 4.14 起 numpy 约束为 `numpy>=2`；openvino 2026.0.0 要求 `numpy<2.5`。
 opencv-python==4.14.0.94
 onnxocr-ppocrv5==0.0.18
 openvino==2026.0.0
-pynput>=1.7.6
-pywin32>=306
-psutil>=6.0.0
+pynput==1.8.2
+pywin32==312
+psutil==7.2.2
 pycaw==20240210
-PySide6-Fluent-Widgets>=1.8.3
+PySide6-Fluent-Widgets==1.11.3

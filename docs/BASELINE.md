@@ -10,8 +10,9 @@
 | 项 | 值 | 说明 |
 |---|---|---|
 | OS | Windows 10/11 | 抓屏/键鼠依赖 Win32 |
-| Python | **3.11+**（推荐 3.12；**3.13 / 3.14 已实测**） | 引擎已 vendored 到 `ww_engine/`（源自 ok-script 1.0.160, MIT），不再要求 site-packages 的 ok-script。3.14 实测口径：Python **3.14.4** + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`）；3.13 于 2026-11-13 用全新 venv 复验（Python 3.13.16 + 同一套 requirements） |
-| 依赖 | `pip install -r requirements.txt` | `opencv-python==4.14.0.94` / `openvino==2026.0.0` / `onnxocr-ppocrv5==0.0.18` / `pywin32` / `psutil` / `pynput` / `pycaw` / `PySide6-Fluent-Widgets`；传递依赖未锁版本 |
+| Python | **3.10+**（推荐 3.12；**3.13 / 3.14 已实测**） | **下界来自依赖，不是项目锁的**：`openvino 2026.0.0` 要 ≥3.10、`PySide6 6.12` 要 3.10~3.15；代码语法更宽松（145 个 `.py` 用 `ast.parse(feature_version=(3,8))` 全部可解析，无 tomllib/Self/StrEnum/ExceptionGroup）。曾经写的 "3.11+" 是误记：那是 **numpy 2.4**（opencv/openvino 的传递依赖）的 Requires-Python，3.10 上 pip 会选 numpy 2.2.x。3.14 实测口径：Python **3.14.4** + numpy 2.4.6 + opencv 4.14.0.94（venv `..\.venv314`）；3.13 于 2026-11-13 用全新 venv 复验（Python 3.13.16 + 同一套 requirements） |
+| 依赖 | `pip install -r requirements.txt` | `opencv-python==4.14.0.94` / `onnxocr-ppocrv5==0.0.18` / `openvino==2026.0.0` / `pynput==1.8.2` / `pywin32==312` / `psutil==7.2.2` / `pycaw==20240210` / `PySide6-Fluent-Widgets==1.11.3`（**直接依赖全 `==`**，2026-11-18 按 3.13.16 锁定）；**传递依赖未锁**（numpy/onnxruntime/shiboken 由 pip 解析） |
+| 3.10 可用性 | **静态核对通过（未跑运行）** | 2026-11-18 查 PyPI: 所有 `==` 的包在 Windows 上都有 cp310 或 abi3 的 win_amd64 wheel（pywin32 312 有 cp310、psutil 7.2.2 是 abi3、opencv 是 cp37-abi3、openvino 2026 声明 >=3.10）；真正的运行验证仍只在 3.13.16 做过 |
 | 引擎 | `ww_engine/`（in-tree） | 不再有 site-packages 补丁；4 处 `[ww-echo patch]` 已合并进 vendored 代码 |
 | 显示器/分辨率 | **任意窗口比例**（1024x768 起；`supported_resolution.ratio=None` 时按帧宽高线性映射） | 真机评估需要游戏在"背包声骸列表"界面；只有"全屏+黑边"才需显式设 `ratio='16:9'` |
 

@@ -100,12 +100,15 @@
 ## 运行环境 | Requirements
 
 - **OS:** Windows
-- **Python:** 3.11+（推荐 3.12；**Windows + Python 3.13 / 3.14 已实测可用**，见 `docs/BASELINE.md`）
-  - **下界是依赖给的，不是项目锁的**: 代码里没有任何 `sys.version_info` 检查、没有 `pyproject`/`setup.py` 固定解释器；
-    真正的约束来自依赖元数据 —— `openvino 2026.0.0` 要 ≥3.10、`PySide6 6.12` 要 3.10~3.15、`numpy 2.4` 要 ≥3.11。
-    升级依赖时下界可能跟着变，`requirements.txt` 头部注释与 `docs/BASELINE.md` 会同步。
-  - **不要依赖某个"本机专用 venv"**: 任意满足上述条件的解释器 + `pip install -r requirements.txt` 即可；
-    仓库根的 `run.cmd` 只做两件事：优先用仓库内 `.venv`，否则用 PATH 上的 `python`（并在依赖缺失时给出安装命令）。
+- **Python:** **3.10+**（推荐 3.12；**Windows + Python 3.13 / 3.14 已实测可用**，见 `docs/BASELINE.md`）
+  - **下界是依赖给的，不是项目锁的**: 代码里没有任何 `sys.version_info` 硬性依赖、没有打包要求；
+    真正的约束来自依赖元数据 —— `openvino 2026.0.0` 要 ≥3.10、`PySide6 6.12` 要 3.10~3.15。
+    代码语法更宽松: 145 个 `.py` 用 `ast.parse(feature_version=(3,8))` 全部可解析。
+    以前写的"3.11+"是错的：那是 `numpy 2.4`（opencv/openvino 的**传递依赖**）的 Requires-Python，
+    在 3.10 上 pip 会选 numpy 2.2.x，同样满足 `numpy>=2,<2.5`。
+  - **直接依赖已用 `==` 钉死**（`requirements.txt`），传递依赖未锁；要"每次装出完全一致"再上 lock 文件。
+  - **不要依赖某个"本机专用 venv"**: 任意 3.10+ 解释器 + `pip install -r requirements.txt` 即可；
+    仓库根的 `run.cmd` 只做两件事：优先用仓库内 `.venv`，否则用 PATH 上的 `python`（依赖缺失时给出安装命令）。
 - **Resolution:** 窗口模式任意比例（实测 1024x768 / 1254x889 / 16:10 / 16:9 都用同一套归一化坐标）；仅"全屏且带黑边"时需要把 `supported_resolution.ratio` 设回 `16:9`
 - **Game language:** 简体中文 / 繁體中文
 - **FPS:** Stable 60

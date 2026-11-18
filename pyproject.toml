@@ -1,0 +1,10 @@
+# 只为声明「解释器下界」与工具配置 —— 本项目**不打包**，从源码运行（依赖见 requirements.txt）。
+#
+# 下界 3.10 的依据见 requirements.txt 头部与 docs/BASELINE.md §0：
+#   openvino 2026.0.0 / PySide6 6.12 都要求 >=3.10；代码语法 3.8 即可。
+# 注意：pip 安装 requirements.txt **不会**读这里；真正的"装错版本立刻报错"由 mainui.py 启动检查兜住。
+[project]
+name = "ww-echo"
+version = "0.0.0"
+description = "鸣潮声骸强化 + 评估工具（从源码运行）"
+requires-python = ">=3.10"
