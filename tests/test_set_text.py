@@ -106,7 +106,36 @@ class TestEvalWiring(unittest.TestCase):
             src = f.read()
         self.assertIn('read_set_by_effect(', src)
         self.assertIn('match_set_effect(texts, cands)', src)
-        self.assertIn('resolve_set_name(echo_name, badge, effect_set)', src)
+        self.assertIn('resolve_set_name(echo_name, badge, effect_set', src)
+
+    def test_panel_name_source_is_propagated(self):
+        """读到套装名明文时 `set_src` 必须是 `text`（不是一律 `effect`）。
+
+        2026-11-19 发现：`match_set_text` 的命中方式（text/text-lcs/all）在 `read_set_by_effect`
+        里被丢掉，`resolve_set_name` 一律返回 'effect' → 报告/日志里**永远出不了** `set_src=text`，
+        验收条「text 占多数」无从判断，报告悬停也说不清是"读到名字"还是"猜的效果原文"。
+        """
+        path = os.path.join(ROOT, 'src', 'task', 'EnhanceEchoTask.py')
+        with open(path, encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn("best = (named, 1.0, 0.0, 'text')", src)
+        self.assertIn("best = (cand, s1, s2, 'effect')", src)
+        self.assertIn('effect_set, _s1, _s2, effect_src = read_set_by_effect('
+                      'cand_list)', src)
+
+    def test_resolver_returns_panel_source(self):
+        """`resolve_set_name(..., effect_src='text')` 原样回传，缺省仍回落 'effect'。"""
+        from src.echo_set_templates import get_sets_by_echo
+        from src.task.EnhanceEchoTask import EnhanceEchoTask       # 需要 ww_engine 依赖
+        task = EnhanceEchoTask.__new__(EnhanceEchoTask)            # 只调纯函数, 不初始化引擎
+        task.config = {'当前套装': '通用'}
+        task.log_debug = lambda *a, **k: None
+        name = '无归的谬误'
+        self.assertIn('隐世回光', get_sets_by_echo(name))          # 前提: 目标是名字候选之一
+        self.assertEqual(task.resolve_set_name(name, None, '隐世回光', 'text'),
+                         ('隐世回光', 'text'))
+        self.assertEqual(task.resolve_set_name(name, None, '隐世回光'),
+                         ('隐世回光', 'effect'))
 
 
 class TestEffectStructure(unittest.TestCase):

@@ -884,10 +884,11 @@ def _build_eval_html(data):
         # OCR 原文与规范名不同(错字已被容错匹配纠正)时, 把原文放进 title 供追溯
         name_raw = r.get("name_raw") or name
         name_title = f' title="OCR 识别为: {name_raw}"' if name_raw != name else ''
-        # 套装来源(resolve_set_name): icon=详情面板图标判定 / name=声骸名候选兜底 / default=通用; 旧报告无字段 → "—"
+        # 套装来源(resolve_set_name): text=合鸣效果区的套装名明文 / effect=合鸣效果原文反查 /
+        # icon=详情面板图标 / hue=卡片徽章环色 / name=声骸名候选兜底 / default=通用; 旧报告无字段 → "—"
         set_name = r.get("set") or "—"
-        set_src = {"icon": "套装图标判定", "effect": "合鸣效果文本判定",
-                   "hue": "卡片徽章环色判定", "name": "声骸名兜底",
+        set_src = {"text": "合鸣效果区套装名", "effect": "合鸣效果原文反查",
+                   "icon": "套装图标判定", "hue": "卡片徽章环色判定", "name": "声骸名兜底",
                    "default": "默认(通用)"}.get(r.get("set_src"), "")
         if r.get("badge_hue") is not None:
             set_src += f' (环色 {float(r["badge_hue"]):.0f})'

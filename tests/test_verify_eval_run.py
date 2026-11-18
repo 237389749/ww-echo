@@ -128,10 +128,17 @@ class MainGateTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn('[ok]', out)
 
-    def test_no_text_fails(self):
+    def test_no_panel_signal_fails(self):
         code, out = self._run(_report([_row(1, '先锋幼岩', '隐世回光', 'name'),
                                        _row(2, '无归的谬误', '隐世回光', 'default')]), ['--check'])
         self.assertEqual(code, 1, out)
+        self.assertIn('面板套装信息一条都没读到', out)
+
+    def test_effect_only_is_warn_not_fail(self):
+        """面板读到了但只是按效果原文反查（text 0%）→ 提醒，不判失败。"""
+        code, out = self._run(_report([_row(1, '先锋幼岩', '隐世回光', 'effect'),
+                                       _row(2, '无归的谬误', '隐世回光', 'effect')]), ['--check'])
+        self.assertEqual(code, 0, out)
         self.assertIn('set_src=text 只占 0%', out)
 
     def test_count_mismatch_fails(self):

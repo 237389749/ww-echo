@@ -1,4 +1,4 @@
-# CLAUDE.md — ww-echo 开发手册
+﻿# CLAUDE.md — ww-echo 开发手册
 
 鸣潮(云游戏/本地)声骸强化 + 评估工具。引擎自持到 ww_engine/(源自 ok-script 1.0.160 的 MIT 精简 vendor) + 自建 PySide6 UI。
 **本手册面向后续开发(含 AI 协作者)。演进历史与改动原因见 CHANGELOG.md, 使用说明见 README.md,
@@ -309,8 +309,8 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 `src/echo_icon_match.py`: 详情面板图标区 → 灰度 28x28 → 与 `assets/echo_icons/{套装名}.png`(**37 张, 全部来自客户端官方贴图**)做 **ZNCC**:
 ①模板 76px 缩到 29px(尺度 1.05)中心裁 28, 两端同分辨率 1:1 比 ②**±2px 平移搜索**(消 bbox 抖动; 不搜索时 s1 从 0.9 掉到 0.23) ③圆形 mask(r≤12)排除外发光与面板背景 ④置信线 `MIN_SCORE=0.60` + 与次优间隔 `MIN_MARGIN=0.05`, 不达线返回 None 交调用方回退名字候选。
 **颜色/环色特征不可用**: 37 个模板同构(彩色圆环 + 白底 + 深色图案), 缩到 28px 后轮廓主导 → 环色 top1 命中仅 28/183; 灰度 ZNCC 才是有效判据。
-`EnhanceEchoTask.resolve_set_name(名)`: 图标优先(**与名字候选不一致也以图标为准** — 名字层错字无解) → 低置信回退 `get_set_by_echo(名, prefer=config套装)` → 再回退 config(评估=通用); 来源 `icon`/`name`/`default` 记入报告 JSON 的 `set`/`set_src`。
-离线回归: `python tools/eval_icon_match.py [debug目录]`(用 `logs/eval_debug/<时间戳>/` 全屏图, 无需开游戏)。**⚠ 3.x 新 UI 起详情面板没有套装图标**（`ICON_BOX` 落到 `+25` 旁绿色「+」按钮，实测 155 条 icon 命中 0 次）。套装消歧顺序：**合鸣效果区的套装名明文**（面板与背包是独立滚动条；滚到底依次是 声骸技能描述 → 合鸣效果，后者每条都写套装名 —— 2+5 件套出现两次、单条目(1/3 件)出现一次 → `match_set_text` 读名字，读不到再用 `match_set_effect` 按效果原文的字符二元组覆盖率反查） → 面板图标(旧 UI) → **卡片徽章环色**(`badge_hue`/`filter_by_set_hue`，8 个色组，158 个多义名里 85% 可唯一定位) → 名字候选。`set_src` = effect/icon/hue/name/default。**旧基线（面板图标时代）: 219 张中 217 张高置信(99.1%, s1 中位 0.894); 名字候选非空 211 张中 196 一致(92.9%), 15 张不一致全部是名字层错字案例且图标给出正确套装(`梦魔·青羽鹭/啾啾河豚/咕咕河豚` → `息界同调之律`, s1=0.93); 2 张详情面板无图标(`无归的谬误`)s1≈0.22 → 回退名字候选。改判定逻辑后跑一次该工具对比基线。**
+`EnhanceEchoTask.resolve_set_name(名)` 的实际定序(2026-11-19)：合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**覆盖率反查(`effect`) → 面板图标(`icon`, 旧 UI) → 卡片徽章环色(`hue`) → 名字候选(`name`) → config(`default`)。来源一路写进报告 JSON 的 `set_src`（`read_set_by_effect` 把 `match_set_text` 的 how 一起传出来 —— **别再把 text 折回 effect**，否则验收条与报告悬停都说不清"读到名字"还是"猜的效果原文"）。
+离线回归: `python tools/eval_icon_match.py [debug目录]`(用 `logs/eval_debug/<时间戳>/` 全屏图, 无需开游戏)。**⚠ 3.x 新 UI 起详情面板没有套装图标**（`ICON_BOX` 落到 `+25` 旁绿色「+」按钮，实测 155 条 icon 命中 0 次）。套装消歧顺序：**合鸣效果区的套装名明文**（面板与背包是独立滚动条；滚到底依次是 声骸技能描述 → 合鸣效果，后者每条都写套装名 —— 2+5 件套出现两次、单条目(1/3 件)出现一次 → `match_set_text` 读名字，读不到再用 `match_set_effect` 按效果原文的字符二元组覆盖率反查） → 面板图标(旧 UI) → **卡片徽章环色**(`badge_hue`/`filter_by_set_hue`，8 个色组，158 个多义名里 85% 可唯一定位) → 名字候选。`set_src` = text/effect/icon/hue/name/default。**旧基线（面板图标时代）: 219 张中 217 张高置信(99.1%, s1 中位 0.894); 名字候选非空 211 张中 196 一致(92.9%), 15 张不一致全部是名字层错字案例且图标给出正确套装(`梦魔·青羽鹭/啾啾河豚/咕咕河豚` → `息界同调之律`, s1=0.93); 2 张详情面板无图标(`无归的谬误`)s1≈0.22 → 回退名字候选。改判定逻辑后跑一次该工具对比基线。**
 
 ## 官方静态数据层(L0~L2, 2026-10-02; 生成物只读, 勿手改)
 
@@ -401,7 +401,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **点选失效兜底**: 进循环前先读一次详情面板做基线; 每格点击后若签名没变(或没读到属性)就**向格子中心偏一点重试一次**
   (角标在格子右下), 仍不变则跳过。名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)会绕过 `dedup_key`, 另用**属性行签名**
   (`seen_stat_sigs`, 不含名字) 防重复记录。
-- **评估按套装图标优先映射套装**(阶段十二): `resolve_set_name` → 图标识别(高置信直接用, 可纠正名字候选) → 否则 `get_sets_by_echo` 候选(prefer=config 套装) → 否则回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底
+- **评估按详情面板的套装信息映射套装**(2026-11-19): `resolve_set_name` → 合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**反查(`effect`) → 面板图标(旧 UI) → 卡片徽章环色 → `get_sets_by_echo` 候选(prefer=config 套装) → 回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底。只有"唯一候选"才省掉读面板那一次滚动
 - **面板 COST 与主属性**(L2): `read_detail` 用 `parse_cost` 读 COST 角标(合框 `COST 4` 或"标签 + 同行右侧数字框"; 该批 219 张素材实测 219/219 可读), 前 2 行主属性与 COST 一起交给 `evaluate_one` → 报告「COST/主属性」列 + 官方管理方案判定。
   **真机 20261008 那批漏读 27/135**(小字数字框整个没检出, 复跑截图可复现: `eval_062` 只剩 `COST`) →
   现在 1× 读不到时走 `read_cost_badge()`: 只截 `_COST_ROI`(0.685,0.19–0.792,0.25)放大 3× 再 OCR
@@ -462,7 +462,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**268 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**271 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`

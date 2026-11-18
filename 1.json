@@ -1,0 +1,3479 @@
+{
+  "set": "通用",
+  "total": 53,
+  "evaluated_at": "2026-11-14 14:45:03",
+  "results": [
+    {
+      "index": 1,
+      "screenshot": "eval_001_hold_25.8.png",
+      "name": "共鸣回响·鸣式·虚造神型",
+      "name_raw": "共鸣回响·鸣式·虚造神型",
+      "tier": 5,
+      "score": 25.81,
+      "threshold": 26.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "雪落无声之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 6.9,
+          "detail": "暴击=6.9→6.9/7.5×10×1.0=9.20 [前76.67%]",
+          "ratio": 0.92
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 8.6,
+          "detail": "共鸣解放伤害加成=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "攻击百分比",
+          "value": 9.4,
+          "detail": "攻击百分比=9.4→9.4/8.8×10×0.5=5.34 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 10.1,
+          "detail": "共鸣技能伤害加成=10.1 无效(0)",
+          "ratio": 1.148
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.6=6.38 [前40.78%]",
+          "ratio": 1.064
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击",
+          "value": 22.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "screenshot": "eval_002_hold_23.3.png",
+      "name": "共鸣回响·鸣式·虚造神型",
+      "name_raw": "共鸣回响·鸣式·虚造神型",
+      "tier": 5,
+      "score": 23.26,
+      "threshold": 25.5,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "雪落无声之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 9.4,
+          "detail": "攻击百分比=9.4→9.4/8.8×10×0.5=5.34 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "共鸣效率",
+          "value": 9.2,
+          "detail": "共鸣效率=9.2→9.2/9.4×10×0.6=5.87 [前65.05%]",
+          "ratio": 0.979
+        },
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "攻击",
+          "value": 30.0,
+          "detail": "攻击=30.0→30/43.7×10×0.25=1.72 [前100%]",
+          "ratio": 0.686
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 7.9,
+          "detail": "共鸣解放伤害加成=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击伤害",
+          "value": 44.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "screenshot": "eval_003_hold_21.4.png",
+      "name": "共鸣回响·鸣式·虚造神型",
+      "name_raw": "共鸣回响·鸣式·虚造神型",
+      "tier": 5,
+      "score": 21.39,
+      "threshold": 22.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "雪落无声之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        },
+        {
+          "name": "生命",
+          "value": 470.0,
+          "detail": "生命=470.0 无效(0)",
+          "ratio": 1.072
+        },
+        {
+          "name": "攻击百分比",
+          "value": 11.6,
+          "detail": "攻击百分比=11.6→11.6/8.8×10×0.5=6.59 [前2.91%]",
+          "ratio": 1.318
+        },
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 8.6,
+          "detail": "重击伤害加成=8.6 无效(0)",
+          "ratio": 0.977
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击",
+          "value": 22.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "screenshot": "eval_004_hold_24.3.png",
+      "name": "辛吉勒姆",
+      "name_raw": "辛吉勒姆",
+      "tier": 5,
+      "score": 24.29,
+      "threshold": 26.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "长路启航之星",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "攻击百分比",
+          "value": 9.4,
+          "detail": "攻击百分比=9.4→9.4/8.8×10×0.5=5.34 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 8.6,
+          "detail": "共鸣解放伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "防御百分比",
+          "value": 11.8,
+          "detail": "防御百分比=11.8 无效(0)",
+          "ratio": 1.063
+        },
+        {
+          "name": "暴击",
+          "value": 6.9,
+          "detail": "暴击=6.9→6.9/7.5×10×1.0=9.20 [前76.67%]",
+          "ratio": 0.92
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击伤害",
+          "value": 44.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "screenshot": "eval_005_hold_20.3.png",
+      "name": "辛吉勒姆",
+      "name_raw": "辛吉勒姆",
+      "tier": 5,
+      "score": 20.33,
+      "threshold": 22.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "长路启航之星",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.6=6.38 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "攻击百分比",
+          "value": 6.4,
+          "detail": "攻击百分比=6.4→6.4/8.8×10×0.5=3.64 [前100%]",
+          "ratio": 0.727
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 8.6,
+          "detail": "共鸣解放伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        },
+        {
+          "name": "生命百分比",
+          "value": 8.6,
+          "detail": "生命百分比=8.6 无效(0)",
+          "ratio": 0.977
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击伤害",
+          "value": 44.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "screenshot": "eval_006_hold_21.3.png",
+      "name": "鸣钟之龟",
+      "name_raw": "鸣钟之龟",
+      "tier": 5,
+      "score": 21.33,
+      "threshold": 22.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "轻云出月",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 10.1,
+          "detail": "攻击百分比=10.1→10.1/8.8×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.148
+        },
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "生命",
+          "value": 510.0,
+          "detail": "生命=510.0 无效(0)",
+          "ratio": 1.164
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.6=6.38 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 7.1,
+          "detail": "重击伤害加成=7.1→7.1/8.8×10×0.1=0.81 [前93.2%]",
+          "ratio": 0.807
+        }
+      ],
+      "cost": 4,
+      "main_props": [
+        {
+          "name": "治疗效果加成",
+          "value": 26.4
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ],
+      "plan_check": {
+        "prop": "治疗效果加成",
+        "prop_id": 35,
+        "state": "other",
+        "plan": {
+          "lock": [
+            8,
+            9
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 7,
+      "screenshot": "eval_007_hold_20.7.png",
+      "name": "无铭探索者",
+      "name_raw": "无铭探索者",
+      "tier": 5,
+      "score": 20.7,
+      "threshold": 18.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "剪心辑梦之影",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 10.1,
+          "detail": "共鸣解放伤害加成=10.1 无效(0)",
+          "ratio": 1.148
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.8,
+          "detail": "共鸣效率=10.8→10.8/9.4×10×0.6=6.89 [前23.3%]",
+          "ratio": 1.149
+        },
+        {
+          "name": "防御",
+          "value": 50.0,
+          "detail": "防御=50.0 无效(0)",
+          "ratio": 0.935
+        },
+        {
+          "name": "攻击百分比",
+          "value": 10.1,
+          "detail": "攻击百分比=10.1→10.1/8.8×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.148
+        },
+        {
+          "name": "暴击伤害",
+          "value": 17.4,
+          "detail": "暴击伤害=17.4→17.4/15.1×10×0.7=8.07 [前22%]",
+          "ratio": 1.152
+        }
+      ],
+      "cost": 4,
+      "main_props": [
+        {
+          "name": "暴击",
+          "value": 22.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ],
+      "plan_check": {
+        "prop": "暴击",
+        "prop_id": 8,
+        "state": "ok",
+        "plan": {
+          "lock": [
+            8,
+            9
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 8,
+      "screenshot": "eval_008_hold_21.2.png",
+      "name": "海维夏",
+      "name_raw": "海维夏",
+      "tier": 5,
+      "score": 21.18,
+      "threshold": 23.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "流金溯真之式",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 10.9,
+          "detail": "共鸣技能伤害加成=10.9 无效(0)",
+          "ratio": 1.239
+        },
+        {
+          "name": "防御",
+          "value": 60.0,
+          "detail": "防御=60.0 无效(0)",
+          "ratio": 1.121
+        },
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.6=6.38 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        }
+      ],
+      "cost": 4,
+      "main_props": [
+        {
+          "name": "暴击伤害",
+          "value": 44.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ],
+      "plan_check": {
+        "prop": "暴击伤害",
+        "prop_id": 9,
+        "state": "ok",
+        "plan": {
+          "lock": [
+            8,
+            9
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 9,
+      "screenshot": "eval_009_fail_19.0.png",
+      "name": "无归的谬误",
+      "name_raw": "无归的廖误",
+      "tier": 5,
+      "score": 18.99,
+      "threshold": 17.5,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "隐世回光",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.5=5.72 [前40.78%]",
+          "ratio": 1.144
+        },
+        {
+          "name": "暴击",
+          "value": 10.5,
+          "detail": "暴击=10.5→10.5/7.5×10×0.25=3.50 [前3%]",
+          "ratio": 1.4
+        },
+        {
+          "name": "攻击百分比",
+          "value": 8.6,
+          "detail": "攻击百分比=8.6→8.6/8.8×10×1.0=9.77 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 8.6,
+          "detail": "共鸣解放伤害加成=8.6 无效(0)",
+          "ratio": 0.977
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 7.9,
+          "detail": "普攻伤害加成=7.9 无效(0)",
+          "ratio": 0.898
+        }
+      ],
+      "cost": 4,
+      "main_props": [
+        {
+          "name": "治疗效果加成",
+          "value": 26.4
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ],
+      "plan_check": {
+        "prop": "治疗效果加成",
+        "prop_id": 35,
+        "state": "ok",
+        "plan": {
+          "lock": [
+            35
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 10,
+      "screenshot": "eval_010_fail_14.8.png",
+      "name": "无归的谬误",
+      "name_raw": "无归的廖误",
+      "tier": 5,
+      "score": 14.81,
+      "threshold": 12.0,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "隐世回光",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣效率",
+          "value": 11.6,
+          "detail": "共鸣效率=11.6→11.6/9.4×10×1.2=14.81 [前8.74%]",
+          "ratio": 1.234
+        },
+        {
+          "name": "防御",
+          "value": 40.0,
+          "detail": "防御=40.0 无效(0)",
+          "ratio": 0.748
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 9.4,
+          "detail": "普攻伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 9.4,
+          "detail": "共鸣解放伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        },
+        {
+          "name": "生命百分比",
+          "value": 7.9,
+          "detail": "生命百分比=7.9 无效(0)",
+          "ratio": 0.898
+        }
+      ],
+      "cost": 4,
+      "main_props": [
+        {
+          "name": "治疗效果加成",
+          "value": 26.4
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ],
+      "plan_check": {
+        "prop": "治疗效果加成",
+        "prop_id": 35,
+        "state": "ok",
+        "plan": {
+          "lock": [
+            35
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 11,
+      "screenshot": "eval_011_fail_10.7.png",
+      "name": "无归的谬误",
+      "name_raw": "无归的廖误",
+      "tier": 5,
+      "score": 10.72,
+      "threshold": 12.0,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "隐世回光",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣效率",
+          "value": 8.4,
+          "detail": "共鸣效率=8.4→8.4/9.4×10×1.2=10.72 [前85.44%]",
+          "ratio": 0.894
+        },
+        {
+          "name": "生命百分比",
+          "value": 7.9,
+          "detail": "生命百分比=7.9 无效(0)",
+          "ratio": 0.898
+        },
+        {
+          "name": "生命",
+          "value": 390.0,
+          "detail": "生命=390.0 无效(0)",
+          "ratio": 0.89
+        },
+        {
+          "name": "防御",
+          "value": 50.0,
+          "detail": "防御=50.0 无效(0)",
+          "ratio": 0.935
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 7.9,
+          "detail": "普攻伤害加成=7.9 无效(0)",
+          "ratio": 0.898
+        }
+      ],
+      "main_props": [
+        {
+          "name": "治疗效果加成",
+          "value": 26.4
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "screenshot": "eval_012_pass_32.0.png",
+      "name": "无常凶驾",
+      "name_raw": "无常凶驾",
+      "tier": 5,
+      "score": 32.02,
+      "threshold": 28.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 17.4,
+          "detail": "暴击伤害=17.4→17.4/15.1×10×0.7=8.07 [前22%]",
+          "ratio": 1.152
+        },
+        {
+          "name": "生命百分比",
+          "value": 9.4,
+          "detail": "生命百分比=9.4→9.4/8.8×10×0.5=5.34 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "暴击",
+          "value": 8.1,
+          "detail": "暴击=8.1→8.1/7.5×10×1.0=10.80 [前30%]",
+          "ratio": 1.08
+        },
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.25=2.86 [前40.78%]",
+          "ratio": 1.144
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 10.9,
+          "detail": "共鸣技能伤害加成=10.9→10.9/8.8×10×0.4=4.95 [前8.74%]",
+          "ratio": 1.239
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击",
+          "value": 22.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "screenshot": "eval_013_hold_20.5.png",
+      "name": "无常凶驾",
+      "name_raw": "无常凶驾",
+      "tier": 5,
+      "score": 20.53,
+      "threshold": 21.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 9.4,
+          "detail": "攻击百分比=9.4→9.4/8.8×10×0.5=5.34 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        },
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.25=2.86 [前40.78%]",
+          "ratio": 1.144
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 7.9,
+          "detail": "普攻伤害加成=7.9→7.9/8.8×10×0.4=3.59 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "防御",
+          "value": 50.0,
+          "detail": "防御=50.0→50/53.5×10×0.25=2.34 [前85.44%]",
+          "ratio": 0.935
+        }
+      ],
+      "cost": 4,
+      "main_props": [
+        {
+          "name": "暴击",
+          "value": 22.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "screenshot": "eval_014_hold_24.8.png",
+      "name": "无常凶驾",
+      "name_raw": "无常凶驾",
+      "tier": 5,
+      "score": 24.84,
+      "threshold": 28.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "防御百分比",
+          "value": 8.1,
+          "detail": "防御百分比=8.1→8.1/11.1×10×0.5=3.65 [前100%]",
+          "ratio": 0.73
+        },
+        {
+          "name": "暴击",
+          "value": 6.9,
+          "detail": "暴击=6.9→6.9/7.5×10×1.0=9.20 [前76.67%]",
+          "ratio": 0.92
+        },
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 7.1,
+          "detail": "共鸣解放伤害加成=7.1→7.1/8.8×10×0.4=3.23 [前93.2%]",
+          "ratio": 0.807
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 9.4,
+          "detail": "共鸣技能伤害加成=9.4→9.4/8.8×10×0.4=4.27 [前40.78%]",
+          "ratio": 1.068
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击",
+          "value": 22.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "screenshot": "eval_015_pass_22.8.png",
+      "name": "无常凶驾",
+      "name_raw": "无常凶驾",
+      "tier": 5,
+      "score": 22.79,
+      "threshold": 21.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣效率",
+          "value": 7.6,
+          "detail": "共鸣效率=7.6→7.6/9.4×10×0.5=4.04 [前93.2%]",
+          "ratio": 0.809
+        },
+        {
+          "name": "防御",
+          "value": 60.0,
+          "detail": "防御=60.0→60/53.5×10×0.25=2.80 [前40.78%]",
+          "ratio": 1.121
+        },
+        {
+          "name": "暴击伤害",
+          "value": 19.8,
+          "detail": "暴击伤害=19.8→19.8/15.1×10×0.7=9.18 [前6%]",
+          "ratio": 1.311
+        },
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.25=2.86 [前40.78%]",
+          "ratio": 1.144
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 8.6,
+          "detail": "共鸣解放伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        }
+      ],
+      "main_props": [
+        {
+          "name": "暴击",
+          "value": 22.0
+        },
+        {
+          "name": "攻击",
+          "value": 150.0
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "screenshot": "eval_016_fail_10.7.png",
+      "name": "车刃镰",
+      "name_raw": "车刃镰",
+      "tier": 5,
+      "score": 10.73,
+      "threshold": 12.0,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "啸谷长风",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 8.6,
+          "detail": "攻击百分比=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 10.9,
+          "detail": "共鸣技能伤害加成=10.9 无效(0)",
+          "ratio": 1.239
+        },
+        {
+          "name": "防御",
+          "value": 40.0,
+          "detail": "防御=40.0 无效(0)",
+          "ratio": 0.748
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 7.1,
+          "detail": "重击伤害加成=7.1 无效(0)",
+          "ratio": 0.807
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 17,
+      "screenshot": "eval_017_fail_12.1.png",
+      "name": "绿熔蜥",
+      "name_raw": "绿熔蜥",
+      "tier": 5,
+      "score": 12.12,
+      "threshold": 11.0,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "熔山裂谷",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 10.1,
+          "detail": "攻击百分比=10.1→10.1/8.8×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.148
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 10.9,
+          "detail": "共鸣解放伤害加成=10.9 无效(0)",
+          "ratio": 1.239
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.6=6.38 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "生命",
+          "value": 470.0,
+          "detail": "生命=470.0 无效(0)",
+          "ratio": 1.072
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 9.4,
+          "detail": "重击伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 18,
+      "screenshot": "eval_018_pass_25.9.png",
+      "name": "封庭械囿",
+      "name_raw": "封庭械囿",
+      "tier": 5,
+      "score": 25.89,
+      "threshold": 22.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "冥途夜行之灯",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 15.0,
+          "detail": "暴击伤害=15.0→15.0/15.1×10×0.7=6.95 [前53.33%]",
+          "ratio": 0.993
+        },
+        {
+          "name": "暴击",
+          "value": 9.9,
+          "detail": "暴击=9.9→9.9/7.5×10×1.0=13.20 [前6%]",
+          "ratio": 1.32
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 7.9,
+          "detail": "共鸣技能伤害加成=7.9 无效(0)",
+          "ratio": 0.898
+        },
+        {
+          "name": "攻击百分比",
+          "value": 10.1,
+          "detail": "攻击百分比=10.1→10.1/8.8×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.148
+        },
+        {
+          "name": "防御百分比",
+          "value": 14.7,
+          "detail": "防御百分比=14.7 无效(0)",
+          "ratio": 1.324
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "气动伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "气动伤害加成",
+        "prop_id": 25,
+        "state": "off",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 19,
+      "screenshot": "eval_019_hold_21.7.png",
+      "name": "格洛犸图",
+      "name_raw": "格洛犸图",
+      "tier": 5,
+      "score": 21.74,
+      "threshold": 23.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "长路启航之星",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "暴击伤害",
+          "value": 15.0,
+          "detail": "暴击伤害=15.0→15.0/15.1×10×0.7=6.95 [前53.33%]",
+          "ratio": 0.993
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 9.4,
+          "detail": "共鸣技能伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.6=6.38 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 9.4,
+          "detail": "普攻伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "热熔伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "热熔伤害加成",
+        "prop_id": 23,
+        "state": "ok",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 20,
+      "screenshot": "eval_020_hold_19.5.png",
+      "name": "格洛犸图",
+      "name_raw": "格洛犸图",
+      "tier": 5,
+      "score": 19.51,
+      "threshold": 22.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "长路启航之星",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 9.4,
+          "detail": "共鸣解放伤害加成=9.4→9.4/8.8×10×0.4=4.27 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "攻击百分比",
+          "value": 7.1,
+          "detail": "攻击百分比=7.1→7.1/8.8×10×0.5=4.03 [前93.2%]",
+          "ratio": 0.807
+        },
+        {
+          "name": "共鸣效率",
+          "value": 8.4,
+          "detail": "共鸣效率=8.4→8.4/9.4×10×0.6=5.36 [前85.44%]",
+          "ratio": 0.894
+        },
+        {
+          "name": "生命",
+          "value": 470.0,
+          "detail": "生命=470.0 无效(0)",
+          "ratio": 1.072
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "冷凝伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "冷凝伤害加成",
+        "prop_id": 22,
+        "state": "off",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 21,
+      "screenshot": "eval_021_pass_24.7.png",
+      "name": "格洛犸图",
+      "name_raw": "格洛犸图",
+      "tier": 5,
+      "score": 24.7,
+      "threshold": 24.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "长路启航之星",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 7.5,
+          "detail": "暴击=7.5→7.5/7.5×10×1.0=10.00 [前53.33%]",
+          "ratio": 1.0
+        },
+        {
+          "name": "暴击伤害",
+          "value": 15.0,
+          "detail": "暴击伤害=15.0→15.0/15.1×10×0.7=6.95 [前53.33%]",
+          "ratio": 0.993
+        },
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.25=2.86 [前40.78%]",
+          "ratio": 1.144
+        },
+        {
+          "name": "攻击百分比",
+          "value": 8.6,
+          "detail": "攻击百分比=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 8.6,
+          "detail": "普攻伤害加成=8.6 无效(0)",
+          "ratio": 0.977
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 22,
+      "screenshot": "eval_022_hold_23.9.png",
+      "name": "格洛犸图",
+      "name_raw": "格洛犸图",
+      "tier": 5,
+      "score": 23.93,
+      "threshold": 25.5,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "长路启航之星",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "共鸣效率",
+          "value": 11.6,
+          "detail": "共鸣效率=11.6→11.6/9.4×10×0.6=7.40 [前8.74%]",
+          "ratio": 1.234
+        },
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 9.4,
+          "detail": "普攻伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 23,
+      "screenshot": "eval_023_hold_19.2.png",
+      "name": "格洛犸图",
+      "name_raw": "格洛犸图",
+      "tier": 5,
+      "score": 19.16,
+      "threshold": 22.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "长路启航之星",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 11.6,
+          "detail": "普攻伤害加成=11.6 无效(0)",
+          "ratio": 1.318
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 6.4,
+          "detail": "共鸣解放伤害加成=6.4→6.4/8.8×10×0.4=2.91 [前100%]",
+          "ratio": 0.727
+        },
+        {
+          "name": "共鸣效率",
+          "value": 8.4,
+          "detail": "共鸣效率=8.4→8.4/9.4×10×0.6=5.36 [前85.44%]",
+          "ratio": 0.894
+        },
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 24,
+      "screenshot": "eval_024_pass_27.1.png",
+      "name": "共鸣回响·冠顶仓车",
+      "name_raw": "共鸣回响·冠顶仓车",
+      "tier": 5,
+      "score": 27.14,
+      "threshold": 26.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 10.9,
+          "detail": "重击伤害加成=10.9→10.9/8.8×10×0.4=4.95 [前8.74%]",
+          "ratio": 1.239
+        },
+        {
+          "name": "共鸣效率",
+          "value": 9.2,
+          "detail": "共鸣效率=9.2→9.2/9.4×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.979
+        },
+        {
+          "name": "暴击",
+          "value": 7.5,
+          "detail": "暴击=7.5→7.5/7.5×10×1.0=10.00 [前53.33%]",
+          "ratio": 1.0
+        },
+        {
+          "name": "防御",
+          "value": 60.0,
+          "detail": "防御=60.0→60/53.5×10×0.25=2.80 [前40.78%]",
+          "ratio": 1.121
+        }
+      ],
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 25,
+      "screenshot": "eval_025_hold_26.4.png",
+      "name": "共鸣回响·冠顶仓车",
+      "name_raw": "共鸣回响·冠顶仓车",
+      "tier": 5,
+      "score": 26.44,
+      "threshold": 28.5,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "暴击伤害",
+          "value": 15.0,
+          "detail": "暴击伤害=15.0→15.0/15.1×10×0.7=6.95 [前53.33%]",
+          "ratio": 0.993
+        },
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        },
+        {
+          "name": "生命百分比",
+          "value": 8.6,
+          "detail": "生命百分比=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 8.6,
+          "detail": "共鸣解放伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "热熔伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 26,
+      "screenshot": "eval_026_hold_27.2.png",
+      "name": "共鸣回响·冠顶仓车",
+      "name_raw": "共鸣回响·冠顶仓车",
+      "tier": 5,
+      "score": 27.21,
+      "threshold": 28.5,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 6.9,
+          "detail": "暴击=6.9→6.9/7.5×10×1.0=9.20 [前76.67%]",
+          "ratio": 0.92
+        },
+        {
+          "name": "共鸣效率",
+          "value": 7.6,
+          "detail": "共鸣效率=7.6→7.6/9.4×10×0.5=4.04 [前93.2%]",
+          "ratio": 0.809
+        },
+        {
+          "name": "暴击伤害",
+          "value": 16.2,
+          "detail": "暴击伤害=16.2→16.2/15.1×10×0.7=7.51 [前30%]",
+          "ratio": 1.073
+        },
+        {
+          "name": "防御",
+          "value": 40.0,
+          "detail": "防御=40.0→40/53.5×10×0.25=1.87 [前100%]",
+          "ratio": 0.748
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 10.1,
+          "detail": "共鸣技能伤害加成=10.1→10.1/8.8×10×0.4=4.59 [前23.3%]",
+          "ratio": 1.148
+        }
+      ],
+      "main_props": [
+        {
+          "name": "热熔伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 27,
+      "screenshot": "eval_027_pass_27.5.png",
+      "name": "共鸣回响·冠顶仓车",
+      "name_raw": "共鸣回响·冠顶仓车",
+      "tier": 5,
+      "score": 27.49,
+      "threshold": 23.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 19.8,
+          "detail": "暴击伤害=19.8→19.8/15.1×10×0.7=9.18 [前6%]",
+          "ratio": 1.311
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.8,
+          "detail": "共鸣效率=10.8→10.8/9.4×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.149
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 11.6,
+          "detail": "共鸣技能伤害加成=11.6→11.6/8.8×10×0.4=5.27 [前2.91%]",
+          "ratio": 1.318
+        },
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "防御",
+          "value": 60.0,
+          "detail": "防御=60.0→60/53.5×10×0.25=2.80 [前40.78%]",
+          "ratio": 1.121
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 28,
+      "screenshot": "eval_028_pass_22.8.png",
+      "name": "冠顶械隼",
+      "name_raw": "冠顶械革",
+      "tier": 5,
+      "score": 22.83,
+      "threshold": 22.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "斑驳粉饰之沫",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 7.1,
+          "detail": "攻击百分比=7.1→7.1/8.8×10×0.5=4.03 [前93.2%]",
+          "ratio": 0.807
+        },
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        },
+        {
+          "name": "防御",
+          "value": 60.0,
+          "detail": "防御=60.0 无效(0)",
+          "ratio": 1.121
+        },
+        {
+          "name": "生命",
+          "value": 430.0,
+          "detail": "生命=430.0 无效(0)",
+          "ratio": 0.981
+        },
+        {
+          "name": "暴击",
+          "value": 9.3,
+          "detail": "暴击=9.3→9.3/7.5×10×1.0=12.40 [前14%]",
+          "ratio": 1.24
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 29,
+      "screenshot": "eval_029_hold_19.6.png",
+      "name": "冠顶械隼",
+      "name_raw": "冠顶械革",
+      "tier": 5,
+      "score": 19.64,
+      "threshold": 16.7,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "斑驳粉饰之沫",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "重击伤害加成",
+          "value": 9.4,
+          "detail": "重击伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        },
+        {
+          "name": "暴击伤害",
+          "value": 21.0,
+          "detail": "暴击伤害=21.0→21.0/15.1×10×0.7=9.74 [前3%]",
+          "ratio": 1.391
+        },
+        {
+          "name": "生命百分比",
+          "value": 9.4,
+          "detail": "生命百分比=9.4 无效(0)",
+          "ratio": 1.068
+        },
+        {
+          "name": "攻击百分比",
+          "value": 8.6,
+          "detail": "攻击百分比=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 9.4,
+          "detail": "共鸣解放伤害加成=9.4→9.4/8.8×10×0.47=5.02 [前40.78%]",
+          "ratio": 1.068
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            23
+          ],
+          "discard": [
+            22,
+            24,
+            25,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 30,
+      "screenshot": "eval_030_hold_23.6.png",
+      "name": "风鳞蜜甲",
+      "name_raw": "风鳞蜜甲",
+      "tier": 5,
+      "score": 23.59,
+      "threshold": 25.5,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        },
+        {
+          "name": "攻击百分比",
+          "value": 7.1,
+          "detail": "攻击百分比=7.1→7.1/8.8×10×0.5=4.03 [前93.2%]",
+          "ratio": 0.807
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 10.9,
+          "detail": "共鸣解放伤害加成=10.9→10.9/8.8×10×0.4=4.95 [前8.74%]",
+          "ratio": 1.239
+        },
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 8.6,
+          "detail": "重击伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "冷凝伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 31,
+      "screenshot": "eval_031_pass_34.9.png",
+      "name": "风鳞蜜甲",
+      "name_raw": "风鳞蜜甲",
+      "tier": 5,
+      "score": 34.85,
+      "threshold": 31.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣效率",
+          "value": 10.8,
+          "detail": "共鸣效率=10.8→10.8/9.4×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.149
+        },
+        {
+          "name": "暴击伤害",
+          "value": 17.4,
+          "detail": "暴击伤害=17.4→17.4/15.1×10×0.7=8.07 [前22%]",
+          "ratio": 1.152
+        },
+        {
+          "name": "暴击",
+          "value": 8.7,
+          "detail": "暴击=8.7→8.7/7.5×10×1.0=11.60 [前22%]",
+          "ratio": 1.16
+        },
+        {
+          "name": "生命百分比",
+          "value": 7.9,
+          "detail": "生命百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 10.9,
+          "detail": "共鸣解放伤害加成=10.9→10.9/8.8×10×0.4=4.95 [前8.74%]",
+          "ratio": 1.239
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 32,
+      "screenshot": "eval_032_pass_30.2.png",
+      "name": "风鳞蜜甲",
+      "name_raw": "风鳞蜜甲",
+      "tier": 5,
+      "score": 30.23,
+      "threshold": 28.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "重击伤害加成",
+          "value": 8.6,
+          "detail": "重击伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "暴击",
+          "value": 9.3,
+          "detail": "暴击=9.3→9.3/7.5×10×1.0=12.40 [前14%]",
+          "ratio": 1.24
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.5=5.32 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 10.9,
+          "detail": "普攻伤害加成=10.9→10.9/8.8×10×0.4=4.95 [前8.74%]",
+          "ratio": 1.239
+        },
+        {
+          "name": "防御百分比",
+          "value": 8.1,
+          "detail": "防御百分比=8.1→8.1/11.1×10×0.5=3.65 [前100%]",
+          "ratio": 0.73
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 33,
+      "screenshot": "eval_033_pass_29.8.png",
+      "name": "风鳞蜜甲",
+      "name_raw": "风鳞蜜甲",
+      "tier": 5,
+      "score": 29.78,
+      "threshold": 27.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 9.9,
+          "detail": "暴击=9.9→9.9/7.5×10×1.0=13.20 [前6%]",
+          "ratio": 1.32
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 7.1,
+          "detail": "共鸣技能伤害加成=7.1→7.1/8.8×10×0.4=3.23 [前93.2%]",
+          "ratio": 0.807
+        },
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        },
+        {
+          "name": "普攻伤害加成",
+          "value": 9.4,
+          "detail": "普攻伤害加成=9.4→9.4/8.8×10×0.4=4.27 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "生命",
+          "value": 470.0,
+          "detail": "生命=470.0→470/438.3×10×0.25=2.68 [前40.78%]",
+          "ratio": 1.072
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 34,
+      "screenshot": "eval_034_pass_27.6.png",
+      "name": "风鳞蜜甲",
+      "name_raw": "风鳞蜜甲",
+      "tier": 5,
+      "score": 27.58,
+      "threshold": 26.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 8.7,
+          "detail": "暴击=8.7→8.7/7.5×10×1.0=11.60 [前22%]",
+          "ratio": 1.16
+        },
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        },
+        {
+          "name": "攻击百分比",
+          "value": 8.6,
+          "detail": "攻击百分比=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "共鸣效率",
+          "value": 9.2,
+          "detail": "共鸣效率=9.2→9.2/9.4×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.979
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 8.6,
+          "detail": "共鸣技能伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "衍射伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 35,
+      "screenshot": "eval_035_pass_22.6.png",
+      "name": "霜鳞蜃甲",
+      "name_raw": "霜鳞蜜中",
+      "tier": 5,
+      "score": 22.61,
+      "threshold": 22.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "星构寻辉之环",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 9.4,
+          "detail": "攻击百分比=9.4→9.4/8.8×10×0.5=5.34 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "暴击伤害",
+          "value": 17.4,
+          "detail": "暴击伤害=17.4→17.4/15.1×10×0.7=8.07 [前22%]",
+          "ratio": 1.152
+        },
+        {
+          "name": "生命百分比",
+          "value": 8.6,
+          "detail": "生命百分比=8.6 无效(0)",
+          "ratio": 0.977
+        },
+        {
+          "name": "暴击",
+          "value": 6.9,
+          "detail": "暴击=6.9→6.9/7.5×10×1.0=9.20 [前76.67%]",
+          "ratio": 0.92
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 8.6,
+          "detail": "共鸣解放伤害加成=8.6 无效(0)",
+          "ratio": 0.977
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "冷凝伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "冷凝伤害加成",
+        "prop_id": 22,
+        "state": "other",
+        "plan": {
+          "lock": [
+            11,
+            10010
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 36,
+      "screenshot": "eval_036_hold_24.0.png",
+      "name": "隐迹铁影",
+      "name_raw": "隐迹铁影",
+      "tier": 5,
+      "score": 24.02,
+      "threshold": 27.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "听唤语义之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 7.1,
+          "detail": "共鸣解放伤害加成=7.1 无效(0)",
+          "ratio": 0.807
+        },
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "攻击百分比",
+          "value": 10.1,
+          "detail": "攻击百分比=10.1→10.1/8.8×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.148
+        },
+        {
+          "name": "共鸣效率",
+          "value": 7.6,
+          "detail": "共鸣效率=7.6→7.6/9.4×10×0.5=4.04 [前93.2%]",
+          "ratio": 0.809
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 37,
+      "screenshot": "eval_037_pass_32.4.png",
+      "name": "锯袋铁影",
+      "name_raw": "锯袋铁影",
+      "tier": 5,
+      "score": 32.41,
+      "threshold": 31.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 7.5,
+          "detail": "暴击=7.5→7.5/7.5×10×1.0=10.00 [前53.33%]",
+          "ratio": 1.0
+        },
+        {
+          "name": "暴击伤害",
+          "value": 16.2,
+          "detail": "暴击伤害=16.2→16.2/15.1×10×0.7=7.51 [前30%]",
+          "ratio": 1.073
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 9.4,
+          "detail": "共鸣解放伤害加成=9.4→9.4/8.8×10×0.4=4.27 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "生命百分比",
+          "value": 8.6,
+          "detail": "生命百分比=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "攻击百分比",
+          "value": 10.1,
+          "detail": "攻击百分比=10.1→10.1/8.8×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.148
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 38,
+      "screenshot": "eval_038_pass_22.9.png",
+      "name": "探隧重机",
+      "name_raw": "探隧重机",
+      "tier": 5,
+      "score": 22.88,
+      "threshold": 22.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "听唤语义之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 6.4,
+          "detail": "共鸣解放伤害加成=6.4 无效(0)",
+          "ratio": 0.727
+        },
+        {
+          "name": "攻击百分比",
+          "value": 8.6,
+          "detail": "攻击百分比=8.6→8.6/8.8×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "生命百分比",
+          "value": 8.6,
+          "detail": "生命百分比=8.6 无效(0)",
+          "ratio": 0.977
+        },
+        {
+          "name": "暴击",
+          "value": 8.7,
+          "detail": "暴击=8.7→8.7/7.5×10×1.0=11.60 [前22%]",
+          "ratio": 1.16
+        },
+        {
+          "name": "暴击伤害",
+          "value": 13.8,
+          "detail": "暴击伤害=13.8→13.8/15.1×10×0.7=6.40 [前76.67%]",
+          "ratio": 0.914
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 39,
+      "screenshot": "eval_039_fail_17.6.png",
+      "name": "重工铁蹄",
+      "name_raw": "重工铁蹄",
+      "tier": 5,
+      "score": 17.58,
+      "threshold": 18.5,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "剪心辑梦之影",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "防御",
+          "value": 50.0,
+          "detail": "防御=50.0 无效(0)",
+          "ratio": 0.935
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.8,
+          "detail": "共鸣效率=10.8→10.8/9.4×10×0.6=6.89 [前23.3%]",
+          "ratio": 1.149
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 9.4,
+          "detail": "共鸣解放伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        },
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "冷凝伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "冷凝伤害加成",
+        "prop_id": 22,
+        "state": "ok",
+        "plan": {
+          "lock": [
+            11,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 40,
+      "screenshot": "eval_040_fail_15.7.png",
+      "name": "重工铁蹄",
+      "name_raw": "重工铁蹄",
+      "tier": 5,
+      "score": 15.69,
+      "threshold": 18.0,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "剪心辑梦之影",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 9.4,
+          "detail": "共鸣解放伤害加成=9.4 无效(0)",
+          "ratio": 1.068
+        },
+        {
+          "name": "生命百分比",
+          "value": 10.1,
+          "detail": "生命百分比=10.1 无效(0)",
+          "ratio": 1.148
+        },
+        {
+          "name": "共鸣效率",
+          "value": 8.4,
+          "detail": "共鸣效率=8.4→8.4/9.4×10×0.6=5.36 [前85.44%]",
+          "ratio": 0.894
+        },
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            11,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27
+          ],
+          "discard": []
+        }
+      }
+    },
+    {
+      "index": 41,
+      "screenshot": "eval_041_hold_19.8.png",
+      "name": "双极·渊陨重锋",
+      "name_raw": "双极·渊陨重锋",
+      "tier": 5,
+      "score": 19.78,
+      "threshold": 17.5,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "听唤语义之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.25=2.86 [前40.78%]",
+          "ratio": 1.144
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.5=5.32 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 7.1,
+          "detail": "共鸣技能伤害加成=7.1 无效(0)",
+          "ratio": 0.807
+        },
+        {
+          "name": "暴击",
+          "value": 8.7,
+          "detail": "暴击=8.7→8.7/7.5×10×1.0=11.60 [前22%]",
+          "ratio": 1.16
+        },
+        {
+          "name": "防御百分比",
+          "value": 10.9,
+          "detail": "防御百分比=10.9 无效(0)",
+          "ratio": 0.982
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "攻击",
+        "prop_id": 10007,
+        "state": "other",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 42,
+      "screenshot": "eval_042_pass_25.8.png",
+      "name": "双极·渊陨重锋",
+      "name_raw": "双极·渊陨重锋",
+      "tier": 5,
+      "score": 25.8,
+      "threshold": 24.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "听唤语义之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 7.5,
+          "detail": "暴击=7.5→7.5/7.5×10×1.0=10.00 [前53.33%]",
+          "ratio": 1.0
+        },
+        {
+          "name": "共鸣效率",
+          "value": 9.2,
+          "detail": "共鸣效率=9.2→9.2/9.4×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.979
+        },
+        {
+          "name": "防御百分比",
+          "value": 9.0,
+          "detail": "防御百分比=9.0 无效(0)",
+          "ratio": 0.811
+        },
+        {
+          "name": "暴击伤害",
+          "value": 18.6,
+          "detail": "暴击伤害=18.6→18.6/15.1×10×0.7=8.62 [前14%]",
+          "ratio": 1.232
+        },
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "气动伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "气动伤害加成",
+        "prop_id": 25,
+        "state": "ok",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 43,
+      "screenshot": "eval_043_pass_24.9.png",
+      "name": "双极·渊陨重锋",
+      "name_raw": "双极·渊陨重锋",
+      "tier": 5,
+      "score": 24.93,
+      "threshold": 22.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "听唤语义之愿",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 7.1,
+          "detail": "共鸣技能伤害加成=7.1 无效(0)",
+          "ratio": 0.807
+        },
+        {
+          "name": "暴击伤害",
+          "value": 17.4,
+          "detail": "暴击伤害=17.4→17.4/15.1×10×0.7=8.07 [前22%]",
+          "ratio": 1.152
+        },
+        {
+          "name": "共鸣效率",
+          "value": 8.4,
+          "detail": "共鸣效率=8.4→8.4/9.4×10×0.5=4.47 [前85.44%]",
+          "ratio": 0.894
+        },
+        {
+          "name": "暴击",
+          "value": 9.3,
+          "detail": "暴击=9.3→9.3/7.5×10×1.0=12.40 [前14%]",
+          "ratio": 1.24
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 10.9,
+          "detail": "重击伤害加成=10.9 无效(0)",
+          "ratio": 1.239
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "热熔伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "热熔伤害加成",
+        "prop_id": 23,
+        "state": "off",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 44,
+      "screenshot": "eval_044_hold_24.8.png",
+      "name": "双极·星开辉",
+      "name_raw": "双极·星开辉",
+      "tier": 5,
+      "score": 24.83,
+      "threshold": 26.5,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "普攻伤害加成",
+          "value": 8.6,
+          "detail": "普攻伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        },
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.8,
+          "detail": "共鸣效率=10.8→10.8/9.4×10×0.5=5.74 [前23.3%]",
+          "ratio": 1.149
+        },
+        {
+          "name": "生命百分比",
+          "value": 7.9,
+          "detail": "生命百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 45,
+      "screenshot": "eval_045_hold_23.5.png",
+      "name": "梦庵·青羽莺",
+      "name_raw": "梦庵·青羽莺",
+      "tier": 5,
+      "score": 23.5,
+      "threshold": 26.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "防御",
+          "value": 60.0,
+          "detail": "防御=60.0→60/53.5×10×0.25=2.80 [前40.78%]",
+          "ratio": 1.121
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 7.9,
+          "detail": "重击伤害加成=7.9→7.9/8.8×10×0.4=3.59 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.25=2.86 [前40.78%]",
+          "ratio": 1.144
+        },
+        {
+          "name": "暴击",
+          "value": 6.3,
+          "detail": "暴击=6.3→6.3/7.5×10×1.0=8.40 [前100%]",
+          "ratio": 0.84
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 46,
+      "screenshot": "eval_046_pass_30.5.png",
+      "name": "雪豪狼",
+      "name_raw": "雪豪狼",
+      "tier": 5,
+      "score": 30.46,
+      "threshold": 30.0,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 17.4,
+          "detail": "暴击伤害=17.4→17.4/15.1×10×0.7=8.07 [前22%]",
+          "ratio": 1.152
+        },
+        {
+          "name": "暴击",
+          "value": 7.5,
+          "detail": "暴击=7.5→7.5/7.5×10×1.0=10.00 [前53.33%]",
+          "ratio": 1.0
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 7.9,
+          "detail": "重击伤害加成=7.9→7.9/8.8×10×0.4=3.59 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 8.6,
+          "detail": "共鸣技能伤害加成=8.6→8.6/8.8×10×0.4=3.91 [前65.05%]",
+          "ratio": 0.977
+        },
+        {
+          "name": "共鸣效率",
+          "value": 9.2,
+          "detail": "共鸣效率=9.2→9.2/9.4×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.979
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "导电伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 47,
+      "screenshot": "eval_047_fail_17.7.png",
+      "name": "车刃镰",
+      "name_raw": "车刃镰",
+      "tier": 5,
+      "score": 17.73,
+      "threshold": 18.0,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "啸谷长风",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣效率",
+          "value": 11.6,
+          "detail": "共鸣效率=11.6→11.6/9.4×10×0.6=7.40 [前8.74%]",
+          "ratio": 1.234
+        },
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 10.1,
+          "detail": "共鸣解放伤害加成=10.1 无效(0)",
+          "ratio": 1.148
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 8.6,
+          "detail": "重击伤害加成=8.6 无效(0)",
+          "ratio": 0.977
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "共鸣效率",
+          "value": 32.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "共鸣效率",
+        "prop_id": 11,
+        "state": "other",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 48,
+      "screenshot": "eval_048_fail_8.7.png",
+      "name": "戏猿",
+      "name_raw": "戏猿",
+      "tier": 5,
+      "score": 8.67,
+      "threshold": 8.5,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "啸谷长风",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 10.9,
+          "detail": "共鸣技能伤害加成=10.9 无效(0)",
+          "ratio": 1.239
+        },
+        {
+          "name": "共鸣效率",
+          "value": 10.0,
+          "detail": "共鸣效率=10.0→10.0/9.4×10×0.6=6.38 [前40.78%]",
+          "ratio": 1.064
+        },
+        {
+          "name": "攻击",
+          "value": 40.0,
+          "detail": "攻击=40.0→40/43.7×10×0.25=2.29 [前93.2%]",
+          "ratio": 0.915
+        },
+        {
+          "name": "防御",
+          "value": 50.0,
+          "detail": "防御=50.0 无效(0)",
+          "ratio": 0.935
+        },
+        {
+          "name": "共鸣解放伤害加成",
+          "value": 7.9,
+          "detail": "共鸣解放伤害加成=7.9 无效(0)",
+          "ratio": 0.898
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "共鸣效率",
+          "value": 32.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "共鸣效率",
+        "prop_id": 11,
+        "state": "other",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 49,
+      "screenshot": "eval_049_fail_9.8.png",
+      "name": "戏猿",
+      "name_raw": "戏猿",
+      "tier": 5,
+      "score": 9.85,
+      "threshold": 11.0,
+      "verdict": "fail",
+      "verdict_cn": "不合格",
+      "set": "啸谷长风",
+      "set_src": "name",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 7.9,
+          "detail": "重击伤害加成=7.9 无效(0)",
+          "ratio": 0.898
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 7.1,
+          "detail": "共鸣技能伤害加成=7.1 无效(0)",
+          "ratio": 0.807
+        },
+        {
+          "name": "生命",
+          "value": 510.0,
+          "detail": "生命=510.0 无效(0)",
+          "ratio": 1.164
+        },
+        {
+          "name": "共鸣效率",
+          "value": 8.4,
+          "detail": "共鸣效率=8.4→8.4/9.4×10×0.6=5.36 [前85.44%]",
+          "ratio": 0.894
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "共鸣效率",
+          "value": 32.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ],
+      "plan_check": {
+        "prop": "共鸣效率",
+        "prop_id": 11,
+        "state": "other",
+        "plan": {
+          "lock": [
+            25
+          ],
+          "discard": [
+            22,
+            23,
+            24,
+            26,
+            27
+          ]
+        }
+      }
+    },
+    {
+      "index": 50,
+      "screenshot": "eval_050_pass_29.8.png",
+      "name": "前族熊",
+      "name_raw": "前族熊",
+      "tier": 5,
+      "score": 29.8,
+      "threshold": 29.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 17.4,
+          "detail": "暴击伤害=17.4→17.4/15.1×10×0.7=8.07 [前22%]",
+          "ratio": 1.152
+        },
+        {
+          "name": "暴击",
+          "value": 7.5,
+          "detail": "暴击=7.5→7.5/7.5×10×1.0=10.00 [前53.33%]",
+          "ratio": 1.0
+        },
+        {
+          "name": "防御百分比",
+          "value": 10.9,
+          "detail": "防御百分比=10.9→10.9/11.1×10×0.5=4.91 [前65.05%]",
+          "ratio": 0.982
+        },
+        {
+          "name": "防御",
+          "value": 50.0,
+          "detail": "防御=50.0→50/53.5×10×0.25=2.34 [前85.44%]",
+          "ratio": 0.935
+        },
+        {
+          "name": "攻击百分比",
+          "value": 7.9,
+          "detail": "攻击百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "热熔伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 51,
+      "screenshot": "eval_051_hold_30.6.png",
+      "name": "前族熊",
+      "name_raw": "前族熊",
+      "tier": 5,
+      "score": 30.62,
+      "threshold": 31.0,
+      "verdict": "hold",
+      "verdict_cn": "保留",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击",
+          "value": 7.5,
+          "detail": "暴击=7.5→7.5/7.5×10×1.0=10.00 [前53.33%]",
+          "ratio": 1.0
+        },
+        {
+          "name": "暴击伤害",
+          "value": 15.0,
+          "detail": "暴击伤害=15.0→15.0/15.1×10×0.7=6.95 [前53.33%]",
+          "ratio": 0.993
+        },
+        {
+          "name": "共鸣技能伤害加成",
+          "value": 9.4,
+          "detail": "共鸣技能伤害加成=9.4→9.4/8.8×10×0.4=4.27 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "共鸣效率",
+          "value": 9.2,
+          "detail": "共鸣效率=9.2→9.2/9.4×10×0.5=4.89 [前65.05%]",
+          "ratio": 0.979
+        },
+        {
+          "name": "防御百分比",
+          "value": 10.0,
+          "detail": "防御百分比=10.0→10.0/11.1×10×0.5=4.50 [前85.44%]",
+          "ratio": 0.901
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "气动伤害加成",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 52,
+      "screenshot": "eval_052_pass_28.8.png",
+      "name": "前族熊",
+      "name_raw": "前族熊",
+      "tier": 5,
+      "score": 28.83,
+      "threshold": 28.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "攻击百分比",
+          "value": 9.4,
+          "detail": "攻击百分比=9.4→9.4/8.8×10×0.5=5.34 [前40.78%]",
+          "ratio": 1.068
+        },
+        {
+          "name": "暴击伤害",
+          "value": 12.6,
+          "detail": "暴击伤害=12.6→12.6/15.1×10×0.7=5.84 [前100%]",
+          "ratio": 0.834
+        },
+        {
+          "name": "防御",
+          "value": 50.0,
+          "detail": "防御=50.0→50/53.5×10×0.25=2.34 [前85.44%]",
+          "ratio": 0.935
+        },
+        {
+          "name": "重击伤害加成",
+          "value": 6.4,
+          "detail": "重击伤害加成=6.4→6.4/8.8×10×0.4=2.91 [前100%]",
+          "ratio": 0.727
+        },
+        {
+          "name": "暴击",
+          "value": 9.3,
+          "detail": "暴击=9.3→9.3/7.5×10×1.0=12.40 [前14%]",
+          "ratio": 1.24
+        }
+      ],
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    },
+    {
+      "index": 53,
+      "screenshot": "eval_053_pass_31.2.png",
+      "name": "前族熊",
+      "name_raw": "前族熊",
+      "tier": 5,
+      "score": 31.21,
+      "threshold": 29.5,
+      "verdict": "pass",
+      "verdict_cn": "达标",
+      "set": "通用",
+      "set_src": "default",
+      "prospect": null,
+      "reforge": null,
+      "stats": [
+        {
+          "name": "暴击伤害",
+          "value": 15.0,
+          "detail": "暴击伤害=15.0→15.0/15.1×10×0.7=6.95 [前53.33%]",
+          "ratio": 0.993
+        },
+        {
+          "name": "防御百分比",
+          "value": 10.0,
+          "detail": "防御百分比=10.0→10.0/11.1×10×0.5=4.50 [前85.44%]",
+          "ratio": 0.901
+        },
+        {
+          "name": "生命百分比",
+          "value": 7.9,
+          "detail": "生命百分比=7.9→7.9/8.8×10×0.5=4.49 [前85.44%]",
+          "ratio": 0.898
+        },
+        {
+          "name": "暴击",
+          "value": 9.3,
+          "detail": "暴击=9.3→9.3/7.5×10×1.0=12.40 [前14%]",
+          "ratio": 1.24
+        },
+        {
+          "name": "攻击",
+          "value": 50.0,
+          "detail": "攻击=50.0→50/43.7×10×0.25=2.86 [前40.78%]",
+          "ratio": 1.144
+        }
+      ],
+      "cost": 3,
+      "main_props": [
+        {
+          "name": "攻击",
+          "value": 30.0
+        },
+        {
+          "name": "攻击",
+          "value": 100.0
+        }
+      ]
+    }
+  ]
+}

@@ -293,22 +293,24 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.log_debug(f'保存失败画面失败: {e}')
         return ''
 
-    def resolve_set_name(self, echo_name: str, badge=None, effect_set=None) -> tuple[str, str]:
+    def resolve_set_name(self, echo_name: str, badge=None, effect_set=None,
+                         effect_src: str = '') -> tuple[str, str]:
         """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
 
-        信号优先级(2026-11-14 迭代后的现状):
-        ① **详情面板图标**(旧 UI, 3.x 已无): 高置信直接用, 可纠正名字候选;
-        ② **合鸣效果文本**(`effect_set`): 详情面板滚到底能读到 2/5 件套效果描述(没有套装名),
-           用效果文本反查套装 —— 文本信号最稳, 且调用方已按名字候选约束过;
+        信号优先级(2026-11-19 现状):
+        ① **详情面板「合鸣效果」区**(`effect_set` + `effect_src`): 先在效果区读到**套装名明文**
+           (`text`, 最稳), 读不到再用**效果原文**的字符覆盖率反查(`effect`); 调用方已按名字候选约束过;
+        ② **详情面板图标**(旧 UI, 3.x 已无): 高置信直接用, 可纠正名字候选;
         ③ **卡片徽章环色**(`badge=(hue|None, ok)`): 名字多个候选时用环色过滤(85% 可唯一定位);
         ④ 名字候选(config 套装在候选内则优先) → ⑤ config(评估=通用)。
-        来源 'icon'/'effect'/'hue'/'name'/'default' 记入报告, 便于离线核对。
+        来源 'text'/'effect'/'icon'/'hue'/'name'/'default' 记入报告, 便于离线核对。
         """
         cfg_set = self.config.get('当前套装', '通用')
         cands = get_sets_by_echo(echo_name)
         if effect_set and (not cands or effect_set in cands):
-            self.log_debug(f'[套装效果文本] {echo_name} → {effect_set} (名字候选 {cands})')
-            return effect_set, 'effect'
+            src = effect_src or 'effect'
+            self.log_debug(f'[套装{src}] {echo_name} → {effect_set} (名字候选 {cands})')
+            return effect_set, src
         icon_set, score, margin = match_icon(self.frame)
         if icon_set:
             corrected = f' — 名字候选 {cands} 由图标纠正' if cands and icon_set not in cands else ''
@@ -527,7 +529,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             合鸣效果区第一行就是 `雪落无声之愿` 这样的套装名（2/5 件套各一行），长描述在下面。
             所以"看到 合鸣效果 标题 + 匹配到名字"就是成功；两者都没有就继续滚（上限 6×10 格）。
             """
-            best = (None, 0.0, 0.0)
+            best = (None, 0.0, 0.0, '')   # (套装名, 相似度1, 次优2, 来源) —— 来源 'text'/'effect' 要一路传到报告
             total = 0
             box = _effect_box_px()
             prev = self.frame
@@ -569,14 +571,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             named, how = named_all, how_all + '/all'
                     if named and (seen_heading is not None or _name_own_line(texts, named)):
                         self.log_info(f'[套装] 合鸣效果区读到套装名: {named}({how}, 滚 {total} 格)')
-                        best = (named, 1.0, 0.0)
+                        # how = 'text'(精确) / 'text-lcs'(容错) / 带 '/all'(放开到 37 套) → 统一记 text
+                        best = (named, 1.0, 0.0, 'text')
                         break
                     named = None
                     cand, s1, s2 = match_set_effect(texts, cands)
                     if cand:
                         self.log_info(f'[套装] 按合鸣效果文本命中: {cand} '
                                       f'(覆盖 {s1:.2f} / 次优 {s2:.2f}, 滚 {total} 格)')
-                        best = (cand, s1, s2)
+                        best = (cand, s1, s2, 'effect')
                         break
                     if echo_grid.frame_change_ratio(prev, cur, box) < SCROLL_STILL_RATIO:
                         still += 1
@@ -1050,17 +1053,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     tier = len(stats)
                     if stats:
                         zero_run = 0
-                        # 套装 = 详情面板图标(硬信号)优先, 低置信回退"声骸名 → 候选套装"
-                        # (名字多义 + OCR 错字在名字层无解, 见 resolve_set_name / CHANGELOG 阶段十二)
+                        # 套装 = 详情面板「合鸣效果」区(套装名明文 → 效果原文)优先, 其次图标/环色,
+                        # 最后回退"声骸名 → 候选套装"(名字多义 + OCR 错字在名字层无解, 见 resolve_set_name)
                         badge = badge_hue_at(nx, ny)
                         # 名字多义，或**名字根本没认出来**（OCR 错字 → 候选为空）时读「合鸣效果」；
                         # 只有"唯一候选"才省这一次滚动。实测 格洛玛图→格洛犸图 就属于后者，
                         # 跳过面板会直接落"通用"，而面板上明明写着套装名。
                         cand_list = get_sets_by_echo(echo_name) if echo_name else []
-                        effect_set = None
+                        effect_set, effect_src = None, ''
                         if len(cand_list) != 1:
-                            effect_set, _s1, _s2 = read_set_by_effect(cand_list)
-                        set_name, set_src = self.resolve_set_name(echo_name, badge, effect_set)
+                            effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list)
+                        set_name, set_src = self.resolve_set_name(echo_name, badge, effect_set,
+                                                                  effect_src)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         rec = self.evaluate_one(echo_name, stats, set_name, set_src,

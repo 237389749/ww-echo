@@ -220,11 +220,22 @@ def main() -> int:
         total = sum(src.values()) or 1
         pretty = {k: f'{v}({v * 100 / total:.0f}%)' for k, v in src.most_common()}
         text_pct = src.get('text', 0) * 100 / total
-        verdict = 'PASS' if text_pct >= args.min_text_pct else ('WARN' if text_pct > 0 else 'FAIL')
-        print(f'\n[套装来源] {pretty}  -> {verdict} (text {text_pct:.0f}%, 门槛 {args.min_text_pct:.0f}%)')
+        panel_pct = (src.get('text', 0) + src.get('effect', 0)) * 100 / total
+        # text = 合鸣效果区读到**套装名明文**（最稳）; effect = 只按效果原文反查（弱一点）
+        if panel_pct <= 0:
+            verdict = 'FAIL'
+        elif text_pct >= args.min_text_pct:
+            verdict = 'PASS'
+        else:
+            verdict = 'WARN'
+        print(f'\n[套装来源] {pretty}  -> {verdict} (text {text_pct:.0f}% / 面板合计 {panel_pct:.0f}%, '
+              f'text 门槛 {args.min_text_pct:.0f}%)')
+        if verdict == 'FAIL':
+            problems.append('面板套装信息一条都没读到（text/effect 都是 0）')
+            print('    面板没滚到 / 鼠标不在面板上 / 名字被读坏 —— 看日志里的 [套装] 行')
+        elif verdict == 'WARN':
+            warns.append(f'set_src=text 只占 {text_pct:.0f}%：面板读到了，但多数是按效果原文反查')
         if verdict != 'PASS':
-            (problems if verdict == 'FAIL' else warns).append(
-                f'set_src=text 只占 {text_pct:.0f}%（面板套装名没读到）')
             bad = [(r.get('index'), r.get('name'), r.get('set'), r.get('set_src')) for r in rows
                    if (r.get('set_src') or 'default') != 'text']
             for x in bad[:12]:
