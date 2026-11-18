@@ -1,4 +1,4 @@
-﻿"""`src/echo_panel.py` 单测: 面板聚合(calculator 口径) + 加成区拆分 + 伤害公式。
+"""`src/echo_panel.py` 单测: 面板聚合(calculator 口径) + 加成区拆分 + 伤害公式。
 
 跑法(项目根目录):
     python -m unittest discover -s tests -v

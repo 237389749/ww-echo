@@ -140,8 +140,12 @@ class TestEvaluateOnlySmoke(unittest.TestCase):
             done['json'] = json_path
             done['ss'] = ss_dir
 
+        # 测试不写 logs/panel_debug/(默认开是为了真机拿数据, 单测里没必要)
+        import src.task.EnhanceEchoTask as mod
+        from unittest.mock import patch
         try:
-            task.evaluate_only(on_done=_on_done)
+            with patch.object(mod, 'SAVE_PANEL_DATASET', False):
+                task.evaluate_only(on_done=_on_done)
         finally:
             # evaluate_only 正常结束不删临时目录 → 交给测试收尾（在断言之后执行）
             if 'json' in done:

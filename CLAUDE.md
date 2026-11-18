@@ -1,4 +1,4 @@
-﻿# CLAUDE.md — ww-echo 开发手册
+# CLAUDE.md — ww-echo 开发手册
 
 鸣潮(云游戏/本地)声骸强化 + 评估工具。引擎自持到 ww_engine/(源自 ok-script 1.0.160 的 MIT 精简 vendor) + 自建 PySide6 UI。
 **本手册面向后续开发(含 AI 协作者)。演进历史与改动原因见 CHANGELOG.md, 使用说明见 README.md,
@@ -310,7 +310,10 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 ①模板 76px 缩到 29px(尺度 1.05)中心裁 28, 两端同分辨率 1:1 比 ②**±2px 平移搜索**(消 bbox 抖动; 不搜索时 s1 从 0.9 掉到 0.23) ③圆形 mask(r≤12)排除外发光与面板背景 ④置信线 `MIN_SCORE=0.60` + 与次优间隔 `MIN_MARGIN=0.05`, 不达线返回 None 交调用方回退名字候选。
 **颜色/环色特征不可用**: 37 个模板同构(彩色圆环 + 白底 + 深色图案), 缩到 28px 后轮廓主导 → 环色 top1 命中仅 28/183; 灰度 ZNCC 才是有效判据。
 `EnhanceEchoTask.resolve_set_name(名)` 的实际定序(2026-11-19)：合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**覆盖率反查(`effect`) → 面板图标(`icon`, 旧 UI) → 卡片徽章环色(`hue`) → 名字候选(`name`) → config(`default`)。来源一路写进报告 JSON 的 `set_src`（`read_set_by_effect` 把 `match_set_text` 的 how 一起传出来 —— **别再把 text 折回 effect**，否则验收条与报告悬停都说不清"读到名字"还是"猜的效果原文"）。
-离线回归: `python tools/eval_icon_match.py [debug目录]`(用 `logs/eval_debug/<时间戳>/` 全屏图, 无需开游戏)。**⚠ 3.x 新 UI 起详情面板没有套装图标**（`ICON_BOX` 落到 `+25` 旁绿色「+」按钮，实测 155 条 icon 命中 0 次）。套装消歧顺序：**合鸣效果区的套装名明文**（面板与背包是独立滚动条；滚到底依次是 声骸技能描述 → 合鸣效果，后者每条都写套装名 —— 2+5 件套出现两次、单条目(1/3 件)出现一次 → `match_set_text` 读名字，读不到再用 `match_set_effect` 按效果原文的字符二元组覆盖率反查） → 面板图标(旧 UI) → **卡片徽章环色**(`badge_hue`/`filter_by_set_hue`，8 个色组，158 个多义名里 85% 可唯一定位) → 名字候选。`set_src` = text/effect/icon/hue/name/default。**旧基线（面板图标时代）: 219 张中 217 张高置信(99.1%, s1 中位 0.894); 名字候选非空 211 张中 196 一致(92.9%), 15 张不一致全部是名字层错字案例且图标给出正确套装(`梦魔·青羽鹭/啾啾河豚/咕咕河豚` → `息界同调之律`, s1=0.93); 2 张详情面板无图标(`无归的谬误`)s1≈0.22 → 回退名字候选。改判定逻辑后跑一次该工具对比基线。**
+离线回归: `python tools/eval_icon_match.py [debug目录]`(用 `logs/eval_debug/<时间戳>/` 全屏图, 无需开游戏)。
+**⚠ 3.x 新 UI 起详情面板没有套装图标**(`ICON_BOX` 落到 `+25` 旁绿色「+」按钮, 实测 155 条命中 0 次) → 评估链已默认关图标,
+定序见上条 `resolve_set_name`; 环色 `filter_by_set_hue` 在 158 个多义名里覆盖 85%。
+**旧基线(面板图标时代): 217/219 高置信、名字口径 196/211 —— 见 `docs/BASELINE.md` B3。改判定逻辑后跑一次该工具对比基线。**
 
 ## 官方静态数据层(L0~L2, 2026-10-02; 生成物只读, 勿手改)
 
@@ -406,16 +409,20 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **评估按详情面板的套装信息映射套装**(2026-11-19): `resolve_set_name` → 合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**反查(`effect`) → 卡片徽章环色(`hue`) → `get_sets_by_echo` 候选(prefer=config 套装) → 回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底。
   **什么时候才滚面板**: 只有「名字有 ≥2 个候选 / 没认出来」才滚; **只属于一套的件直接用名字, 不 OCR 面板**(用户口径);
   同名多只走 `panel_set_cache`(名→(套装,来源)), 全场只滚一次。**面板图标在评估链里默认关**(`use_icon=False`)。
-- **⚠ 面板 OCR 区必须是归一化比例**(2026-11-19 真机): `self.ocr(x,y,to_x,to_y)` 收的是**比例**，`_effect_box_px()` 给的是**像素** ——
+- **⚠ 面板 OCR 区必须归一化 + 面板数据集**(2026-11-19 真机): `self.ocr(x,y,to_x,to_y)` 收**比例**，`_effect_box_px()` 给**像素** ——
   直接 `self.ocr(*box)` 会让 `relative_box` 再乘一次帧宽高、裁出 (0,0) 空图 → OCR 恒空 → 套装名链**从未生效**。
-  OCR 用 `EFFECT_BOX`(归一化)，像素串只给 `frame_change_ratio` 这类图像比较。守卫 `tests/test_eval_traverse.py::test_ocr_boxes_are_normalized`。
+  OCR 用 `EFFECT_BOX`(归一化)，像素串只给 `frame_change_ratio`。`SAVE_PANEL_DATASET`(默认开, 只对要滚面板的件) 写
+  `logs/panel_debug/<ts>/`: 每步裁剪 + `panel_ocr.jsonl` + 按实测位移拼的 `_long.png`(长图) + `_top.png`(回顶证明,
+  `restore_ok=False` 计入 JSON 的 `panel_restore_fail`)。**离线重放** `tools/analysis/replay_panel_scroll.py`
+  用**同一份** `match_set_text`/`match_set_effect`/`has_heading`/`name_own_line`(后两个已提到 `echo_set_templates`)
+  —— 一次真机跑就能反复调判定。**落盘走 `echo_panel_shot.imwrite_unicode`**: `cv2.imwrite` 在中文路径上会写坏文件名。
 - **面板 COST 与主属性**(L2): `read_detail` 用 `parse_cost` 读 COST 角标(合框 `COST 4` 或"标签 + 同行右侧数字框"; 该批 219 张素材实测 219/219 可读), 前 2 行主属性与 COST 一起交给 `evaluate_one` → 报告「COST/主属性」列 + 官方管理方案判定。
   **真机 20261008 那批漏读 27/135**(小字数字框整个没检出, 复跑截图可复现: `eval_062` 只剩 `COST`) →
   现在 1× 读不到时走 `read_cost_badge()`: 只截 `_COST_ROI`(0.685,0.19–0.792,0.25)放大 3× 再 OCR
   (离线 27/27 读回); **离线侧**另有 `echo_inventory.infer_cost` 用面板第 2 行(= COST 固有属性:
   1C 生命 / 3C 攻击 100 / 4C 攻击 150)反推兜底 —— 角标与反推在真实数据上 108/108 一致
 - 套装语境(权重/键/首核/声骸清单)供评估自动映射 + 强化模式使用; run_tab 评估仍隐藏套装下拉(靠图标+名字映射), 未映射时用通用
-- **数据来源/工具备注**: 声骸↔套装 / 套装图标名 / 官方主属性方案 / 属性名 全部由 **`tools/gen_echo_data.py`** 从官方配置表生成(数据源是离线导出的客户端表 + zh-Hans 文本表, 见「官方静态数据层」一节; 生成物 `assets/gamedata/echo_data.json`, **只读**)。旧的 `tools/parse_wutherin_echoes.py` + `1.txt` + `echoes_check.md` 手工口径**已被取代**(脚本留着但不必再跑; `echoes_check.md` 是旧转录且已被手改过, 别当输入)
+- **数据来源/工具备注**: 声骸↔套装 / 图标名 / 主属性方案 / 属性名 全由 **`tools/gen_echo_data.py`** 从官方配置表生成(见「官方静态数据层」; 生成物 `assets/gamedata/echo_data.json` **只读**)。旧的 `parse_wutherin_echoes.py` + `1.txt` + `echoes_check.md` 手工口径**已被取代**, 别当输入
 - 空格/未切换格**跳过继续**(不提前滚屏防漏真实格); 本屏无新内容才滚动 15 notches; 连续 3 次滚动无新格兜底
 - **终止条件(2026-11-14 简化, 不再识别数量)**: 不读「声骸N/3000」(N 的语义在总数/滚动位置之间不清, 且每屏多一次 OCR):
   ① 连续 **12 格(两行)** 0 词条 → 视为 0 级尾部(按等级排序时就是列表尾; 未排序时最多多扫两行);
@@ -469,7 +476,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**274 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**289 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`

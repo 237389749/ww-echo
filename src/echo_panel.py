@@ -1,4 +1,4 @@
-﻿"""
+"""
 声骸组合的「面板聚合 + 伤害」计算层 —— 供 `src/echo_combos.py`(穷举)与 UI/CLI 共用。
 
 **规格**: 仓库根 `panel_plan.md`(公式与分区采用 wuwa-calculator); **契约**(用户已定, 见 `handoff.md`):

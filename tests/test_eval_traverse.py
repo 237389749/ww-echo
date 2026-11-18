@@ -53,8 +53,8 @@ class TestEvalTraverseEnd(unittest.TestCase):
         但"独占一行"这个形态在两类里都成立，用它当锚点比靠标题更抗滚动位置。
         """
         src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
-        self.assertIn('_name_own_line', src)
-        self.assertIn('_has_heading', src)
+        self.assertIn('name_own_line', src)
+        self.assertIn('has_heading', src)
         self.assertIn('seen_heading is not None or _name_own_line', src)
         self.assertIn('SET_PANEL_FIRST_STEP = 8', src)    # 第一步放大（主词条区没有套装名）
         self.assertIn('SET_PANEL_STEP = 4', src)          # 之后小步

@@ -10,12 +10,13 @@ import cv2
 from ww_engine import FindFeature, Logger, clear_folder, get_bounding_box
 from src import echo_parse, echo_scoring
 from src import echo_grid
+from src import echo_panel_shot
 from src.echo_parse import parse_number  # noqa: F401  (旧调用面: from src.task.EnhanceEchoTask import parse_number)
 from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
                             tier_index, DEFAULT_WEIGHTS)  # noqa
 from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_effect, match_set_text,
-                                    get_set_core_first, get_set_low_first,
+                                    get_set_core_first, get_set_low_first, has_heading, name_own_line,
                                     get_sets_by_echo, normalize_echo_name, load_gamedata)
 from src.echo_icon_match import (match_icon, MIN_MARGIN, MIN_SCORE,
                                  badge_hue, filter_by_set_hue, hue_group)
@@ -69,6 +70,13 @@ _GENERAL_WEIGHTS = (1.0, 0.7, 0.6, 0.5, 0.4, 0.25)
 # 评估遍历的 debug 数据集开关(**默认关**): 每格存 全屏 PNG + ROI 叠图 + 三个区域裁剪, 200 只约数百 MB~1GB。
 # 需要离线核对坐标/OCR/图标回归时改 True —— 它是 tools/eval_icon_match.py 与 tools/offline_eval_report.py 的数据源。
 SAVE_DEBUG_DATASET = False
+
+# 面板滚动数据集开关(**默认开**, 2026-11-19 用户口径): 只对"需要滚面板找套装"的声骸 ——
+# 每步存一张面板裁剪 PNG + 该步 OCR 行(`panel_ocr.jsonl`), 存完把各步拼成一张**长图**
+# (`<idx>_<名字>_long.png`), 再存一张回顶后的证明图(`_top.png`)。
+# 好处: 一次真机跑就能离线反复重放(tools/analysis/replay_panel_scroll.py), 不必重开游戏;
+# 占用约 100~400 KB/只(只存多义件), 对跑一轮 10 分钟的成本可忽略。
+SAVE_PANEL_DATASET = True
 
 # 注: 旧的"好词条"分位阈值常量 `HI_PERCENTILE` 已废弃 —— "建议重铸"档不再数"好词条条数",
 # 改为按 `reforge_plan` 的"锁 N 条刷 M 条期望分"判定(见 judge_echo)。分位本身仍用于报告展示词条的
@@ -419,6 +427,63 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             dbg_dir = os.path.join('logs', 'eval_debug', time.strftime('%Y%m%d_%H%M%S'))
             os.makedirs(dbg_dir, exist_ok=True)
 
+        # ── 面板滚动数据集(默认开): 只对"要滚面板找套装"的声骸, 每步存裁剪 + OCR 行, 并拼长图。
+        #    一次真机跑 → 离线重放(tools/analysis/replay_panel_scroll.py), 不用重开游戏。
+        panel_dbg_dir = None
+        if SAVE_PANEL_DATASET:
+            panel_dbg_dir = os.path.join('logs', 'panel_debug', time.strftime('%Y%m%d_%H%M%S'))
+            os.makedirs(panel_dbg_dir, exist_ok=True)
+
+        def panel_dbg_step(tag, step, notches, texts, crop):
+            """存一步: 面板裁剪 PNG + 该步 OCR 行(文本/坐标/置信度)。写失败不影响评估。"""
+            if not panel_dbg_dir:
+                return
+            try:
+                echo_panel_shot.imwrite_unicode(
+                    os.path.join(panel_dbg_dir, f'{tag}_s{step:02d}.png'), crop)
+                rec = {
+                    "kind": "step", "tag": tag, "step": step, "notches": notches,
+                    "texts": [{"name": str(getattr(b, 'name', '') or ''),
+                               "x": int(getattr(b, 'x', 0)), "y": int(getattr(b, 'y', 0)),
+                               "w": int(getattr(b, 'width', 0)), "h": int(getattr(b, 'height', 0)),
+                               "conf": round(float(getattr(b, 'confidence', 0) or 0), 3)}
+                              for b in (texts or [])],
+                }
+                with open(os.path.join(panel_dbg_dir, 'panel_ocr.jsonl'), 'a', encoding='utf-8') as f:
+                    f.write(_json.dumps(rec, ensure_ascii=False) + '\n')
+            except Exception as e:                      # noqa: BLE001 - 落盘失败不该中断评估
+                self.log_debug(f'面板数据集写入失败: {e}')
+
+        def panel_dbg_summary(tag, echo_idx, echo_name, cands, frames, notches, best, restore_ok):
+            """存这一只的结论 + 长图 + 回顶证明图(用户要的"每个声骸滑到底后回到最上"的证据)。"""
+            nonlocal panel_dbg_restore_fail
+            if not panel_dbg_dir:
+                return
+            try:
+                long_path, used, long_h = echo_panel_shot.stitch_and_save(
+                    os.path.join(panel_dbg_dir, f'{tag}_long.png'), frames)
+                box = _effect_box_px()
+                frame = self.frame
+                if frame is not None and getattr(frame, 'size', 0):
+                    echo_panel_shot.imwrite_unicode(
+                        os.path.join(panel_dbg_dir, f'{tag}_top.png'),
+                        frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])])
+                rec = {
+                    "kind": "summary", "tag": tag, "echo": echo_idx, "name": echo_name,
+                    "cands": list(cands or []), "steps": len(frames), "notches": notches,
+                    "found": best[0], "src": best[3], "restore_ok": bool(restore_ok),
+                    "long": os.path.basename(long_path) if long_path else '',
+                    "long_frames": used, "long_h": long_h,
+                }
+                if not restore_ok:
+                    panel_dbg_restore_fail += 1
+                with open(os.path.join(panel_dbg_dir, 'panel_ocr.jsonl'), 'a', encoding='utf-8') as f:
+                    f.write(_json.dumps(rec, ensure_ascii=False) + '\n')
+            except Exception as e:                      # noqa: BLE001
+                self.log_debug(f'面板长图写入失败: {e}')
+
+        panel_dbg_restore_fail = 0     # 回顶失败次数(报告里可查; 数据集里每只都有 restore_ok)
+
         def dbg_ocr(label, texts):
             """记录一次 OCR 的输入区域标签 + 全部文本行(文本/坐标/置信度)到 ocr_text.txt"""
             if not dbg_dir or not texts:
@@ -526,18 +591,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_debug(f'滚详情面板失败: {e}')
                 return False
 
-        @staticmethod
-        def _has_heading(texts, word):
-            """OCR 里有没有这个标题（合鸣效果 / 声骸技能）。容 鸣↔呜 这类单字误读。"""
-            for b in texts or []:
-                line = ''.join(ch for ch in str(getattr(b, 'name', '') or '')
-                               if '\u4e00' <= ch <= '\u9fff')
-                if word in line or (len(word) >= 2 and word[0] + word[2:] in line):
-                    return True
-                if word == '合鸣效果' and ('合鸣' in line or '合呜' in line):
-                    return True
-            return False
-
         def _panel_top_ok(name=''):
             """详情面板是否**回到了顶部** —— 判据是顶部区能看到名字行。
 
@@ -612,20 +665,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             prev = self.frame
             still = 0
             seen_heading = None
+            restore_ok = True
+            frames = []                   # 每一步的面板裁剪(存数据集 + 拼长图)
+            tag = ''
+            if panel_dbg_dir:
+                echo_idx = evaluated + 1
+                safe = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]+', '_', echo_name or 'x')[:24]
+                tag = f'{echo_idx:03d}_{safe}'
 
             def _name_own_line(texts, name):
-                """套装名是否**独占一行**。
-
-                官方套装分两类：2+5 件套（套装名在合鸣效果区出现**两次**）/ 单条目（1 或 3 件，
-                只出现一次）。不管几次，它都是**单独一行**（后面跟个图标）。所以"独占一行"既能
-                确认已经滚到合鸣效果区（哪怕标题已经滚出视野），又能挡掉技能描述里偶然出现的套装名。
-                """
-                for b in texts or []:
-                    line = ''.join(ch for ch in str(getattr(b, 'name', '') or '')
-                                   if '\u4e00' <= ch <= '\u9fff')
-                    if line == name:
-                        return True
-                return False
+                """套装名是否独占一行（实现见 `echo_set_templates.name_own_line`，离线重放共用）。"""
+                return name_own_line(texts, name)
 
             try:
                 for step in range(SET_PANEL_MAX_STEPS):
@@ -637,7 +687,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     cur = self.frame
                     texts = self.ocr(*EFFECT_BOX)
                     dbg_ocr(f'effect{step}', texts)
-                    if _has_heading(texts, '合鸣效果'):
+                    if panel_dbg_dir:
+                        # 面板裁剪(与 OCR 的 EFFECT_BOX 同一块) —— 离线重放/长图都用它
+                        frames.append(cur[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy())
+                        panel_dbg_step(tag, step, total, texts, frames[-1])
+                    if has_heading(texts, '合鸣效果'):
                         seen_heading = step
                     named, how = match_set_text(texts, cands)
                     if not named and cands:
@@ -676,6 +730,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     nonlocal panel_dirty
                     if not restore_panel_top(echo_name):
                         panel_dirty = True
+                        restore_ok = False
+                if panel_dbg_dir:
+                    panel_dbg_summary(tag, evaluated + 1, echo_name, cands, frames, total,
+                                      best, restore_ok)
             if not best[0]:
                 # 让"套装到底认没认出来"在日志里可见(用户 2026-11-19 提的: 看不出来)
                 self.log_info(f'[套装] 面板没读到套装信息(滚 {total} 格) → 回退环色/名字')
@@ -1019,6 +1077,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 raise Exception(msg)
             if dbg_dir:
                 self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
+            if panel_dbg_dir:
+                self.log_info(f'面板数据集目录: {os.path.abspath(panel_dbg_dir)}'
+                              f' (可离线重放: python tools/analysis/replay_panel_scroll.py)')
             self.log_info('评估遍历: 不识别声骸数量, 直到「连续两行 0 词条 / 网格为空」结束')
             # 前置自检: 能不能把游戏拉到前台（= 输入权限是否够）。缺了它，故障会伪装成"检测不到网格"：
             # 没管理员 → bring_to_front 被 UIPI 拒 → 别的窗口盖着游戏 → 截图抓到遮挡窗口（实测 2026-11-18）。
@@ -1252,6 +1313,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 "total": evaluated,
                 "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "click_fail": click_fail_total,
+                "panel_restore_fail": panel_dbg_restore_fail if panel_dbg_dir else None,
                 "set_src": dict(src_stat),
                 "results": results,
             }
@@ -1261,7 +1323,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
             self.log_info(f'评估完成, 共{evaluated}个声骸 '
                           f'(套装来源: {" / ".join(f"{k}={v}" for k, v in src_stat.most_common())}'
-                          f'; 点击失败 {click_fail_total} 格)', notify=True)
+                          f'; 点击失败 {click_fail_total} 格'
+                          + (f'; 面板回顶失败 {panel_dbg_restore_fail} 次' if panel_dbg_restore_fail else '')
+                          + ')', notify=True)
             if on_done:
                 self.handler.post(lambda: on_done(json_path, ss_dir))
         except Exception:

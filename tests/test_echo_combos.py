@@ -1,4 +1,4 @@
-﻿"""`src/echo_combos.py` 单测: 组合过滤(互异 / ΣCOST≤12 / 套装只数 / 4C 归属) + 排名。
+"""`src/echo_combos.py` 单测: 组合过滤(互异 / ΣCOST≤12 / 套装只数 / 4C 归属) + 排名。
 
 跑法(项目根目录):
     python -m unittest discover -s tests -v

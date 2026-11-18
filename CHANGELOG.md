@@ -2286,3 +2286,26 @@ Exception: 未在背包界面检测到声骸网格(角标/结构线), 请确认�
 
 单测 **274 项 OK**（+3：`[失败]`/中止/OCR 区归一化守卫；`・` 变体与"去点"名字匹配；面板回顶静态守卫）。
 
+**补记 48（2026-11-19 二次：把「右侧面板」做成数据集 + 长图 + 离线重放）**
+
+用户口径：右侧识别是最大的坑，得能**离线反复测**；并且"每个声骸滑到底后回到最上"。落地三件：
+
+1. **面板滚动数据集**（`SAVE_PANEL_DATASET`，**默认开**，只对"要滚面板找套装"的件）：`logs/panel_debug/<ts>/`
+   里每步存 `<idx>_<名字>_sNN.png`（EFFECT_BOX 裁剪）+ `panel_ocr.jsonl`（该步 OCR 行 + 每只 summary），
+   结束时把各步按**实测位移**拼成 `<idx>_<名字>_long.png`（**长图**），再存 `<idx>_<名字>_top.png`（回顶证明）。
+   `summary.restore_ok=False` → 报告 JSON 的 `panel_restore_fail`，日志末尾也会打出来。
+2. **长图拼接**（`src/echo_panel_shot.py`，纯 cv2/numpy）：`vertical_offset` 用 matchTemplate 在一帧里找另一帧的横带，
+   过不了相关度门槛宁可**不拼**（错位会让长图没法看）；`stitch` 按帧间位移追加新内容。合成数据 3 帧
+   （位移 80/80）能**像素级还原**原图（8 项单测）。
+3. **离线重放**（`tools/analysis/replay_panel_scroll.py`）：读数据集，用**线上同一份** `match_set_text`/
+   `match_set_effect`/`has_heading`/`name_own_line`（后两个已从任务闭包里提到 `echo_set_templates`，
+   避免"重放里复制一份、改判定漏一边"）重跑，输出「线上结论 vs 离线（第几步命中）/ 回顶是否成功 / 长图」；
+   `--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读或回顶失败退出码 1。
+
+**cv2 的第二个中文路径坑**：`cv2.imwrite` 按 ANSI 码页处理路径 → 中文文件名被写坏（文件"消失"，
+`panel_debug` 里那批 `_long.png` 就是这样丢的）。统一改走 `echo_panel_shot.imwrite_unicode`（imencode + 写字节）。
+
+顺带：`_has_heading`/`_name_own_line` 抽到 domain 供线上与重放共用；BOM 清理（仓库里 6 个文件，含 3 个历史遗留）。
+
+单测 **289 项 OK**（+8 拼接 / +7 重放判据）。
+

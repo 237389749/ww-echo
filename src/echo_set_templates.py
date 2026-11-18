@@ -347,6 +347,39 @@ def match_set_effect(texts, candidates=None, min_score: float = 0.35, min_margin
     return best, best_score, second
 
 
+def _cjk_line(box) -> str:
+    """OCR 框(`.name`) → 纯汉字串（匹配口径：只比汉字，忽略图标/标点噪声）。"""
+    return ''.join(ch for ch in str(getattr(box, 'name', box) or '')
+                   if '\u4e00' <= ch <= '\u9fff')
+
+
+def has_heading(texts, word: str) -> bool:
+    """OCR 行里有没有这个标题（合鸣效果 / 声骸技能）。容 鸣↔呜 这类单字误读。
+
+    与 `name_own_line` 一起抽到这里，是为了让**离线重放**（`tools/analysis/replay_panel_scroll.py`）
+    与线上跑**同一份判据** —— 重放里复制一份逻辑，改判定时一定会漏掉一边。
+    """
+    for t in texts or []:
+        line = _cjk_line(t)
+        if word in line or (len(word) >= 2 and word[0] + word[2:] in line):
+            return True
+        if word == '合鸣效果' and ('合鸣' in line or '合呜' in line):
+            return True
+    return False
+
+
+def name_own_line(texts, name: str) -> bool:
+    """套装名是否**独占一行**。
+
+    官方套装分两类：2+5 件套（套装名在合鸣效果区出现**两次**）/ 单条目（1 或 3 件，只出现一次）。
+    不管几次，它都是**单独一行**（后面跟个图标）。所以"独占一行"既能确认已经滚到合鸣效果区
+    （哪怕标题已经滚出视野），又能挡掉技能描述里偶然出现的套装名。
+    """
+    if not name:
+        return False
+    return any(_cjk_line(t) == name for t in (texts or []))
+
+
 def match_set_text(texts, candidates=None, min_lcs: int = 3) -> tuple[str | None, str]:
     """OCR 文本行 → **套装名**(文字信号, 不依赖图标)。返回 `(套装名 | None, 命中方式)`。
 
