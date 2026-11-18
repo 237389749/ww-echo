@@ -16,6 +16,11 @@
 | 引擎 | `ww_engine/`（in-tree） | 不再有 site-packages 补丁；4 处 `[ww-echo patch]` 已合并进 vendored 代码 |
 | 显示器/分辨率 | **任意窗口比例**（1024x768 起；`supported_resolution.ratio=None` 时按帧宽高线性映射） | 真机评估需要游戏在"背包声骸列表"界面；只有"全屏+黑边"才需显式设 `ratio='16:9'` |
 
+> **本机当前状态（2026-11-18）**：`requirements.txt` 已按钉死版本装进**系统 Python 3.13.16**
+> （`python -m pip install -r requirements.txt`，257 项单测在该解释器上全绿、`import mainui` 通过），
+> 因此 `python mainui.py` / `run.cmd`（无 `.venv` 时回落到 PATH 的 `python`）可直接跑。
+> `%TEMP%\ww-echo-venv313` 是 2026-11-13 旧会话遗留的临时环境（约 1.1GB），**已不被引用，可删**。
+
 自检：
 
 ```powershell
