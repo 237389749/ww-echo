@@ -109,5 +109,23 @@ class TestEvalWiring(unittest.TestCase):
         self.assertIn('resolve_set_name(echo_name, badge, effect_set)', src)
 
 
+class TestEffectStructure(unittest.TestCase):
+    """官方「合鸣效果」只有两种形态（用户口径，2026-11-18）：
+
+    - 2+5 件套：两条效果 → 面板里**套装名出现两次**
+    - 单条目（1 件或 3 件）：一条效果 → **只出现一次**
+
+    所以"靠套装名定位"不能假设出现次数；一次命中就够，但要求它**独占一行**。
+    """
+
+    def test_each_set_has_one_or_two_effect_entries(self):
+        counts = {}
+        for name in get_all_set_names():
+            counts[name] = len(set_effect_texts(name))
+        self.assertTrue(all(n in (1, 2) for n in counts.values()),
+                        msg=f'出现非 1/2 条的套装: {[(k, v) for k, v in counts.items() if v not in (1, 2)]}')
+        self.assertGreaterEqual(sum(1 for n in counts.values() if n == 2), 1, msg='应有 2+5 件套')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

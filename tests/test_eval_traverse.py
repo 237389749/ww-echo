@@ -46,6 +46,20 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('_save_fail_frame', src)
         self.assertIn('eval_fail_frame.png', src)
 
+    def test_set_lookup_is_anchored_and_small_step(self):
+        """找套装：小步滚 + 命中即停 + 套装名必须独占一行（或已见到「合鸣效果」标题）。
+
+        套装分 2+5 件（名字出现两次）/ 单条目（一次），所以不能假设次数；
+        但"独占一行"这个形态在两类里都成立，用它当锚点比靠标题更抗滚动位置。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('_name_own_line', src)
+        self.assertIn('_has_heading', src)
+        self.assertIn('seen_heading is not None or _name_own_line', src)
+        self.assertIn('SET_PANEL_FIRST_STEP = 12', src)   # 第一步放大（主词条区没有套装名）
+        self.assertIn('SET_PANEL_STEP = 6', src)         # 之后小步
+        self.assertIn('_effect_box_px', src)             # 整块面板，不能只读上半截
+
 
 class TestEvalTraverseNoGap(unittest.TestCase):
     """遍历"不漏行"的静态守卫（2026-11-14 二次：真机只收到 54/229）。
