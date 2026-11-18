@@ -252,7 +252,7 @@ class RunTab(QWidget):
         self.strategy_info_eval.setWordWrap(True)
         self.strategy_info_eval.setText(
             "评估模式 — 只读遍历背包, 截图+打分, 生成 HTML 报告\n\n"
-            "评估按详情面板的套装图标识别套装(低置信回退声骸名候选), 都拿不到则用通用权重\n\n"
+            "套装按实测定序: 合鸣效果区的套装名文字 → 合鸣效果原文 → 详情面板图标(旧 UI) → 卡片徽章环色 → 声骸名候选 → 通用\n\n"
             "完成后弹出保存框 → 生成 eval_report.html + 截图文件夹\n"
             "报告: 截图+名称+套装+COST/主属性+得分(完成度%)+判定+词条明细(按档位着色), 可按得分/判定/名称/套装筛选与排序\n"
             "不强化/不上锁/不丢弃 — 纯评估\n\n"
@@ -492,7 +492,7 @@ class RunTab(QWidget):
         if callable(reset_stop):
             reset_stop()
         task.config['强化策略'] = self.strategy_combo.currentText()
-        # 评估按声骸名自动映射套装(见 evaluate_only); 这里置"通用"仅作映射失败时的兜底
+        # 评估按面板套装信息自动映射套装(见 evaluate_only / resolve_set_name); 这里置"通用"仅作映射失败时的兜底
         task.config['当前套装'] = '通用' if is_eval else self.set_combo.currentText()
 
         if is_eval:
@@ -500,7 +500,7 @@ class RunTab(QWidget):
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             self._append_log("══════════ 开始评估 ══════════")
-            self._append_log("评估按声骸名自动映射套装权重, 仅打分, 不修改声骸")
+            self._append_log("评估按面板套装信息(合鸣效果区套装名/效果原文/图标/环色)或声骸名自动映射套装权重, 仅打分, 不修改声骸")
 
             def _on_eval_done(json_path, ss_dir):
                 self._eval_done_signal.emit(json_path, ss_dir)
