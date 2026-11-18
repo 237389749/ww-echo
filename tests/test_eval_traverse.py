@@ -33,6 +33,19 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('未在背包界面检测到声骸网格', src)
         self.assertNotIn('页面锚点也未识别到', src)
 
+    def test_preflight_checks_input_permission(self):
+        """开跑前必须先确认能把游戏拉到前台 —— 否则"没管理员"会伪装成"检测不到网格"。
+
+        2026-11-18 实测: 非管理员 → bring_to_front 被 UIPI 拒 → cmd 盖在游戏上 →
+        PrintWindow/BitBlt 抓到的是 cmd → 网格为空 + 所有输入被拒，错误信息完全指错方向。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('bring_to_front()', src)
+        self.assertIn('以管理员身份运行', src)
+        # 检测不到网格时要把当时的画面存下来（否则只能猜是"不在背包界面"还是"被遮挡"）
+        self.assertIn('_save_fail_frame', src)
+        self.assertIn('eval_fail_frame.png', src)
+
 
 class TestEvalTraverseNoGap(unittest.TestCase):
     """遍历"不漏行"的静态守卫（2026-11-14 二次：真机只收到 54/229）。

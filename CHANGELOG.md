@@ -2178,3 +2178,29 @@ UI 启动前 `reset_stop()`、停止时先 `request_stop()`，线程 join 3s→5
 
 **验证**：真机帧上 30/30 格都读到环色并落在合理色组；新增 `tests/test_set_hue.py` 9 项（含用户这只的
 回归锚点、读不到不丢候选、无彩色环、越界）；全量 **237 项 OK**。
+
+---
+
+**补记 44（2026-11-18：非管理员 → 故障伪装成"检测不到网格"）**
+
+**现场**：用户直接 `python mainui.py`（**没提权**）跑评估，日志里：
+```
+hwnd_window:bring_to_front failed: 459776: (5, 'BringWindowToTop', '拒绝访问。')
+post_message:PostMessage error 459776: (5, 'PostMessage', '拒绝访问。')   × 50+/秒
+滚动受阻: 三种输入都没让画面发生变化
+Exception: 未在背包界面检测到声骸网格(角标/结构线), 请确认在背包声骸列表界面
+```
+**根因链**（权限 → 截图 → 误报）：非管理员时 `bring_to_front` 被 UIPI 拒 → cmd 窗口一直盖在游戏上 →
+本项目的截图是 `GetWindowDC + PrintWindow(PW_RENDERFULLCONTENT) + BitBlt`，**游戏被遮挡时抓到的是遮挡窗口**
+（agent 抓了一帧，得到的是正在跑 `python mainui.py` 的 cmd）→ 网格当然为空；同时点击/滚轮也全被拒。
+所以"检测不到网格"其实是"没提权 + 游戏被挡住"，报错完全指错方向。
+
+**改动**：
+- `evaluate_only` 开跑前做**输入权限自检**：`hwnd_window.bring_to_front()` 失败 → 直接抛
+  「无法把游戏窗口拉到前台（拒绝访问）：工具权限低于游戏 … 请右键以管理员身份运行」。
+- 首屏检测不到网格时 `_save_fail_frame()` 存 `logs/eval_fail_frame.png`，异常文案带上路径并提示
+  "若图里不是背包列表 = 游戏被遮挡"。
+- 守卫：`tests/test_eval_traverse.py` 新增 1 项（自检 + 失败截图都在）。
+
+**给用户的正确用法**：`run.cmd`（会自动提权）或右键「以管理员身份运行」；把 cmd 最小化，
+保证游戏窗口在最前面。251 → **258 项 OK**。

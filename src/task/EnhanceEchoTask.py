@@ -275,6 +275,24 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         except Exception:
             return True
 
+    def _save_fail_frame(self) -> str:
+        """把"当前抓到的画面"存到 logs/eval_fail_frame.png，供"检测不到网格"时自查。
+
+        2026-11-18 实测的坑：工具没以管理员运行 → `bring_to_front` 被 UIPI 拒 → cmd 窗口一直
+        盖在游戏上 → 这版截图（PrintWindow + BitBlt）抓到的是**遮挡窗口**（截图里是控制台）。
+        光看"未检测到网格"猜不出来，存一张图最直观。
+        """
+        try:
+            os.makedirs('logs', exist_ok=True)
+            path = os.path.abspath(os.path.join('logs', 'eval_fail_frame.png'))
+            frame = self.frame
+            if frame is not None and getattr(frame, 'size', 0):
+                cv2.imwrite(path, frame)
+                return path
+        except Exception as e:                     # noqa: BLE001 - 存图失败不该掩盖原始错误
+            self.log_debug(f'保存失败画面失败: {e}')
+        return ''
+
     def resolve_set_name(self, echo_name: str, badge=None, effect_set=None) -> tuple[str, str]:
         """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
 
@@ -830,6 +848,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             if dbg_dir:
                 self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
             self.log_info('评估遍历: 不识别声骸数量, 直到「连续两行 0 词条 / 网格为空」结束')
+            # 前置自检: 能不能把游戏拉到前台（= 输入权限是否够）。缺了它，故障会伪装成"检测不到网格"：
+            # 没管理员 → bring_to_front 被 UIPI 拒 → 别的窗口盖着游戏 → 截图抓到遮挡窗口（实测 2026-11-18）。
+            try:
+                hwnd_window = getattr(self.executor.device_manager, 'hwnd_window', None)
+                if hwnd_window is not None and hwnd_window.hwnd and not hwnd_window.bring_to_front():
+                    raise Exception(
+                        '无法把游戏窗口拉到前台（拒绝访问）：工具权限低于游戏。\n'
+                        '请右键「以管理员身份运行」mainui.py 后重试（游戏是 High 权限时，Medium 的点/滚/前台都会被拒）。')
+                self.sleep(0.3)
+            except Exception as e:
+                if '无法把游戏窗口拉到前台' in str(e):
+                    raise
+                self.log_debug(f'前置自检跳过(取 hwnd 失败): {e}')
             # 先读一次当前详情面板作为基线: 第一次点击若没生效(点在空白/边框),
             # 面板还是上一次选中的声骸 → 会被误记成本屏第一只(实测报告 #1 变成了之前手选的那只)
             try:
@@ -847,9 +878,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 网格区 OCR 不到角标: 0级角标 +0 也能被识别, 连续为空 ≈ 列表真到底;
                     # 首屏即空(且一个都未记录)才 raise, 提示可能不在背包界面
                     empty_scan += 1
+                    fail_shot = self._save_fail_frame() if empty_scan == 1 else ''
                     if empty_scan >= 2:
                         if evaluated == 0 and not results:
-                            raise Exception('未在背包界面检测到声骸网格(角标/结构线), 请确认在背包声骸列表界面')
+                            raise Exception(
+                                '未在背包界面检测到声骸网格(角标/结构线)。'
+                                + (f'\n当时抓到的画面已存: {fail_shot}'
+                                   '\n若那张图里不是背包列表（例如是控制台/桌面），说明游戏被别的窗口挡住了 ——'
+                                   '这版截图会抓到遮挡窗口，请把游戏放最前面（或最小化 cmd）再试。'
+                                   if fail_shot else ''))
                         self.log_info('到达背包底部(网格区无角标), 评估结束', notify=True)
                         break
                     scroll_grid()
