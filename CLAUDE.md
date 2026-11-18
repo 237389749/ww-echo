@@ -462,9 +462,11 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**260 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**268 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
+- **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`
+  (条数 153±2 / 完全重复 0 / `set_src=text` 占比 / 每屏重复 8~14 / 无重叠守卫·受阻·过滚; 有问题退出码 1)
 - **环境**: 系统 Python 3.13.16 已装齐 `requirements.txt`(直接依赖全 `==`); `run.cmd` 优先仓库 `.venv` 再 PATH `python`
 - **2026-11-18 会话**: 遍历 54→155 条(滚动/列拟合/回退) · 套装改「合鸣效果区的套装名文字」· 非管理员误报已修
   —— 见 `docs/SESSION_2026-11-18.md`

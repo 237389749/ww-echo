@@ -33,3 +33,6 @@ eval_report_*.json
 
 # 虚拟环境(可移植启动器 run.cmd 已入库，它优先用 .venv)
 .venv/
+
+# 外部参考工程(只读，不随本仓库分发；tools/analysis/calculator_reconcile.py 用它做对账)
+/ww-echo-policy-calculator-main/
