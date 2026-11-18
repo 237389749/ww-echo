@@ -13,7 +13,7 @@ from src.echo_parse import parse_number  # noqa: F401  (旧调用面: from src.t
 from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
                             tier_index, DEFAULT_WEIGHTS)  # noqa
 from src.echo_main_prop import check_main_values
-from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_effect,
+from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_effect, match_set_text,
                                     get_set_core_first, get_set_low_first,
                                     get_sets_by_echo, normalize_echo_name, load_gamedata)
 from src.echo_icon_match import (match_icon, MIN_MARGIN, MIN_SCORE,
@@ -379,7 +379,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         SCROLL_CHANGE_MIN = 0.12    # 画面变化占比 < 此值 = 什么都没发生(只有悬停/选中框)
         SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
         SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
-        SET_EFFECT_NOTCHES = 8      # 详情面板往下滚几格能看到「合鸣效果」(面板独立滚动条)
+
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
         # 滚轮距离模型: px/格 随窗口缩放(8.0 是 1920 宽帧的实测值)
@@ -469,20 +469,25 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             cy = ny * fh - (dy_ratio + 0.116) * row_px
             return badge_hue(self.frame, cx, cy, 0.101 * row_px)
 
-        def read_set_by_effect(cands, notches=SET_EFFECT_NOTCHES):
-            """滚详情面板到底 → OCR「合鸣效果」→ 按效果文本反查套装；读完滚回顶部。
+        def _panel_rect_px():
+            fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+            fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+            return (0.66 * fw, 0.10 * fh, 0.995 * fw, 0.65 * fh)
 
-            **面板与背包是独立滚动条**（用户实测）：滚这里不会动网格。
-            面板滑下去依次是「声骸技能描述」→「合鸣效果（2/5 件套说明）」，**没有套装名**，
-            所以只能拿效果文本反查 —— 文本来自客户端同一份字符串，比 28px 徽章稳得多。
-            返回 `(套装名 | None, 最佳分, 次优分)`；任何异常都返回未命中，不影响主流程。
+        def _scroll_panel_to_bottom(max_notches=40, step=6, settle=0.18):
+            """把右侧详情面板滚到**底**（面板与背包是独立滚动条），返回实际滚了多少格。
+
+            **不要用固定格数**（2026-11-18 用户实测）：面板内容高度随词条数/技能描述长短变化，
+            固定 8 格只到技能描述、看不到最下面的合鸣效果。改成"滚到画面不再变"——
+            到底时滚动被钳住，画面自然不动，判据和 `_wait_still` 同源。
             """
             dm = self.executor.device_manager
             hwnd_window = getattr(dm, 'hwnd_window', None)
             if hwnd_window is None or not hwnd_window.hwnd:
-                return None, 0.0, 0.0
+                return 0
             fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
             fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
+            total = 0
             try:
                 import ctypes
                 import win32gui
@@ -490,30 +495,75 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 hwnd_window.bring_to_front()
                 self.sleep(0.12)
                 target = getattr(hwnd_window, 'top_hwnd', None) or hwnd_window.hwnd
-                # 光标放副词条区（面板中部，避开按钮与结算条）
                 ax, ay = win32gui.ClientToScreen(target, (int(fw * 0.83), int(fh * 0.55)))
                 ctypes.windll.user32.SetCursorPos(int(ax), int(ay))
                 self.sleep(0.08)
                 mouse = Controller()
-                mouse.scroll(0, -int(notches))          # 向下（面板到底）
-                self.sleep(0.50)
+                rect = _panel_rect_px()
+                prev = self.frame
+                stable = 0
+                while total < max_notches:
+                    mouse.scroll(0, -step)
+                    total += step
+                    self.sleep(settle)
+                    cur = self.frame
+                    if echo_grid.frame_change_ratio(prev, cur, rect) < SCROLL_STILL_RATIO:
+                        stable += 1
+                        if stable >= 2:      # 连续两次不动 = 到底（或面板不可滚）
+                            break
+                    else:
+                        stable = 0
+                    prev = cur
+                return total
+            except Exception as e:
+                self.log_debug(f'滚详情面板失败(忽略): {e}')
+                return 0
+
+        def read_set_by_effect(cands):
+            """滚详情面板到底 → OCR「合鸣效果」→ 先找套装名文字、再按效果文本反查；读完滚回顶部。
+
+            面板滑下去依次是「声骸技能描述」→「合鸣效果（2/5 件套说明）」，**没有套装名**，
+            所以主路径是拿效果文本反查（文本来自客户端同一份字符串，比 28px 徽章稳得多）；
+            某些面板版本若直接写了套装名，`match_set_text` 先命中就用它。
+            返回 `(套装名 | None, 最佳分, 次优分)`；任何异常都返回未命中，不影响主流程。
+            """
+            total = _scroll_panel_to_bottom()
+            if total <= 0:
+                return None, 0.0, 0.0
+            dm = self.executor.device_manager
+            hwnd_window = getattr(dm, 'hwnd_window', None)
+            texts = []
+            best, score, second = None, 0.0, 0.0
+            try:
+                self.sleep(0.10)
                 texts = self.ocr(*detail_box)
                 dbg_ocr('effect', texts)
-                best, score, second = match_set_effect(texts, cands)
-                mouse.scroll(0, int(notches))           # 滚回顶部（面板滚动是确定的；选中新件也会重置）
+                named, how = match_set_text(texts, cands)
+                if named:
+                    self.log_info(f'[套装] 面板文字命中套装名: {named}({how})')
+                    best, score, second = named, 1.0, 0.0
+                else:
+                    best, score, second = match_set_effect(texts, cands)
+            finally:
+                # 滚回顶部（面板滚动是确定的；选中新件也会重置）
+                try:
+                    from pynput.mouse import Controller
+                    Controller().scroll(0, int(total))
+                except Exception as e:
+                    self.log_debug(f'面板回滚失败: {e}')
                 self.sleep(0.25)
-                # 保险: 面板没回顶会让下一次 read_detail 读不到名字 → 再往上滚(最多 2 次)
                 for _ in range(2):
                     if self._panel_has_name():
                         break
                     self.log_debug('面板未回顶, 再向上滚一次')
-                    mouse.scroll(0, int(notches))
+                    try:
+                        from pynput.mouse import Controller
+                        Controller().scroll(0, int(total))
+                    except Exception:
+                        pass
                     self.sleep(0.30)
-                self.log_debug(f'[合鸣效果] 最佳={best} {score:.2f} 次优={second:.2f}')
-                return best, score, second
-            except Exception as e:
-                self.log_debug(f'读合鸣效果失败(忽略): {e}')
-                return None, 0.0, 0.0
+            self.log_debug(f'[合鸣效果] 滚 {total} 格, 最佳={best} {score:.2f} 次优={second:.2f}')
+            return best, score, second
 
         def scan_grid():
             """OCR 网格区角标 → 聚行 → 按 6 列基准补全缺列(防 OCR 漏格), 返回完整网格点
@@ -536,6 +586,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 cells_model = layout_model.cells(fw, rows)
                 grid_pitch['row'] = row_pitch
                 grid_pitch['dy'] = layout_model.click_dy_ratio
+                grid_pitch['nrows'] = len(rows)
                 _log_grid_geometry(layout_model.cols, len(rows), row_pitch)
                 return [(mx / fw, my / fh) for mx, my in cells_model]
             # ② 完整结构标定：等级条顶边 → 行，金色亮段 → 列；成功则更新模型
@@ -546,6 +597,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     layout_model = echo_grid.GridModel.from_structure(struct, fw)
                     grid_pitch['row'] = struct['row_pitch']
                     grid_pitch['dy'] = struct.get('click_dy', 0.08)
+                    grid_pitch['nrows'] = len(struct['rows'])
                     _log_grid_geometry(len(struct['cols']), len(struct['rows']),
                                             struct['row_pitch'])
                     return [(mx / fw, my / fh) for mx, my in struct_cells]
@@ -715,6 +767,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
             pitch = (layout_model.row_pitch_ratio * fw) if layout_model else 0.11 * fw
             pitch = max(20.0, pitch)
+            # 目标行数随**可见行数**收缩：1440x900 实测只看到 4 行(6 列 × 4 行)，
+            # 若仍按"5 行可见"滚 3 行，就只剩 1 行重叠，一次偏差就跳行。
+            visible = int(grid_pitch.get('nrows') or 5)
+            rows = min(rows, max(1.5, visible - 1.8))
             rect = _grid_rect_px()
             before = _wait_still(rect)      # 先等上一屏的收尾动画停下来, 否则基准帧是糊的
             total = 0.0
@@ -1000,7 +1056,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                     # 记录字段来自 evaluate_one, 这里补报告用的序号与截图名
                     results.append({"index": evaluated + 1, "screenshot": ss_name, **rec})
-                    self.log_info(f"[评估#{evaluated + 1}] {echo_name} | {tier}/5词条 | 得分={score:.2f} | {verdict_cn}")
+                    self.log_info(f"[评估#{evaluated + 1}] {echo_name} | {tier}/5词条 | 得分={score:.2f} "
+                                  f"| {verdict_cn} | 套装={set_name}({set_src})")
                     evaluated += 1
                     self.info_set('评估数量', evaluated)
 
