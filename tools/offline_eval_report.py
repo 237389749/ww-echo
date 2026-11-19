@@ -73,7 +73,8 @@ def replay_from_json(src: str, out_prefix: str) -> int:
         mains = [(m['name'], str(m['value'])) for m in (rec.get('main_props') or [])]
         new = task.evaluate_one(rec.get('name') or '', stats, rec.get('set') or '通用',
                                 rec.get('set_src') or 'default',
-                                main_props=mains or None, cost=rec.get('cost'))
+                                main_props=mains or None, cost=rec.get('cost'),
+                                level=rec.get('level'))      # 报告带等级时按等级复算(否则退回词条数)
         merged = {**rec, **new}                       # 保留 index/screenshot/name_raw 等
         results.append(merged)
         verdict_stat[new['verdict']] = verdict_stat.get(new['verdict'], 0) + 1

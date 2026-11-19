@@ -27,6 +27,28 @@ logger = Logger.get_logger(__name__)
 number_pattern = re.compile(r"^[\d.%％ ]+$")
 property_pattern = re.compile(r"[\u4e00-\u9fff]{2,}")
 
+# 详情面板**固定表头**里的等级(`+25` / `+5` / `+0`)。与名字/COST 一样不随滚动移动 —— 实测
+# 174 个面板读取里 126 个读出 `+NN`, 置信 ≥0.90, y 只在 144~149 之间波动(取 y 最小者 = 名字右侧那个)。
+# 词条数值框(`10.0%` / `150`)不会带 `+`, 所以锚定 `^\+\d{1,2}$` 不会误收。
+LEVEL_RE = re.compile(r'^\s*\+\s*(\d{1,2})\s*$')
+
+
+def _tier_from_level(level, n_stats: int) -> int:
+    """等级 + 词条条数 → tier(0~5)。**只升不降**。
+
+    为什么需要: 等级原本只按词条条数反推(`tier = len(stats)`)。而词条数只是**下界**
+    (n 条 ⇒ 等级 ≥ 5n): 一条词条 OCR 漏读, +25 就会被当成 +20 → 走"未满级"分支,
+    满级件被判成「建议强化/不建议强化」(2026-11-19 report1 #1 就是这么来的:
+    5 条只读到 4 条 → 17.29 分判"不建议强化", 而上一轮同一只 5 条 27.29 分是"达标")。
+    等级读到了就以它为准、但不低于已读到的条数(读到的词条不能凭空丢);
+    等级认不出(None) → 退回词条数(旧行为, 不改变纯离线重放的结果)。
+    """
+    tier = int(n_stats)
+    if level is not None:
+        tier = max(tier, min(5, max(0, int(level)) // 5))
+    return tier
+
+
 # 详情面板的 COST 角标: 实测 219 张面板里 117 张 OCR 把数字并进同一个框(`COST 4`/`COST4`),
 # 其余 102 张只读到标签 `COST` —— 后者取**同一行右侧**的数字框(102/102 都能找到)。
 _COST_RE = re.compile(r'COST\s*([134])')
@@ -236,6 +258,33 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return bool(value_grid(normalize_main_prop(n, v, None, None), None))
         except Exception:                          # noqa: BLE001 - 判不了不要中断评估
             return True
+
+    @staticmethod
+    def parse_level(texts) -> int | None:
+        """从详情面板的 OCR 框里取等级(`+25`/`+10`/`+5`/`+0`) → int; 认不出 None。
+
+        等级是**固定表头**, 与名字/COST 一起恒在面板顶部 → 不受滚动影响, 是比"数词条"硬得多的信号。
+        实测(2026-11-19 的 174 个面板读取): 126 个读出 `+NN`, 全部 conf ≥ 0.90, y 恒定在 144~149。
+        取 **y 最小**的那个(名字右侧); OCR 有时会多吐一个孤立的 `+`(conf≈0.74), 它不匹配数字所以被忽略。
+        """
+        best = None
+        for b in texts or []:
+            m = LEVEL_RE.match(str(getattr(b, 'name', '') or ''))
+            if not m:
+                continue
+            try:
+                conf = float(getattr(b, 'confidence', 1.0))
+            except (TypeError, ValueError):
+                conf = 1.0
+            if conf < 0.6:
+                continue
+            try:
+                y = float(getattr(b, 'y', 0) or 0)
+            except (TypeError, ValueError):
+                y = 0.0
+            if best is None or y < best[0]:
+                best = (y, int(m.group(1)))
+        return best[1] if best else None
 
 
     def __init__(self, *args, **kwargs):
@@ -1069,11 +1118,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return False
 
         def read_detail():
-            """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost):
+            """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost, level):
               echo_name  声骸名(面板顶部唯一中文行, y < 0.28*fh; 用于签名唯一性)
               paired_all 全部属性行 [(name, value_str), ...]  (主属性+词条, 按 y 序)
               detail_sig 名字 + 全量属性行签名(点选切换/唯一性检测)
               cost       面板 COST 角标(1/3/4; 认不出为 None)
+              level      面板固定表头里的等级(0/5/…/25; 认不出为 None) —— 判"是否满级"的硬信号,
+                         见 `_tier_from_level`(不能只数词条: 漏读一条就会把 +25 当成 +20)
             词条筛选由调用方按词条档位 is_stat_match 过滤(主属性数值超档自动丢弃)。
 
             布局注意: detail_box 下界 0.635(归一化) 是为覆盖第 5 词条(y≈0.607 + 文字高≈0.025);
@@ -1107,11 +1158,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if m:
                     p.name = m.group()
             values = self.find_boxes(texts, match=number_pattern)
+            level = self.parse_level(texts)
             if not properties:
-                return echo_name, [], '', cost
+                return echo_name, [], '', cost, level
             paired_all = self._pair_props(properties, values)
             detail_sig = f'{echo_name}|' + '|'.join(f'{n}={v}' for n, v in paired_all)
-            return echo_name, paired_all, detail_sig, cost
+            return echo_name, paired_all, detail_sig, cost, level
 
         try:
             # 键数硬拒: 套装有效词条 <5 不允许评估(通用跳过)
@@ -1137,7 +1189,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             # 先读一次当前详情面板作为基线: 第一次点击若没生效(点在空白/边框),
             # 面板还是上一次选中的声骸 → 会被误记成本屏第一只(实测报告 #1 变成了之前手选的那只)
             try:
-                _, _, last_sig, _ = read_detail()
+                _, _, last_sig, _, _ = read_detail()
             except Exception as e:
                 self.log_debug(f'读初始详情失败(忽略): {e}')
 
@@ -1189,11 +1241,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     alt_ratio = 0.08 if dy_ratio < 0 else -0.30
                     delta = (alt_ratio - dy_ratio) * pitch_px / fh if pitch_px > 1 else -0.035
                     click_points = ((nx, ny), (nx, max(0.02, ny + delta)))
-                    echo_name, paired_all, sig, cost = '', [], '', None
+                    echo_name, paired_all, sig, cost, level = '', [], '', None, None
                     for attempt, (cx, cy) in enumerate(click_points):
                         self.click(cx, cy, after_sleep=0.8)
                         dbg_shot(f'click_{cx:.2f}_{cy:.2f}')
-                        echo_name, paired_all, sig, cost = read_detail()
+                        echo_name, paired_all, sig, cost, level = read_detail()
                         if paired_all and sig != last_sig:
                             break
                         # 面板可能还停在上一次"找套装"的滚动位置(滚动条共用) → 先回顶再读一次。
@@ -1201,7 +1253,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         if panel_dirty and (not paired_all or not _has_stat_rows(paired_all)):
                             if restore_panel_top():
                                 panel_dirty = False
-                            echo_name, paired_all, sig, cost = read_detail()
+                            echo_name, paired_all, sig, cost, level = read_detail()
                             if paired_all and sig != last_sig:
                                 break
                         if attempt == 0:
@@ -1253,7 +1305,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                 stats.append((norm, val))
                         stats = stats[:5]
 
-                    tier = len(stats)
                     if stats:
                         zero_run = 0
                         badge = badge_hue_at(nx, ny)
@@ -1274,8 +1325,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                 panel_set_cache[echo_name] = (set_name, set_src)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
+                        # level: 面板固定表头的 `+NN` —— 判"满级/未满级"的硬信号(见 _tier_from_level)
                         rec = self.evaluate_one(echo_name, stats, set_name, set_src,
-                                                main_props=paired_all[:2], cost=cost)
+                                                main_props=paired_all[:2], cost=cost, level=level)
+                        tier = rec["tier"]
+                        if rec.get("stats_missing"):
+                            # 等级说满级、词条却少读了 → 分数只是下界。不拦记录(宁可多记),
+                            # 但必须让人看见: 2026-11-19 就是这条被静默当成 +20 才判出"不建议强化"。
+                            self.log_warning(
+                                f'[!] {echo_name}: 等级 +{level} 应有 {tier} 条词条, 只读到 {len(stats)} 条'
+                                f'(漏读 {rec["stats_missing"]}) → 分数偏低, 判定按满级算')
                         # 徽章环色写进记录: 报告/JSON 自带证据, 事后可**离线核对套装判定**
                         rec['badge_hue'] = badge[0] if badge and badge[1] else None
                         verdict, verdict_cn, score = rec["verdict"], rec["verdict_cn"], rec["score"]
@@ -1835,21 +1894,35 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """
         return echo_parse.dedup_key(echo_name, paired_all)
 
-    def evaluate_one(self, echo_name, stats, set_name, set_src, main_props=None, cost=None):
+    def evaluate_one(self, echo_name, stats, set_name, set_src, main_props=None, cost=None,
+                     level=None):
         """一只声骸 → 报告记录字段(不含 index/screenshot): 评分 + 判定 + 前瞻 + 重铸方案 + 词条明细。
 
         **评估遍历与离线重放(tools/offline_eval_report)共用这一份** —— 以前两边各写一遍
         (score / judge / prospect / reforge / stats 明细), 改判定时容易只改一边、离线报告与线上不一致。
         调用方负责: 取数(OCR 或转录)、套装映射(resolve_set_name / pick_set)、截图、index。
 
-        `main_props` / `cost` 是**可选**的 L2 输入(面板前 2 行主属性 + COST 角标): 不传则记录里
-        不出现 `cost`/`main_props`/`plan_check` 三个键 —— 旧报告与旧调用方行为完全不变。
+        `main_props` / `cost` / `level` 是**可选**的 L2 输入(面板前 2 行主属性 + COST 角标 + 等级 `+NN`):
+        不传则记录里不出现 `cost`/`main_props`/`plan_check`/`level`/`stats_missing` 这些键 ——
+        旧报告与旧调用方行为完全不变。
+        `level` 只影响 **tier**(= 是否满级), 见 `_tier_from_level`; 等级 > 词条数时另记
+        `stats_missing`(漏读几条), 因为那份分数只是下界。
         """
-        tier = len(stats)
+        tier = _tier_from_level(level, len(stats))
+        missing = tier - len(stats)
         # compute_weighted_score 内部会 parse_number(value_str), 需传字符串; 显式传套装名让其用映射套装权重
         score, details = self.compute_weighted_score([(n, str(v)) for n, v in stats], set_name=set_name)
-        # 判定与渐进强化共用同一份逻辑 (见 judge_echo); 第三项 = 「建议重铸」的最优方案(内部已算)
-        (verdict, verdict_cn), threshold, reforge = self.judge_echo(set_name, tier, score, stats)
+        if missing > 0:
+            # 读数不全(等级说还有词条没读到): 这份分数只是**下界**, 任何"丢/练"的判断都不可靠 ——
+            #   ① 不能判"不合格": 漏读的那条可能正好让它达标(实测那只少了一条暴击 7.5 → 17.29 不合格,
+            #      补上后 27.29 达标);
+            #   ② 不能给重铸建议: reforge_plan 按"5 个孔"建模, 少一条会把它当成空孔, 方案是错的。
+            # 所以统一给"保留(词条缺失)": 先留着别丢, 报告里带 ⚠ 让人复读这一只。
+            # 也不跑 judge_echo —— 那里的两处概率门(重铸/前瞻)在缺条时都没有意义(重铸还要 0.2s 蒙特卡洛)。
+            verdict, verdict_cn, threshold, reforge = 'hold', '保留(词条缺失)', 0.0, None
+        else:
+            # 判定与渐进强化共用同一份逻辑 (见 judge_echo); 第三项 = 「建议重铸」的最优方案(内部已算)
+            (verdict, verdict_cn), threshold, reforge = self.judge_echo(set_name, tier, score, stats)
         # 未满级的"建议强化": 记下"继续开到满级能过保留线"的概率(前瞻), 供报告展示与核对
         prospect = (round(self.enchant_prospect(set_name, tier, stats) or 0, 3)
                     if verdict == 'pending' and tier < 5 else None)
@@ -1865,6 +1938,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                        "ratio": round((snap_to_tier(n, v) or 0) / (get_mean(n) or 1), 3)}
                       for (n, v), d in zip(stats, details)],
         }
+        # 等级 / 漏读条数: 只在**有值**时加键(与 cost/main_props 同样的"加法"约定, 旧报告不受影响)
+        if level is not None:
+            rec["level"] = int(level)
+        if tier > len(stats):
+            rec["stats_missing"] = tier - len(stats)
         # L2: 主属性 / COST / 官方管理方案判定 —— 全部可选, 不给就一个键都不加(旧报告不受影响)
         # COST 主口径 = **第 2 行(COST 固有属性)结构反推**(分辨率无关); 角标 OCR 只当佐证,
         # 反推不出唯一值时才退回它, 两者冲突时以反推为准(角标"4 读成 A"这类误读更常见)。

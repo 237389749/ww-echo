@@ -307,6 +307,18 @@ def main() -> int:
             for idx, name, prop in fake[:10]:
                 print(f'    #{idx} {name}  main_props[0]={prop}')
 
+        # 等级读到、词条却少读(判定已压成「保留(词条缺失)」): 数据质量问题, 只提醒不判失败
+        if any('level' in r for r in rows):
+            sm = [(r.get('index'), r.get('name')) for r in rows if r.get('stats_missing')]
+            print(f'\n[词条] 等级说应有更多条、实际少读 {len(sm)} 只  -> '
+                  f'{"PASS" if not sm else "WARN"}（判定已压成「保留(词条缺失)」）')
+            if sm:
+                warns.append(f'词条缺读 {len(sm)} 只（等级 > 词条数；分数只是下界，建议复读这几只）')
+                for idx, name in sm[:10]:
+                    print(f'    #{idx} {name}')
+        else:
+            print('\n[词条] 报告没有 level 字段（旧版/离线重放）  -> SKIP')
+
         src = collections.Counter(r.get('set_src') or 'default' for r in rows)
         total = sum(src.values()) or 1
         pretty = {k: f'{v}({v * 100 / total:.0f}%)' for k, v in src.most_common()}

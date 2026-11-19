@@ -425,6 +425,14 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   冲突时以反推为准(`rec['cost_src']` = main/badge)。真实数据 **140/140 一致、0 冲突**。
   **+0 面板没有主属性行**(只有 名字/+0/COST/`持有数量：N`), 所以 `_main_props_like` 先验"第 1 行像不像真主属性",
   不像就按 0 级跳过 —— 否则技能描述里的 `加成提升10.00%` 会被当成词条(report1 的 #145/#146 就是假记录)。
+- **等级 `+NN` = 判"满级/未满级"的硬信号**(2026-11-19, 用户发现 #1 满级却显示「不建议强化」): 等级原先只按
+  **词条条数反推**(`tier = len(stats)`), 而词条数只是下界 —— 漏读一条就把 +25 当成 +20, 走进未满级分支。
+  现在 `read_detail` 顺带读出**固定表头**里的 `+NN`(`parse_level`; 实测 174 个面板读取里 126 个读出、conf ≥0.90、
+  y 恒在 144~149), `tier = max(词条数, 等级//5)`(`_tier_from_level`, **只升不降**, 读不到等级才退回旧行为 ——
+  `--from-json` 离线重放没有等级字段, 结果与以前逐条一致)。
+  等级 > 词条数 = **漏读**: 记录 `stats_missing`/`level`, 判定**压成「保留(词条缺失)」且不给重铸方案**
+  (分数只是下界: 那只 4 条 17.29 判"不建议强化", 补上漏读的 `暴击 7.5` 后 5 条 27.29 达标; 少一条时
+  `reforge_plan` 会把已有词条当空孔), 报告标 `⚠ 词条缺失 N`。
 - 套装语境(权重/键/首核/声骸清单)供评估自动映射 + 强化模式使用; run_tab 评估仍隐藏套装下拉(靠图标+名字映射), 未映射时用通用
 - **数据来源**: 见「官方静态数据层」; 旧的 `parse_wutherin_echoes.py` + `1.txt` 手工口径已被取代, 别当输入。
 - 空格/未切换格**跳过继续**(不提前滚屏防漏真实格); 本屏无新内容才滚动 15 notches; 连续 3 次滚动无新格兜底
@@ -480,7 +488,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**301 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**313 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`

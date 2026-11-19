@@ -242,6 +242,22 @@ class RollingHealthGateTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn('假主属性 1 条', out)
 
+    def test_missing_stat_is_warn_not_fail(self):
+        """等级读到、词条少读 = 数据质量问题（判定已压「保留(词条缺失)」）→ 只提醒, 不判失败。"""
+        rows = [_row(1, '虚造神型', '雪落无声之愿', 'text', cost=4, level=25, stats_missing=1),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=3, level=25)]
+        code, out = self._run(_report(rows), extra=['--check'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('[词条] 等级说应有更多条、实际少读 1 只  -> WARN', out)
+
+    def test_no_level_field_skips_stat_check(self):
+        """旧报告/离线重放没有 level 字段 → 该项 SKIP(不能因为"没读到等级"就报警)。"""
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=3)]
+        code, out = self._run(_report(rows), extra=['--check'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('报告没有 level 字段', out)
+
 
 if __name__ == '__main__':
     unittest.main()

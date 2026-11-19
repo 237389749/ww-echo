@@ -899,6 +899,13 @@ def _build_eval_html(data):
         from src.echo_score_sim import completeness
         comp = completeness(r.get("set"), r["score"])
         comp_html = (f'<br><b style="font-size:12px">完成度 {comp:g}%</b>' if comp is not None else '')
+        # 词条漏读(等级 +NN 说应有更多条): 分数只是下界 → 判定统一压成「保留(词条缺失)」, 这里标出来
+        sm = r.get("stats_missing") or 0
+        sm_html = ''
+        if sm:
+            sm_html = (f'<br><span title="等级 +{r.get("level", "?")}: 应有 {5} 条词条, 只读到 {5 - sm} 条'
+                       f'(OCR 漏读 → 分数偏低)。判定已压成「保留」, 建议复读这一只" '
+                       f'style="color:#c62828;font-size:11px">⚠ 词条缺失 {sm}</span>')
         # 建议重铸: 附"锁哪几条 / 刷几条 / 约多少元 / 达标概率 / 期望量"(reforge_plan 的结果)
         # 判据已改为**蒙特卡洛达标概率 ≥ 60%** —— "期望达标"实际只有约五成把握, 而胚子可无限刷,
         # 不值得为低概率花频整器(30 元/个); 期望量(e_feat / r̄ / 期望分)仍列出供对照
@@ -948,7 +955,7 @@ def _build_eval_html(data):
             f'<td{name_title}>{name}</td>'
             f'<td title="{set_src}">{set_name}</td>'
             f'<td><b>{cost_txt}</b>{plan_html}{val_html}{mp_html}</td>'
-            f'<td>{r["score"]}{comp_html}</td>'
+            f'<td>{r["score"]}{comp_html}{sm_html}</td>'
             f'<td style="color:{color};font-weight:bold">{vcn}{pr_html}{rf_html}</td>'
             f'<td>{stats_html}</td></tr>')
 
