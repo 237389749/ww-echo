@@ -122,6 +122,26 @@ class TestEvalWiring(unittest.TestCase):
         self.assertIn("best = (cand, s1, s2, 'effect')", src)
         self.assertIn('effect_src = read_set_by_effect(cand_list, echo_name)', src)
 
+    def test_panel_text_beats_wrong_candidates(self):
+        """面板上**明写的套装名**要压过"按名字推的候选"——名字读错时候选本身就是错的。
+
+        2026-11-19 实测 #95：`梦魔·咕咕河豚`（OCR 把 魇 读成 魔）候选推成 [凝夜白霜, 浮星祛暗]，
+        面板上明写着 息界同调之律（放开到 37 套才认到）—— 旧逻辑要求"必须在候选内"，
+        于是把它挡掉、退回候选首个 凝夜白霜 → 套装判错、权重用错、判定跟着错。
+        """
+        from src.echo_set_templates import get_sets_by_echo
+        from src.task.EnhanceEchoTask import EnhanceEchoTask
+        task = EnhanceEchoTask.__new__(EnhanceEchoTask)
+        task.config = {'当前套装': '通用'}
+        task.log_debug = lambda *a, **k: None
+        name = '梦魔·咕咕河豚'
+        self.assertEqual(get_sets_by_echo(name), ['凝夜白霜', '浮星祛暗'])   # 前提: 候选确实是错的
+        self.assertEqual(task.resolve_set_name(name, None, '息界同调之律', 'text'),
+                         ('息界同调之律', 'text'))
+        # 模糊信号(效果原文覆盖率反查)不采信越界结果, 仍退回名字候选
+        self.assertEqual(task.resolve_set_name(name, None, '息界同调之律', 'effect'),
+                         ('凝夜白霜', 'name'))
+
     def test_resolver_returns_panel_source(self):
         """`resolve_set_name(..., effect_src='text')` 原样回传，缺省仍回落 'effect'。"""
         from src.echo_set_templates import get_sets_by_echo

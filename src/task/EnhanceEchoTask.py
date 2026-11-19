@@ -319,7 +319,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """
         cfg_set = self.config.get('当前套装', '通用')
         cands = get_sets_by_echo(echo_name)
-        if effect_set and (not cands or effect_set in cands):
+        # 面板上**明写的套装名**(text)是地面真相：名字候选是"按 OCR 名字推的"，名字读错时它本身就是错的
+        # —— 2026-11-19 实测 #95 `梦魔·咕咕河豚`(魇→魔) 候选推成 [凝夜白霜, 浮星祛暗]，面板明明写着
+        # 息界同调之律(放开到 37 套才认到)，却被"必须在候选内"挡掉，最后退回候选首个凝夜白霜 → 套装判错。
+        # 所以 text 一律采信；只有**效果原文覆盖率反查**(effect)这种模糊信号才要求落在候选内。
+        if effect_set and ((effect_src or 'effect').startswith('text') or not cands or effect_set in cands):
             src = effect_src or 'effect'
             self.log_debug(f'[套装{src}] {echo_name} → {effect_set} (名字候选 {cands})')
             return effect_set, src
@@ -605,30 +609,50 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_debug(f'滚详情面板失败: {e}')
                 return False
 
-        def restore_panel_top():
-            """把详情面板滚回顶部 —— 判据 = **内容不再移动**(连续两次上滚都没变化)。
+        def _panel_settled(prev, box, timeout=1.0):
+            """等**面板滚动动画停稳**，返回稳定后的帧。
+
+            真机上滚动是 ease-in 动画（网格那边实测 0.8s 才停），滚完立刻比帧会一直判"还在动"
+            —— 2026-11-19 17:00 那次 5 次"回顶失败"就是这么来的（其实早到顶了，只是还在动画里）。
+            判据同 `_wait_still`: 相邻两帧差异 < `PANEL_MOVE_RATIO` 连续两次。
+            """
+            last = prev
+            still = 0
+            t0 = time.time()
+            while time.time() - t0 < timeout:
+                self.sleep(0.10)
+                cur = self.frame
+                if echo_grid.frame_change_ratio(last, cur, box) < PANEL_MOVE_RATIO:
+                    still += 1
+                    if still >= 2:
+                        return cur
+                else:
+                    still = 0
+                last = cur
+            return last
+
+        def restore_panel_top(down_notches=0):
+            """把详情面板滚回顶部 —— 判据 = **内容不再移动**。
 
             2026-11-19 真机修正(之前一直是假判据)：游戏详情面板的**名字 / +25 / COST 是固定表头**
             —— 实测同一只声骸在 8/12/16/20 格四个滚动位置上，面板顶部 0~30% 逐像素不动，
             只有中间 30~80% 在滚。所以"名字行可见 ⇒ 已回顶"**永远成立**，旧实现每次都在第一步就
             返回 True、根本没上滚（面板数据集里 `_top.png` 与最后一个滚动步**逐字节相同**就是铁证），
             下一只自然读不到词条。滚轮上滚到顶后会被钳住、画面不再变化 —— 用这个当判据才与布局无关。
+
+            `down_notches` = 这次往下滚了多少格：先**一次性大回滚**(滚动条到顶会被钳住, 宁多不少),
+            再小步校正 —— 长面板（实测有滚 80 格的）光靠固定步数会不够。
             """
-            prev = self.frame
             box = _effect_box_px()
-            still = 0
-            for _ in range(PANEL_UP_MAX):
-                if not _panel_scroll(PANEL_UP_STEP):
-                    break
-                self.sleep(0.20)
-                cur = self.frame
-                moved = echo_grid.frame_change_ratio(prev, cur, box) >= PANEL_MOVE_RATIO
-                prev = cur
-                if moved:
-                    still = 0
-                    continue
-                still += 1
-                if still >= 2:      # 连续两次滚不动 = 已经到顶
+            before = self.frame
+            back = max(PANEL_UP_STEP, min(60, int(down_notches or 0) + PANEL_UP_STEP))
+            for attempt in range(PANEL_UP_MAX):
+                if not _panel_scroll(back if attempt == 0 else PANEL_UP_STEP):
+                    return False
+                after = _panel_settled(before, box)
+                moved = echo_grid.frame_change_ratio(before, after, box) >= PANEL_MOVE_RATIO
+                before = after
+                if not moved:       # 滚不动了 = 已经到顶
                     return True
             return False
 
@@ -711,7 +735,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 滚过就必须回顶：词条区在面板中间(30~80%)，面板停在下面 → 下一只读不到词条
                     nonlocal panel_dirty
                     panel_dirty = True
-                    if restore_panel_top():
+                    if restore_panel_top(total):
                         panel_dirty = False
                     else:
                         restore_ok = False
@@ -1241,6 +1265,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             # 按等级排序时 0 级在列表尾部 → 连续两行 0 词条即视为到底, 不再往下点
                             self.log_info(f'连续 {zero_run} 格 0 词条, 视为 0 级尾部, 评估结束', notify=True)
                             stop_all = True
+                            break        # 立刻停手: 继续点剩下的格子只会重复打同一句日志
                         continue
 
                     last_sig = sig
@@ -1814,6 +1839,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                       for (n, v), d in zip(stats, details)],
         }
         # L2: 主属性 / COST / 官方管理方案判定 —— 全部可选, 不给就一个键都不加(旧报告不受影响)
+        if main_props and cost not in (1, 3, 4):
+            # COST 角标没读出来(实测 146 条里有 3 条, 都是连着的) → 用**第 2 行 = COST 固有属性**反推。
+            # 口径与离线 `echo_inventory.infer_cost` 同一份; 反推不出唯一值就返回 None(不猜)。
+            from src.echo_inventory import infer_cost, normalize_main_prop
+            guessed = infer_cost(
+                [(normalize_main_prop(n, v, None, tier), parse_number(v))
+                 for n, v in list(main_props)[:2]], tier=tier)
+            if guessed in (1, 3, 4):
+                cost = guessed
+                rec["cost_inferred"] = True
         if cost in (1, 3, 4):
             rec["cost"] = cost
         if main_props:

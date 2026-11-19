@@ -67,7 +67,8 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('restore_panel_top', src)
         self.assertIn('PANEL_UP_STEP', src)
         self.assertNotIn('_panel_top_ok', src)
-        self.assertIn('连续两次滚不动', src)
+        self.assertIn('_panel_settled', src)          # 必须等滚动动画停稳再比帧(否则一直判"还在动")
+        self.assertIn('restore_panel_top(total)', src)  # 大回滚按"往下滚了多少格"给距离
         # 面板滚下去时固定表头还在 → "读到了词条"才是真读到了；调用方要据此回顶重读
         self.assertIn('_has_stat_rows', src)
         self.assertIn('panel_dirty', src)
