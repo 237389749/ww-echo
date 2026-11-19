@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""一次真机评估的验收：条数 / 去重 / 套装来源 / 每屏重叠 / 滚动健康。
+r"""一次真机评估的验收：条数 / 去重 / 套装来源 / 回顶·COST·主属性 / 每屏重叠 / 滚动健康。
 
 输入:
   - 评估 JSON（「运行」页保存报告时同目录写的那份 `<报告名>.json`）
@@ -9,11 +9,15 @@ r"""一次真机评估的验收：条数 / 去重 / 套装来源 / 每屏重叠 
   - 每屏一行: 格数 / 新增 / 重复 / 网格几何 / 滚动行数与残差（`--screens` 全打印, 否则只打异常屏）
 支撑结论:
   - `docs/SESSION_2026-11-18.md` §8 的三条验收（条数 153±2、每屏重复 10~13 格、`set_src=text` 占多数）
+  - `docs/SESSION_2026-11-19.md` §9 的四个数（**当前口径**）:
+      条数预期 144（先跑出 146，减掉那两只 +0 假记录）/ `set_src=text` ≥ 85%
+      / 面板回顶失败 = 0 / 缺 COST = 0 / 报告里没有 `持有数量` 这类假主属性
   - `docs/BASELINE.md` 的「真机评估」验收口径
 用法:
   python tools/analysis/verify_eval_run.py eval_report.json
   python tools/analysis/verify_eval_run.py eval_report.json --log logs/ok-echo.log --check
   python tools/analysis/verify_eval_run.py --log logs/ok-echo.2026-11-14.log --screens   # 无 JSON 时只看日志
+  python tools/analysis/verify_eval_run.py 旧报告.json --expect 146 --min-text-pct 85    # 旧口径复算
 """
 from __future__ import annotations
 
@@ -47,6 +51,9 @@ RE_SETNONE = re.compile(r'\[套装\] 面板没读到套装信息\(滚 (\d+) 格\
 RE_MISSLINE = re.compile(r'\[失败\] 格\(')
 RE_CLICKABORT = re.compile(r'连续 (\d+) 格点击后都读不到属性')
 RE_ECHO = re.compile(r'\[评估#(\d+)\] (.*?) \| (\d)/5词条 \| 得分=([\d.]+) \| (.*?) \| 套装=(.*?)\((.*?)\)')
+RE_RESTORE = re.compile(r'面板回顶失败 (\d+) 次')
+# +0 面板没有主属性行（只有 名字/+0/COST/`持有数量：N`），"前 2 行=主属性" 会把这条当成主属性
+RE_FAKE_MAIN = re.compile(r'持有数量|持有|数量\s*[:：]')
 TS = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(\d{3}) ')
 
 
@@ -169,6 +176,9 @@ def parse_log(path: Path):
         m = RE_DONE.search(ln)
         if m:
             done = int(m.group(1))
+            mr = RE_RESTORE.search(ln)     # 非 0 才会打印在「评估完成」行里
+            if mr:
+                stats['restore_fail'] = int(mr.group(1))
             lines = lines[:i + 1]        # 会话在「评估完成」结束，后面的启动日志不算耗时
             break
 
@@ -194,14 +204,33 @@ def sig(r):
             tuple((m['name'], round(float(m['value']), 1)) for m in (r.get('main_props') or [])))
 
 
+def rows_missing_cost(rows):
+    """缺 COST 的条目（`cost` 只认 1/3/4）。COST 主口径已改成第 2 行反推，这里应当恒为 0。"""
+    return [(r.get('index'), r.get('name'), r.get('set'))
+            for r in rows if r.get('cost') not in (1, 3, 4)]
+
+
+def fake_main_prop_rows(rows):
+    """`持有数量：N` 被当成主属性的条目（+0 面板没有主属性行 → 这只根本不该入报告）。"""
+    out = []
+    for r in rows:
+        for m in (r.get('main_props') or []):
+            name = str(m.get('name') or '')
+            if RE_FAKE_MAIN.search(name):
+                out.append((r.get('index'), r.get('name'), name))
+                break
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('json_path', nargs='?', help='评估产物 JSON（可选）')
     ap.add_argument('--log', default=str(ROOT / 'logs' / 'ok-echo.log'))
-    ap.add_argument('--expect', type=int, default=153, help='期望条数（SESSION_2026-11-18 §8）')
+    ap.add_argument('--expect', type=int, default=144,
+                    help='期望条数（SESSION_2026-11-19 §9：146 − 2 只 +0 假记录）')
     ap.add_argument('--tol', type=int, default=2)
-    ap.add_argument('--min-text-pct', type=float, default=60.0,
-                    help='set_src=text 至少占比(%%), 低于则告警')
+    ap.add_argument('--min-text-pct', type=float, default=85.0,
+                    help='set_src=text 至少占比(%%), 低于则告警（SESSION_2026-11-19：≥85）')
     ap.add_argument('--screens', action='store_true', help='打印每一屏')
     ap.add_argument('--check', action='store_true', help='有问题时退出码 1')
     args = ap.parse_args()
@@ -212,6 +241,15 @@ def main() -> int:
     print('=' * 72)
     print('真机评估验收')
     print('=' * 72)
+
+    # ── 0. 先读日志（回顶失败数以 JSON 为主、日志兜底；日志段稍后再打印） ──
+    log_path = Path(args.log)
+    screens: list[Screen] = []
+    stats: collections.Counter = collections.Counter()
+    non_text_log = []
+    done = None
+    if log_path.exists():
+        screens, stats, non_text_log, done = parse_log(log_path)
 
     # ── 1. 报告 ──────────────────────────────────────────────────────────
     rows = None
@@ -233,6 +271,41 @@ def main() -> int:
             problems.append(f'完全重复 {len(dups)} 组（滚动重叠没吸收干净）')
             for d in dups[:3]:
                 print(f'    {d[0]} x{collections.Counter(sig(r) for r in rows)[d]}')
+
+        # ── 面板回顶 / COST / 假主属性：SESSION_2026-11-19 §9 的三个"必须为 0" ──
+        restore = data.get('panel_restore_fail')
+        from_log = False
+        # 只有"日志确实就是这次跑"（条数对得上）才允许拿日志里的次数兜底，免得张冠李戴
+        same_run = done is not None and done == len(rows)
+        if restore is None and same_run and stats.get('restore_fail') is not None:
+            restore, from_log = int(stats['restore_fail']), True
+        if isinstance(restore, int):
+            note = '（来自日志）' if from_log else ''
+            print(f'\n[面板回顶] 失败 {restore} 次{note}  -> '
+                  f'{"PASS" if restore == 0 else "FAIL"} (期望 0)')
+            if restore:
+                problems.append(f'面板回顶失败 {restore} 次（回顶没成功，后面的件会读不到词条）')
+        else:
+            print('\n[面板回顶] —  -> SKIP（JSON 没有这个数；数据集没开/离线重放/日志对不上）')
+
+        if any('cost' in r for r in rows):
+            miss = rows_missing_cost(rows)
+            print(f'\n[COST] 缺 {len(miss)} / {len(rows)} 条  -> '
+                  f'{"PASS" if not miss else "FAIL"} (期望 0)')
+            if miss:
+                problems.append(f'缺 COST {len(miss)} 条（主属性反推该兜住，为 0 才算过）')
+                for idx, name, setname in miss[:10]:
+                    print(f'    #{idx} {name} ({setname})')
+        else:
+            print('\n[COST] 报告没有 cost 字段（旧版）  -> SKIP')
+
+        fake = fake_main_prop_rows(rows)
+        print(f'\n[主属性] 「持有数量」类假主属性 {len(fake)} 条  -> '
+              f'{"PASS" if not fake else "FAIL"} (期望 0)')
+        if fake:
+            problems.append(f'「持有数量」被当成主属性 {len(fake)} 条（+0 面板没有主属性行）')
+            for idx, name, prop in fake[:10]:
+                print(f'    #{idx} {name}  main_props[0]={prop}')
 
         src = collections.Counter(r.get('set_src') or 'default' for r in rows)
         total = sum(src.values()) or 1
@@ -268,13 +341,7 @@ def main() -> int:
             warns.append(f'主属性数值可疑 {mp_bad} 条')
 
     # ── 2. 日志 ──────────────────────────────────────────────────────────
-    log_path = Path(args.log)
-    screens: list[Screen] = []
-    stats = collections.Counter()
-    non_text_log = []
-    done = None
     if log_path.exists():
-        screens, stats, non_text_log, done = parse_log(log_path)
         print(f'\n[日志] {log_path}  (最后一次评估会话: {len(screens)} 屏, '
               f'耗时 {stats.get("duration")}s)')
         if done is not None:

@@ -16,8 +16,8 @@
 | 引擎 | `ww_engine/`（in-tree） | 不再有 site-packages 补丁；4 处 `[ww-echo patch]` 已合并进 vendored 代码 |
 | 显示器/分辨率 | **任意窗口比例**（1024x768 起；`supported_resolution.ratio=None` 时按帧宽高线性映射） | 真机评估需要游戏在"背包声骸列表"界面；只有"全屏+黑边"才需显式设 `ratio='16:9'` |
 
-> **本机当前状态（2026-11-18）**：`requirements.txt` 已按钉死版本装进**系统 Python 3.13.16**
-> （`python -m pip install -r requirements.txt`，294 项单测在该解释器上全绿、`import mainui` 通过），
+> **本机当前状态（2026-11-19 复核）**：`requirements.txt` 已按钉死版本装进**系统 Python 3.13.16**
+> （`python -m pip install -r requirements.txt`，**301** 项单测在该解释器上全绿、`import mainui` 通过），
 > 因此 `python mainui.py` / `run.cmd`（无 `.venv` 时回落到 PATH 的 `python`）可直接跑。
 > `%TEMP%\ww-echo-venv313` 是 2026-11-13 旧会话遗留的临时环境（约 1.1GB），**已不被引用，可删**。
 
@@ -31,7 +31,7 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 
 | # | 命令 | 期望输出 | 依赖 |
 |---|---|---|---|
-| B1 | `python -m unittest discover -s tests` | **294 项**（`Ran 294 tests` / `OK (skipped=2)`；无素材时个别用例 `skipTest`，总数不变） | 仅代码 |
+| B1 | `python -m unittest discover -s tests` | **301 项**（`Ran 301 tests` / `OK (skipped=2)`；无素材时个别用例 `skipTest`，总数不变） | 仅代码 |
 | B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
 | B3 | `python tools/eval_icon_match.py` | **217/219**（99.1%）；s1 中位 ≈0.894；名字候选一致 196/211 | 同上 |
 | B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **7 页** PNG，无异常 | 仅代码 |
@@ -83,7 +83,7 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `probe_scroll.py` | 只读几何报告（`--capture`）/ 实测滚轮位移曲线（`--scroll`，需管理员） | stdout + `%TEMP%/probe_scroll/*.png` | `docs/SESSION_2026-11-14.md` §2.8 |
 | `probe_scroll_capture.py` | 连续抓帧 + 模板匹配真值：滚动动画多久停、px/格 到底多少 | stdout + `%TEMP%/scroll_seq/*.png` | `docs/SESSION_2026-11-18.md` §2.1 |
 | `audit_sets.py <评估json>` | 一条命令核对：条数/重复/`set_src` 分布/多义但没定下来的清单 | stdout | `docs/SESSION_2026-11-18.md` §3 |
-| `verify_eval_run.py <评估json> [--log]` | **真机验收一条命令**：条数 153±2 / 完全重复 / `set_src=text` 占比 / 每屏重叠 / 滚动健康（无重叠守卫、受阻、过滚）；`--check` 有问题退出码 1 | stdout | `docs/SESSION_2026-11-18.md` §8 |
+| `verify_eval_run.py <评估json> [--log]` | **真机验收一条命令**（2026-11-19 口径）：条数 **144±2** / 完全重复 0 / `set_src=text` **≥85%** / **面板回顶失败 0** / **缺 COST 0** / **无 `持有数量` 假主属性**，外加每屏重叠与滚动健康（无重叠守卫、受阻、过滚）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项降级 SKIP） | stdout | `docs/SESSION_2026-11-19.md` §9、`docs/BASELINE.md` §2 |
 | `replay_panel_scroll.py [目录]` | 评估时存的 `logs/panel_debug/<ts>/` → 逐只重放「找套装」：线上结论 vs 离线（第几步命中）、回顶是否成功、长图尺寸；`--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读/回顶失败退出码 1 | stdout（`logs/panel_debug/` 是输入，只读） | CHANGELOG 补记 48；`CLAUDE.md` 评估遍历·面板数据集 |
 | `check_set_panel.py <面板截图…>` | **不玩游戏**，拿截图跑真 OCR，验证 `match_set_text`/`match_set_effect` | stdout | `docs/SESSION_2026-11-18.md` §3 |
 

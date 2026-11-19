@@ -480,11 +480,12 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**294 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**301 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`
-  (条数 153±2 / 完全重复 0 / `set_src=text` 占比 / 每屏重复 8~14 / 无重叠守卫·受阻·过滚; 有问题退出码 1)
+  (条数 144±2 / 完全重复 0 / `set_src=text` ≥85% / **面板回顶失败 0** / **缺 COST 0** / **无 `持有数量` 假主属性**
+  / 每屏重复 8~14 / 无重叠守卫·受阻·过滚; 有问题退出码 1)
 - **环境**: 系统 Python 3.13.16 已装齐 `requirements.txt`(直接依赖全 `==`); `run.cmd` 优先仓库 `.venv` 再 PATH `python`
 - **2026-11-19 会话**: 面板链闭环 —— 端点判据改「画面不变」· 修好 4 个"恒为真"的假判据(名字=固定表头/等动画/候选过滤/+0 无主属性)
   · COST 改「第 2 行反推为主、角标佐证」· 真机 **146 条 / `text` 86% / 0 完全重复**，42 只面板件全中且离线逐只一致

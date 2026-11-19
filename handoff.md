@@ -6,6 +6,8 @@
 > **2026-11-14 会话总结**：`docs/SESSION_2026-11-14.md`（真机评估：分辨率 / 结构标定 / 布局模型 / 停止 /
 > 去数量识别 / 滚动距离模型；含证据链与未验证项）。
 > **2026-11-18 会话总结**：`docs/SESSION_2026-11-18.md`（遍历 54→155：滚动/列拟合/无重叠守卫；套装改读「合鸣效果区的套装名文字」；环境下界 3.10 + 依赖钉死 + 装进系统 Python；非管理员误报已修）。
+> **2026-11-19 会话总结**：`docs/SESSION_2026-11-19.md`（面板链闭环：端点判据改「画面不变」/ 面板明文套装名一律采信 / COST 改主属性反推 / +0 面板不再产假记录；真机 146 条、`text` 86%；
+> 下一棒 = 真机复跑验收四个数，`tools/analysis/verify_eval_run.py` 已按该口径升级）。
 
 ## 一、已完成的阶段（阶段二十四~三十已提交并 `push origin main`；阶段三十一在分支 `engine/vendor`，未合并）
 
@@ -23,7 +25,7 @@
 | **三十一** | `09bf8b3`（`engine/vendor`） | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 10.2k 物理行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁。**未合并 main**，等 P4 真机验收 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **214 项**（无素材；素材齐全 218 项 / skipped=1。需 Python 3.11+；
+- `python -m unittest discover -s tests` → **301 项**（`OK (skipped=2)`；需 Python **3.10+**；
   3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
 - `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）；**P2 后 `import ww_engine` ≈0.21 s**
   （根包惰性导入，裸 import 不拉 cv2/qfluentwidgets/PIL/rotypes/pynput/外壳 —— 守卫在 `tests/test_engine_lazy.py`）

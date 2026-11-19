@@ -1,9 +1,11 @@
 """`tools/analysis/verify_eval_run.py` 的解析与验收闸门守卫。
 
-用合成日志/报告锁住三件事（真机复跑时靠它出结论，解析错了会误导判断）：
+用合成日志/报告锁住四件事（真机复跑时靠它出结论，解析错了会误导判断）：
   ① 只取**最后一次**评估会话（日志是追加写的，不截断会把上一轮算进来）
   ② 每屏一行：格数/新增/重复/0词条 + 紧跟其后的那次滚动；无重叠守卫落在哪一屏
   ③ `--check` 的闸门：完全重复 / `set_src=text` 占比 / 日志与报告条数一致
+  ④ 2026-11-19 的三个"必须为 0"：面板回顶失败 / 缺 COST / `持有数量` 假主属性
+     （回顶失败数 JSON 优先、日志兜底；旧报告没有 cost 字段时降级为 SKIP 不误判）
 
 跑法（项目根目录）：
     python -m unittest tests.test_verify_eval_run -v
@@ -57,11 +59,13 @@ def _report(rows):
             'results': rows}
 
 
-def _row(i, name, setname, src):
-    return {'index': i, 'name': name, 'set': setname, 'set_src': src,
-            'stats': [{'name': '暴击', 'value': 6.3 + i}],
-            'main_props': [{'name': '攻击', 'value': 100.0}],
-            'verdict': 'hold', 'score': 20.0}
+def _row(i, name, setname, src, **extra):
+    row = {'index': i, 'name': name, 'set': setname, 'set_src': src,
+           'stats': [{'name': '暴击', 'value': 6.3 + i}],
+           'main_props': [{'name': '攻击', 'value': 100.0}],
+           'verdict': 'hold', 'score': 20.0}
+    row.update(extra)
+    return row
 
 
 class ParseLogTest(unittest.TestCase):
@@ -151,6 +155,92 @@ class MainGateTest(unittest.TestCase):
         code, out = self._run(_report([row, dict(row)]), ['--check'])
         self.assertEqual(code, 1, out)
         self.assertIn('完全重复 1 组', out)
+
+
+class RollingHealthGateTest(unittest.TestCase):
+    """SESSION_2026-11-19 §9 的三个"必须为 0"：回顶失败 / 缺 COST / 假主属性。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.log = self.dir / 'ok-echo.log'
+        self.log.write_text('\n'.join(NEW_SESSION) + '\n', encoding='utf-8')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, report, log=None, extra=()):
+        path = self.dir / 'eval_report.json'
+        path.write_text(json.dumps(report, ensure_ascii=False), encoding='utf-8')
+        argv = ['verify_eval_run.py', str(path), '--log', str(log or self.log)] + list(extra)
+        buf = io.StringIO()
+        with patch.object(sys, 'argv', argv), redirect_stdout(buf):
+            code = ver.main()
+        return code, buf.getvalue()
+
+    def test_restore_fail_is_problem(self):
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=3)]
+        report = dict(_report(rows), panel_restore_fail=5)
+        code, out = self._run(report, extra=['--check'])
+        self.assertEqual(code, 1, out)
+        self.assertIn('[面板回顶] 失败 5 次', out)
+
+    def test_restore_zero_passes(self):
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=3)]
+        report = dict(_report(rows), panel_restore_fail=0)
+        code, out = self._run(report, extra=['--check'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('失败 0 次', out)
+
+    def test_restore_falls_back_to_log(self):
+        """离线重放/旧报告的 JSON 没有 panel_restore_fail → 用日志「评估完成」行里的次数。"""
+        log = self.dir / 'restore.log'
+        lines = NEW_SESSION[:-2] + [_line(
+            '10:00:49,000',
+            '评估完成, 共2个声骸 (套装来源: text=2; 点击失败 0 格; 面板回顶失败 3 次)')]
+        log.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=3)]
+        code, out = self._run(_report(rows), log=log, extra=['--check'])
+        self.assertEqual(code, 1, out)
+        self.assertIn('失败 3 次（来自日志）', out)
+
+    def test_restore_log_fallback_requires_same_run(self):
+        """日志是上一轮的（条数对不上）→ 不许借它的回顶次数，宁可 SKIP。"""
+        log = self.dir / 'old_run.log'
+        lines = NEW_SESSION[:-2] + [_line(
+            '10:00:49,000',
+            '评估完成, 共3个声骸 (套装来源: text=3; 点击失败 0 格; 面板回顶失败 4 次)')]
+        log.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=3)]
+        code, out = self._run(_report(rows), log=log, extra=['--check'])
+        self.assertIn('[面板回顶] —', out)
+        self.assertNotIn('来自日志', out)
+
+    def test_missing_cost_is_problem(self):
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=None)]
+        code, out = self._run(_report(rows), extra=['--check'])
+        self.assertEqual(code, 1, out)
+        self.assertIn('缺 1 / 2 条', out)
+
+    def test_legacy_report_without_cost_skips(self):
+        """2026-11-19 之前的报告没有 cost 字段 → 只 SKIP，不能当成"全缺 COST"误杀。"""
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text'),
+                _row(2, '无归的谬误', '隐世回光', 'text')]
+        code, out = self._run(_report(rows), extra=['--check'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('报告没有 cost 字段', out)
+
+    def test_fake_main_prop_is_problem(self):
+        rows = [_row(1, '共鸣回响·天演溯心', '凝夜白霜', 'text', cost=1,
+                     main_props=[{'name': '持有数量：1', 'value': 1.0}])]
+        code, out = self._run(_report(rows), extra=['--check'])
+        self.assertEqual(code, 1, out)
+        self.assertIn('假主属性 1 条', out)
 
 
 if __name__ == '__main__':

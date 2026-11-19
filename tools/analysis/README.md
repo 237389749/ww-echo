@@ -23,7 +23,7 @@
 | `calculator_reconcile.py` | 参考工程 `data/echo-data.json` + `apps/ocr/EchoOCRTask.py` + 本项目权重/档位 → Markdown（档位校验、满档权重比例、A/B 完成度、锁成本、强化盈亏平衡） | `docs/CALCULATOR_RECONCILIATION.md` 全部数字；CHANGELOG 补记 23 |
 | `import_coupling.py` | 全仓 `.py` 的 import 图（stdlib，不导入项目）→ 分层矩阵 / 跨层违规 / UI 对 engine 内部模块 / Qt 依赖 / SCC / 可选 import 耗时 | `docs/COUPLING.md` 全部数字；CHANGELOG 补记 25 |
 | `p1_equiv_check.py [--old 提交]` | `git show <提交>:src/task/EnhanceEchoTask.py`（默认 `3e698cf`）vs 当前 `src/echo_parse|echo_scoring` → 4 个纯函数逐例对比（152 例） | `docs/COUPLING.md` §0.2「纯函数抽取不改口径」；CHANGELOG 补记 27 |
-| `verify_eval_run.py <评估json> [--log …]` | 评估 JSON + 运行日志 → 一条命令出真机验收表（条数 153±2、完全重复、`set_src=text` 占比、每屏重叠、无重叠守卫/受阻/过滚）；`--check` 有问题退出码 1 | `docs/SESSION_2026-11-18.md` §8 的三条验收；`docs/BASELINE.md` §2 |
+| `verify_eval_run.py <评估json> [--log …]` | 评估 JSON + 运行日志 → 一条命令出真机验收表（2026-11-19 口径：条数 **144±2**、完全重复、`set_src=text` **≥85%**、**面板回顶失败 0**、**缺 COST 0**、**无 `持有数量` 假主属性**、每屏重叠、无重叠守卫/受阻/过滚）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项 SKIP） | `docs/SESSION_2026-11-19.md` §9 的四个数；`docs/BASELINE.md` §2 |
 | `replay_panel_scroll.py [目录]` | 评估时存的 `logs/panel_debug/<ts>/` → 逐只重放「找套装」：线上结论 vs 离线（第几步命中）、回顶是否成功、长图尺寸；`--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读/回顶失败退出码 1 | CHANGELOG 补记 47/48；`CLAUDE.md` 评估遍历·面板数据集 |
 
 > 后两个会覆盖 `eval_report.html`，跑完用当前代码重跑 `tools/offline_eval_report.py` 复原。
