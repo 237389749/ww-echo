@@ -99,5 +99,43 @@ class TestStitch(unittest.TestCase):
         self.assertLessEqual(out.shape[0], 700 + 420)
 
 
+@unittest.skipUnless(cv2 is not None, '需要 cv2')
+class TestStaticHeaderFooter(unittest.TestCase):
+    """真机布局：**顶部固定表头 + 底部固定 HUD**，只有中间内容带滚动（2026-11-19 实测）。
+
+    三个滚动位置上，裁剪图的上 30% 与下 25% 逐像素不动，只有 30~80% 在滚 ——
+    按"整帧位移"拼长图会把页脚重复追加（真实数据上就错成了 4 个"培养"按钮）。
+    """
+
+    def _frames(self):
+        content = _panel(900, seed=5)              # 900 行的"可滚动内容"
+        header = _panel(220, seed=11)              # 固定表头
+        footer = _panel(180, seed=13)              # 固定页脚
+        wins = []
+        for i, off in enumerate([0, 70, 140]):
+            body = content[off:off + 380]
+            wins.append(np.vstack([header, body, footer]))
+        return wins, header, footer
+
+    def test_footer_appears_once(self):
+        frames, header, footer = self._frames()
+        out, used, offsets = shot.stitch(frames)
+        self.assertIsNotNone(out)
+        self.assertEqual(len(used), 3)
+        self.assertEqual(offsets, [70, 70])
+        # 表头在顶端一次、页脚在末端一次
+        self.assertTrue(np.array_equal(out[:header.shape[0]], header))
+        self.assertTrue(np.array_equal(out[-footer.shape[0]:], footer))
+        # 中间是连续滚动内容（70px 一步）：第一屏内容带 + 两步各 70 行
+        body0 = frames[0][header.shape[0]:-footer.shape[0]]
+        mid = out[header.shape[0]:-footer.shape[0]]
+        self.assertEqual(mid.shape[0], body0.shape[0] + 70 + 70)
+        self.assertTrue(np.array_equal(mid[:body0.shape[0]], body0))
+        # 追问：页脚不能在中途重复出现（挑页脚里的一条横线做特征）
+        row = footer[40].astype(np.int16)
+        dup = sum(1 for y in range(out.shape[0]) if np.abs(out[y].astype(np.int16) - row).mean() < 1.0)
+        self.assertLessEqual(dup, 2)
+
+
 if __name__ == '__main__':
     unittest.main()

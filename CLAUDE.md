@@ -85,8 +85,8 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **成本(第三阶段后)**: 纯 domain 0.03~0.07 s; `echo_icon_match` ≈0.16 s(只剩 cv2/numpy);
   `echo_inventory` ≈0.17 s、`echo_plan` ≈0.18 s(不再拉起 Qt); `ww_engine` 相对 QtCore 增量 **≈0.08 s**;
   `ww_app_shell` 0.49~0.74 s(只在开窗口时付)。
-- **下一步**: 只剩 BOM 清理(3 个文件)。**不要**为了 `og`/把 0.2 s 再压到 0.03(惰性化 `communicate`)/
-  Rust 去重写 engine/UI。
+- **下一步**: 分层/C 面已收口(2026-11-19 顺手清了全仓 BOM)。**不要**为了 `og`/把 0.2 s 再压到 0.03
+  (惰性化 `communicate`)/ Rust 去重写 engine/UI。
 
 ## 界面(Fluent, 阶段二十六)
 
@@ -327,12 +327,12 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 | `assets/gamedata/echo_data.json` | 生成物: `sets{icon_asset,icon_file,fetter_ids,effects,echoes,plan}` + `echoes{cost,sets,base}` + `props` + `main_prop_names` |
 | `tests/test_gamedata.py` / `test_main_prop_check.py` / `test_echo_stats_consistency.py` | 生成物结构自洽 + 3.7 回归锚点 + COST/方案判定 + 档位↔概率一致性断言 |
 
-- **已拉取的表(2026-10, 稀疏检出模式)**: `BinData/{phantom, phantommanageplan, property, item, drop,``
-  ``monster_Info, monsterDisplay, ui_resource, role, weapon, skillTree}` + `Textmaps/zh-Hans`。
-  其中 `phantom`/`property` 供 L0~L2 与主属性数值; `item` 供道具名(`ItemInfo_<id>_Name`, 如特级密音筒);
-  `role`/`weapon`/`skillTree` 供**面板模型(S1)**; `drop`/`monster_*`/`ui_resource` 待接。
-  扩容命令: `git -c http.proxy= -c https.proxy= sparse-checkout add BinData/<表名>`（本机 git 配的全局代理
-  常常没在监听, 直连 GitHub 反而通; 报告里的 `--bindata` 指 `search/wwdata37/BinData`）。
+- **已拉取的表(2026-10, 稀疏检出)**: `BinData/{phantom, phantommanageplan, property, item, drop, monster_Info,
+  monsterDisplay, ui_resource, role, weapon, skillTree}` + `Textmaps/zh-Hans`。其中 `phantom`/`property` 供 L0~L2 与
+  主属性数值; `item` 供道具名(`ItemInfo_<id>_Name`, 如特级密音筒); `role`/`weapon`/`skillTree` 供**面板模型(S1)**;
+  `drop`/`monster_*`/`ui_resource` 待接。扩容: `git -c http.proxy= -c https.proxy= sparse-checkout add BinData/<表名>`
+  (本机 git 全局代理常没监听, 直连 GitHub 反而通; 报告里的 `--bindata` 指 `search/wwdata37/BinData`)。
+  **刷新** = 该目录 `git pull`; 生成命令见 `tools/gen_echo_data.py` 文档串(需 `--bindata`/`--textmaps`)。
 - **面板模型 / 主属性穷举(S1/S2)**: 规格在 `build_optimizer.md` §2.7 / §3.4 / §5.1(**未实施**, 别去 `panel_plan.md` 找) ——
   S1 用 `roleinfo.PropertyId` + `baseproperty` + `rolepropertygrowth(Level,BreachLevel)` + 武器 + 天赋算角色面板
   (**必须与游戏内面板对数字**); S2 穷举 `COST 型(43311/44111) × 每槽主属性 × 套装分配`,
@@ -409,13 +409,19 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **评估按详情面板的套装信息映射套装**(2026-11-19): `resolve_set_name` → 合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**反查(`effect`) → 卡片徽章环色(`hue`) → `get_sets_by_echo` 候选(prefer=config 套装) → 回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底。
   **什么时候才滚面板**: 只有「名字有 ≥2 个候选 / 没认出来」才滚; **只属于一套的件直接用名字, 不 OCR 面板**(用户口径);
   同名多只走 `panel_set_cache`(名→(套装,来源)), 全场只滚一次。**面板图标在评估链里默认关**(`use_icon=False`)。
-- **⚠ 面板 OCR 区必须归一化 + 面板数据集**(2026-11-19 真机): `self.ocr(x,y,to_x,to_y)` 收**比例**，`_effect_box_px()` 给**像素** ——
-  直接 `self.ocr(*box)` 会让 `relative_box` 再乘一次帧宽高、裁出 (0,0) 空图 → OCR 恒空 → 套装名链**从未生效**。
-  OCR 用 `EFFECT_BOX`(归一化)，像素串只给 `frame_change_ratio`。`SAVE_PANEL_DATASET`(默认开, 只对要滚面板的件) 写
-  `logs/panel_debug/<ts>/`: 每步裁剪 + `panel_ocr.jsonl` + 按实测位移拼的 `_long.png`(长图) + `_top.png`(回顶证明,
-  `restore_ok=False` 计入 JSON 的 `panel_restore_fail`)。**离线重放** `tools/analysis/replay_panel_scroll.py`
-  用**同一份** `match_set_text`/`match_set_effect`/`has_heading`/`name_own_line`(后两个已提到 `echo_set_templates`)
-  —— 一次真机跑就能反复调判定。**落盘走 `echo_panel_shot.imwrite_unicode`**: `cv2.imwrite` 在中文路径上会写坏文件名。
+- **⚠ 面板三块布局 / OCR 单位 / 回顶判据 / 数据集**(2026-11-19 真机, 一次踩齐):
+  ①**布局**: 面板裁剪(482x783@1440x900)顶部 ~30% 是**固定表头**(名字/+25/COST 不随滚动)、中间 30~80%
+  才是滚动内容(词条/技能/合鸣效果)、底部是 HUD(培养按钮) → **回顶判据只能是"上滚后内容不再移动"**(连续两次),
+  "名字可见"恒为真(旧版就这么假回顶: `_top.png` 与最后一步逐字节相同); 滚下去时 `paired_all` 仍非空 →
+  判"读到了"要用 `_has_stat_rows`(词条对上档位)。实测 ≈**20px/格**, 回顶 8 格/步、最多 8 步。
+  ②**OCR 单位**: `self.ocr(x,y,to_x,to_y)` 收**比例**, `_effect_box_px()` 给**像素** —— 直接喂会让
+  `relative_box` 再乘一次帧宽高、裁出 (0,0) 空图 → 套装名链**从未生效**; OCR 一律用 `EFFECT_BOX`。
+  ③**长图**只拼**会动的行**(`echo_panel_shot._moving_band` + 多候选带估位移), 否则底部 HUD 会被重复追加。
+  ④**数据集** `SAVE_PANEL_DATASET`(默认开, 只对要滚面板的件, 目录懒创建): 每步裁剪 + `panel_ocr.jsonl` +
+  `_long.png`(长图) + `_top.png`(回顶证明, `restore_ok=False` 计入 JSON 的 `panel_restore_fail`);
+  **离线重放** `tools/analysis/replay_panel_scroll.py` 用**同一份** `match_set_text`/`match_set_effect`/
+  `has_heading`/`name_own_line`(后两个已提到 `echo_set_templates`) —— 一次真机跑就能反复调判定。
+  **落盘走 `echo_panel_shot.imwrite_unicode`**: `cv2.imwrite` 在中文路径上会写坏文件名。
 - **面板 COST 与主属性**(L2): `read_detail` 用 `parse_cost` 读 COST 角标(合框 `COST 4` 或"标签 + 同行右侧数字框"; 该批 219 张素材实测 219/219 可读), 前 2 行主属性与 COST 一起交给 `evaluate_one` → 报告「COST/主属性」列 + 官方管理方案判定。
   **真机 20261008 那批漏读 27/135**(小字数字框整个没检出, 复跑截图可复现: `eval_062` 只剩 `COST`) →
   现在 1× 读不到时走 `read_cost_badge()`: 只截 `_COST_ROI`(0.685,0.19–0.792,0.25)放大 3× 再 OCR

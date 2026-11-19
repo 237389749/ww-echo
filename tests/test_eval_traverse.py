@@ -62,10 +62,15 @@ class TestEvalTraverseEnd(unittest.TestCase):
         # 名字没认出来（候选为空）时也要读面板 —— 实测 格洛玛图→格洛犸图 就是这样;
         # 反过来: **只属于一套的件不读面板**(2026-11-19 用户口径)
         self.assertIn('elif len(cand_list) == 1:', src)
-        # 滚过面板就必须回顶(滚动条是所有声骸共用的)，且回顶要闭环验(名字行可见 / 滚不动了)
+        # 滚过面板就必须回顶(滚动条是所有声骸共用的)。**判据不能是"名字可见"**：名字/+25/COST
+        # 在固定表头里，四个滚动位置逐像素不动(2026-11-19 真机) → 那个判据恒为真、等于没回顶。
         self.assertIn('restore_panel_top', src)
         self.assertIn('PANEL_UP_STEP', src)
-        self.assertIn('_panel_top_ok', src)
+        self.assertNotIn('_panel_top_ok', src)
+        self.assertIn('连续两次滚不动', src)
+        # 面板滚下去时固定表头还在 → "读到了词条"才是真读到了；调用方要据此回顶重读
+        self.assertIn('_has_stat_rows', src)
+        self.assertIn('panel_dirty', src)
 
     def test_ocr_boxes_are_normalized(self):
         """`self.ocr(...)` 收的是**归一化比例**，不是像素 —— 2026-11-19 真机踩过。

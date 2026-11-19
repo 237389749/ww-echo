@@ -401,8 +401,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         SET_PANEL_STEP = 4          # 找套装时每次只滚 4 格(小步: 大步会一步跨过目标文本)
         SET_PANEL_FIRST_STEP = 8    # 但第一步放大: 主词条区肯定没有套装名, 先跳过那一段
         SET_PANEL_MAX_STEPS = 16    # 8 + 15×4 = 68 格上限(滚到底仍没命中就回退其它信号)
-        PANEL_UP_STEP = 4           # 回顶: 每次只滚一小步, 每步都验 —— 位移与格数不成正比(实测)
-        PANEL_UP_MAX = 12           # 回顶最多 12 步(48 格), 超出就判"回不去"并告警
+        PANEL_UP_STEP = 8           # 回顶: 一次滚 8 格(实测面板 ≈20px/格, 一屏内容 ~400px)
+        PANEL_UP_MAX = 8            # 回顶最多 8 步(64 格), 超出判"回不去"并告警
+        PANEL_MOVE_RATIO = 0.02     # 上滚一帧后"动了没"的变化占比门槛(8 格≈160px → 约 10%)
 
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
@@ -429,14 +430,27 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
         # ── 面板滚动数据集(默认开): 只对"要滚面板找套装"的声骸, 每步存裁剪 + OCR 行, 并拼长图。
         #    一次真机跑 → 离线重放(tools/analysis/replay_panel_scroll.py), 不用重开游戏。
-        panel_dbg_dir = None
-        if SAVE_PANEL_DATASET:
-            panel_dbg_dir = os.path.join('logs', 'panel_debug', time.strftime('%Y%m%d_%H%M%S'))
-            os.makedirs(panel_dbg_dir, exist_ok=True)
+        #    **目录懒创建**: 一轮里没有任何件需要滚面板时不留空目录(2026-11-19 几个空目录就是这么来的)。
+        panel_dbg_dir = (os.path.join('logs', 'panel_debug', time.strftime('%Y%m%d_%H%M%S'))
+                         if SAVE_PANEL_DATASET else None)
+        panel_dir_ready = False
+
+        def _ensure_panel_dir():
+            nonlocal panel_dir_ready
+            if not panel_dbg_dir or panel_dir_ready:
+                return panel_dir_ready
+            try:
+                os.makedirs(panel_dbg_dir, exist_ok=True)
+                panel_dir_ready = True
+                self.log_info(f'面板数据集目录: {os.path.abspath(panel_dbg_dir)}'
+                              f' (可离线重放: python tools/analysis/replay_panel_scroll.py)')
+            except Exception as e:                      # noqa: BLE001
+                self.log_debug(f'面板数据集目录创建失败: {e}')
+            return panel_dir_ready
 
         def panel_dbg_step(tag, step, notches, texts, crop):
             """存一步: 面板裁剪 PNG + 该步 OCR 行(文本/坐标/置信度)。写失败不影响评估。"""
-            if not panel_dbg_dir:
+            if not _ensure_panel_dir():
                 return
             try:
                 echo_panel_shot.imwrite_unicode(
@@ -457,7 +471,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         def panel_dbg_summary(tag, echo_idx, echo_name, cands, frames, notches, best, restore_ok):
             """存这一只的结论 + 长图 + 回顶证明图(用户要的"每个声骸滑到底后回到最上"的证据)。"""
             nonlocal panel_dbg_restore_fail
-            if not panel_dbg_dir:
+            if not _ensure_panel_dir():
                 return
             try:
                 long_path, used, long_h = echo_panel_shot.stitch_and_save(
@@ -591,64 +605,32 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_debug(f'滚详情面板失败: {e}')
                 return False
 
-        def _panel_top_ok(name=''):
-            """详情面板是否**回到了顶部** —— 判据是顶部区能看到名字行。
+        def restore_panel_top():
+            """把详情面板滚回顶部 —— 判据 = **内容不再移动**(连续两次上滚都没变化)。
 
-            只认"名字里任意相邻两字出现在某一行"：面板滚下去以后那块区域是技能/合鸣效果描述，
-            与名字无交集 —— 比"只要有汉字就算回顶"可靠(那个判据在描述行上恒为真，等于没判)。
-            返回 True/False；**判不了**(没读到 OCR / 不知道名字)返回 None。
-            """
-            try:
-                texts = self.ocr(0.66, 0.06, 0.995, 0.30)
-            except Exception:                       # noqa: BLE001 - OCR 失败不该中断
-                return None
-            lines = []
-            for b in texts or []:
-                line = ''.join(ch for ch in str(getattr(b, 'name', '') or '')
-                               if '\u4e00' <= ch <= '\u9fff')
-                if len(line) >= 2:
-                    lines.append(line)
-            if not lines:
-                return False
-            key = ''.join(ch for ch in (name or '') if '\u4e00' <= ch <= '\u9fff')
-            if not key:
-                return None                         # 不知道名字 → 判不了
-            for line in lines:
-                for i in range(len(line) - 1):
-                    if line[i:i + 2] in key:
-                        return True
-            return False
-
-        def restore_panel_top(name=''):
-            """把详情面板滚回顶部，**闭环**：每次只滚一小步、每步都验。
-
-            2026-11-19 真机踩的坑：滚动条是**所有声骸共用**的 —— 找完套装若没回顶，
-            下一只的 read_detail 会连名字/COST/词条都读不到(实测"第一个滚到底后全废")。
-            旧实现"一次滚回累计格数 + 只看一次"在真机上回不去(一次大 delta 与多次小 delta
-            走的距离不等价)。
-            判据: 名字行可见 → 回顶；画面**滚不动了**(到底/到顶) → 也算回顶。
+            2026-11-19 真机修正(之前一直是假判据)：游戏详情面板的**名字 / +25 / COST 是固定表头**
+            —— 实测同一只声骸在 8/12/16/20 格四个滚动位置上，面板顶部 0~30% 逐像素不动，
+            只有中间 30~80% 在滚。所以"名字行可见 ⇒ 已回顶"**永远成立**，旧实现每次都在第一步就
+            返回 True、根本没上滚（面板数据集里 `_top.png` 与最后一个滚动步**逐字节相同**就是铁证），
+            下一只自然读不到词条。滚轮上滚到顶后会被钳住、画面不再变化 —— 用这个当判据才与布局无关。
             """
             prev = self.frame
             box = _effect_box_px()
-            moved_steps = 0
+            still = 0
             for _ in range(PANEL_UP_MAX):
-                state = _panel_top_ok(name)
-                if state is True:
-                    return True
                 if not _panel_scroll(PANEL_UP_STEP):
                     break
-                moved_steps += 1
-                self.sleep(0.15)
+                self.sleep(0.20)
                 cur = self.frame
-                moved = echo_grid.frame_change_ratio(prev, cur, box) >= SCROLL_STILL_RATIO
+                moved = echo_grid.frame_change_ratio(prev, cur, box) >= PANEL_MOVE_RATIO
                 prev = cur
-                if not moved and moved_steps >= 2:
-                    break                            # 滚不动了 → 到顶(或者面板根本不响应)
-            ok = _panel_top_ok(name)
-            if ok is False:
-                self.log_warning(f'详情面板没回顶(上滚 {moved_steps} 次仍看不到名字) '
-                                 f'— 下一只会读不到词条')
-            return ok is not False
+                if moved:
+                    still = 0
+                    continue
+                still += 1
+                if still >= 2:      # 连续两次滚不动 = 已经到顶
+                    return True
+            return False
 
 
         def read_set_by_effect(cands, echo_name=''):
@@ -726,11 +708,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     prev = cur
             finally:
                 if total:
-                    # 滚过就必须回顶：下一只的词条区在面板上半截，面板滚下去就全读不到
+                    # 滚过就必须回顶：词条区在面板中间(30~80%)，面板停在下面 → 下一只读不到词条
                     nonlocal panel_dirty
-                    if not restore_panel_top(echo_name):
-                        panel_dirty = True
+                    panel_dirty = True
+                    if restore_panel_top():
+                        panel_dirty = False
+                    else:
                         restore_ok = False
+                        self.log_warning(f'详情面板没回顶(上滚 {PANEL_UP_MAX} 步仍没停住) '
+                                         f'— 下一只会先回顶再读')
                 if panel_dbg_dir:
                     panel_dbg_summary(tag, evaluated + 1, echo_name, cands, frames, total,
                                       best, restore_ok)
@@ -1025,6 +1011,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_warning(f'本次只滚了 {total:.1f} 行(目标 {rows:.0f} 行), 重叠会被去重吸收')
             return True
 
+        def _has_stat_rows(paired_all):
+            """详情读数里有没有**真词条**(2 行主属性之后、能对上官方档位的那几条)。
+
+            为什么需要: 面板滚下去时名字/+25/COST 仍在(固定表头)，但词条区被滚走 —— 只用
+            `paired_all` 非空判断"读到了"会漏掉这种情况(2026-11-19 真机)。
+            """
+            for raw_n, v_str in (paired_all or [])[2:]:
+                norm = self._normalize_stat(raw_n, v_str)
+                if norm and is_stat_match(norm, parse_number(v_str)):
+                    return True
+            return False
+
         def read_detail():
             """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost):
               echo_name  声骸名(面板顶部唯一中文行, y < 0.28*fh; 用于签名唯一性)
@@ -1077,9 +1075,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 raise Exception(msg)
             if dbg_dir:
                 self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
-            if panel_dbg_dir:
-                self.log_info(f'面板数据集目录: {os.path.abspath(panel_dbg_dir)}'
-                              f' (可离线重放: python tools/analysis/replay_panel_scroll.py)')
             self.log_info('评估遍历: 不识别声骸数量, 直到「连续两行 0 词条 / 网格为空」结束')
             # 前置自检: 能不能把游戏拉到前台（= 输入权限是否够）。缺了它，故障会伪装成"检测不到网格"：
             # 没管理员 → bring_to_front 被 UIPI 拒 → 别的窗口盖着游戏 → 截图抓到遮挡窗口（实测 2026-11-18）。
@@ -1156,9 +1151,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         echo_name, paired_all, sig, cost = read_detail()
                         if paired_all and sig != last_sig:
                             break
-                        if not paired_all and panel_dirty and restore_panel_top():
-                            # 面板还停在上一次的滚动位置(滚动条共用) → 回顶后再读一次
-                            panel_dirty = False
+                        # 面板可能还停在上一次"找套装"的滚动位置(滚动条共用) → 先回顶再读一次。
+                        # 判据用"读不到词条"(面板滚下去时固定表头仍在，只有词条区被滚走)。
+                        if panel_dirty and (not paired_all or not _has_stat_rows(paired_all)):
+                            if restore_panel_top():
+                                panel_dirty = False
                             echo_name, paired_all, sig, cost = read_detail()
                             if paired_all and sig != last_sig:
                                 break
