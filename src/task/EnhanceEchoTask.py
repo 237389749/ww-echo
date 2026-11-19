@@ -384,6 +384,23 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.log_debug(f'保存失败画面失败: {e}')
         return ''
 
+    @staticmethod
+    def _blank_panel_is_zero_level(level, paired_all) -> bool:
+        """"读到面板但一条词条都没配上"时, 判它是**真 0 级**还是**这一格没读干净**。
+
+        列表是按等级排序的(用户口径), 0 级件只会出现在尾部 → 中途的"0 词条"基本都是没读干净
+        (面板还没刷新完 / 点到格子间隙 / OCR 只读到半个面板)。旧代码把两者一律当 0 级, 于是
+        "连续 12 格 0 词条 = 到底"的判据会在列表中间误触发(2026-11-19 21:26 只扫到 43 条)。
+
+        判据(任一成立 = 不是 0 级, 该计"失败"):
+          ① 等级读到了且 ≥ +5 —— 有词条孔位却说没词条, 只能是没读出来;
+          ② 前 2 行像真主属性 —— +0 面板**没有主属性行**, 有主属性就说明它至少 +5。
+        两样都判不了(None + 不像主属性)才按 0 级放过(宁可跳过一个 0 级, 不要漏真件)。
+        """
+        if level is not None and int(level) >= 5:
+            return False
+        return not EnhanceEchoTask._main_props_like(paired_all)
+
     def reset_bag_view(self, presses: int = 2, wait: float = 0.9) -> None:
         """按 B 把背包**关掉再打开**, 让声骸列表回到默认状态(顶部 + 默认排序)。
 
@@ -857,6 +874,40 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_info(f'[套装] 面板没读到套装信息(滚 {total} 格) → 回退环色/名字')
             return best
 
+        def _register_fail(nx, ny, why=''):
+            """计一格"点了却没读到词条"; 返回 True = 本屏到此为止(已复位背包 / 该中止)。
+
+            两处调用: ①根本没读到属性 ②面板换了但一条词条没配上(等级/主属性说它该有)。
+            连续 `click_fail_stop` 格 → 先复位背包重扫一次(疑似被点进别的功能界面), 再失败才中止。
+            """
+            nonlocal click_fail, click_fail_total, miss, stop_all, screen_invalid
+            nonlocal resynced, stop_reason
+            click_fail += 1
+            click_fail_total += 1
+            miss += 1
+            self.log_info(f'[失败] 格({nx:.3f},{ny:.3f}) 点击后没读到属性{why} '
+                          f'(本屏第 {miss} 格, 连续 {click_fail} 次)')
+            if click_fail < click_fail_stop:
+                return False
+            if not resynced:
+                # 一整行都点不出属性 = 屏幕已经不在声骸列表(中途被点进了别的功能界面, 或背包被关掉)
+                # → 复位背包重扫一次, 而不是直接中止丢掉后面的件。
+                resynced = True
+                shot = self._save_fail_frame()
+                self.log_warning(
+                    f'连续 {click_fail} 格点击后都读不到属性 → 疑似被点进了别的功能界面, '
+                    f'复位背包后重扫一次(已记录 {evaluated} 条)'
+                    + (f'; 当时画面已存: {shot}' if shot else ''), notify=True)
+                self.reset_bag_view(presses=2)
+                click_fail = 0
+                screen_invalid = True
+                return True
+            stop_reason = f'连续 {click_fail} 格点击失败'
+            self.log_warning(f'连续 {click_fail} 格点击后都读不到属性, 评估中止'
+                             f'(已记录 {evaluated} 条, 生成部分报告)', notify=True)
+            stop_all = True
+            return True
+
         def scan_grid():
             """OCR 网格区角标 → 聚行 → 按 6 列基准补全缺列(防 OCR 漏格), 返回完整网格点
             (nx, ny) 归一化列表, 按行从上到下、行内从左到右。全部按实际帧尺寸换算, 分辨率自适应。"""
@@ -1316,29 +1367,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     if not paired_all or (still_same and not known_repeat):
                         # 按布局点了、但**没读到属性**(面板滚走/点空/没切换) —— 计入失败。
                         # 用户口径(2026-11-19): 这种不能悄悄当"重复"混过去，要能看见、且不能无限继续。
-                        click_fail += 1
-                        click_fail_total += 1
-                        miss += 1
-                        self.log_info(f'[失败] 格({nx:.3f},{ny:.3f}) 点击后没读到属性 '
-                                      f'(本屏第 {miss} 格, 连续 {click_fail} 次)')
-                        if click_fail >= click_fail_stop:
-                            if not resynced:
-                                # 一整行都点不出属性 = 屏幕已经不在声骸列表(中途被点进了别的功能界面,
-                                # 或背包被关掉) → 复位背包重扫一次, 而不是直接中止丢掉后面的件。
-                                resynced = True
-                                shot = self._save_fail_frame()
-                                self.log_warning(
-                                    f'连续 {click_fail} 格点击后都读不到属性 → 疑似被点进了别的功能界面, '
-                                    f'复位背包后重扫一次(已记录 {evaluated} 条)'
-                                    + (f'; 当时画面已存: {shot}' if shot else ''), notify=True)
-                                self.reset_bag_view(presses=2)
-                                click_fail = 0
-                                screen_invalid = True
-                                break
-                            stop_reason = f'连续 {click_fail} 格点击失败'
-                            self.log_warning(f'连续 {click_fail} 格点击后都读不到属性, 评估中止'
-                                             f'(已记录 {evaluated} 条, 生成部分报告)', notify=True)
-                            stop_all = True
+                        if _register_fail(nx, ny):
                             break
                         continue
                     click_fail = 0
@@ -1402,9 +1431,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         rec['badge_hue'] = badge[0] if badge and badge[1] else None
                         verdict, verdict_cn, score = rec["verdict"], rec["verdict_cn"], rec["score"]
                     else:
-                        # 0级声骸(0词条): 无评估价值——**跳过不记录、不终止**(除非整屏 0 级, 见屏末判定)。
-                        # 0 级件不一定都在尾部(按套装/获得顺序时会夹在中间), 所以这里只计数,
-                        # 到底与否交给"整屏全 0 连续 2 屏 / 网格连续为空"两条。
+                        # 读到面板、但一条词条都没配上: **先分清是"真 0 级"还是"这一格没读干净"**。
+                        # 列表按等级排序(用户口径) → 0 级件只会在尾部, 中途的"0 词条"基本都是没读干净
+                        # (面板没刷新完 / 点到格子间隙 / OCR 只读到半个面板)。旧代码一律当 0 级,
+                        # 于是"连续 N 格 0 词条 = 到底"的判据在列表中间误触发(2026-11-19 21:26 只扫到 43 条)。
+                        if not self._blank_panel_is_zero_level(level, paired_all):
+                            # 等级 ≥+5 或前 2 行像真主属性 → 它本该有词条, 这是**失败**
+                            if _register_fail(nx, ny, f'(等级 +{level}, 有主属性, 却没配出词条)'):
+                                break
+                            continue
+                        # 真 0 级: 无评估价值 —— 跳过不记录、不终止(整屏全 0 才计入尾部判定)
                         processed_any = True
                         seen_sigs.add(key)
                         zero_cells += 1

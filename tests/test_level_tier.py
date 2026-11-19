@@ -119,5 +119,35 @@ class TestMissingStatsGuard(unittest.TestCase):
                 self.assertEqual(_tier_from_level(level, 4), 4)
 
 
+class TestBlankPanelClassification(unittest.TestCase):
+    """读到面板却一条词条没配上: 分清"真 0 级"和"这一格没读干净"。
+
+    前提(用户口径): **列表按等级排序**, 0 级件只会在尾部 → 中途的"0 词条"基本都是没读干净。
+    旧代码一律当 0 级, 于是"连续 N 格 0 词条 = 到底"在列表中间误触发(2026-11-19 只扫到 43 条)。
+    """
+
+    def test_level_says_has_stats(self):
+        # +25 面板: 有主属性/等级, 却一条词条没配出来 = 读失败, 不能当 0 级
+        for level in (5, 10, 20, 25):
+            with self.subTest(level=level):
+                self.assertFalse(EnhanceEchoTask._blank_panel_is_zero_level(
+                    level, [('暴击伤害', '44.0%'), ('攻击', '150'), ('共鸣效率', '8.4')]))
+
+    def test_plus_zero_panel_is_zero_level(self):
+        # +0 面板没有主属性行: 第一行是 `持有数量：N` → 真 0 级
+        self.assertTrue(EnhanceEchoTask._blank_panel_is_zero_level(
+            0, [('持有数量：1', '1'), ('声骸技能', '0')]))
+
+    def test_level_missing_falls_back_to_main_props(self):
+        # 等级没读到: 有真主属性 → 至少 +5, 算失败; 没主属性 → 按 0 级
+        self.assertFalse(EnhanceEchoTask._blank_panel_is_zero_level(
+            None, [('暴击', '22.0%'), ('攻击', '150')]))
+        self.assertTrue(EnhanceEchoTask._blank_panel_is_zero_level(
+            None, [('持有数量：1', '1')]))
+
+    def test_no_panel_at_all_is_zero_level(self):
+        self.assertTrue(EnhanceEchoTask._blank_panel_is_zero_level(None, []))
+
+
 if __name__ == '__main__':
     unittest.main()
