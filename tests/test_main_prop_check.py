@@ -201,5 +201,39 @@ class TestEvaluateOneIsAdditive(unittest.TestCase):
         self.assertNotIn('plan_check', rec)
 
 
+class TestPercentVariantGrid(unittest.TestCase):
+    """主属性是**百分比变体**时也必须判得出来。
+
+    2026-11-20 真机: `格洛犸图` 的 3C 主属性是 `攻击 30.0%` + 5 条词条, 但
+    `normalize_main_prop("攻击","30.0%")` 返回 `攻击百分比`, 而生成物里的 key 是 `攻击`(两变体) →
+    `value_grid("攻击百分比")` 空 → `_main_props_like` False → 整只被当"没主属性/0 级"跳过。
+    一屏 24 格里 5 格就是这么丢的(报告只剩 19 条)。
+    """
+
+    def test_percent_grid_resolves(self):
+        from src.echo_main_prop import value_grid
+        grid = value_grid("攻击百分比")
+        self.assertIn(30.0, grid, msg='3C 满级 攻击% 主属性就是 30.0')
+        self.assertNotIn(100.0, grid, msg='百分比变体不该混进固定值(100)')
+
+    def test_main_props_like_accepts_percent_variant(self):
+        paired = [("攻击", "30.0%"), ("攻击", "100"), ("攻击", "7.9%")]
+        self.assertTrue(EnhanceEchoTask._main_props_like(paired))
+
+    def test_rows_after_percent_main_parse(self):
+        from src.echo_parse import parse_number
+        from src.echo_stats import is_stat_match
+        task = _task()
+        paired = [("攻击", "30.0%"), ("攻击", "100"), ("攻击", "7.9%"),
+                  ("普攻伤害加成", "11.6%"), ("共鸣效率", "8.4%")]
+        stats = []
+        for n, v in paired[2:]:
+            norm = task._normalize_stat(n, v)
+            val = parse_number(v)
+            if norm and is_stat_match(norm, val):
+                stats.append((norm, val))
+        self.assertEqual(stats, [("攻击百分比", 7.9), ("普攻伤害加成", 11.6), ("共鸣效率", 8.4)])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

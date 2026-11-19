@@ -1454,7 +1454,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 真机 2026-11-20 首屏 5/24 格就是这种情况(以前被静默当成"0 级", 现在报失败)。
                     if not stats and ((level is not None and level >= 5)
                                       or (paired_all and self._main_props_like(paired_all))):
-                        if restore_panel_top():
+                        # **只有我们真的滚过面板(没回顶)才回顶** —— 否则每次都往上滚一下,
+                        # 用户看到的就是"评估一开始右侧面板反而往上滑"(2026-11-20 反馈)。
+                        if panel_dirty and restore_panel_top():
                             panel_dirty = False
                         self.sleep(0.3)
                         name2, paired2, sig2, cost2, level2 = read_detail()
@@ -1504,7 +1506,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         # 于是"连续 N 格 0 词条 = 到底"的判据在列表中间误触发(2026-11-19 21:26 只扫到 43 条)。
                         if not self._blank_panel_is_zero_level(level, paired_all):
                             # 等级 ≥+5 或前 2 行像真主属性 → 它本该有词条, 这是**失败**
-                            if _register_fail(nx, ny, f'(等级 +{level}, 有主属性, 却没配出词条)'):
+                            why = (f'(等级 +{level}, 主属性'
+                                   f'{"像" if self._main_props_like(paired_all) else "不像"}, '
+                                   f'却没配出词条)')
+                            if _register_fail(nx, ny, why):
                                 break
                             continue
                         # 真 0 级: 无评估价值 —— 跳过不记录、不终止(整屏全 0 才计入尾部判定)

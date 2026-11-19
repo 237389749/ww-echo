@@ -37,8 +37,20 @@ def _candidates(name: str, levels) -> list[tuple[float, float, bool, float]]:
     """
     t = _table()
     growth = t.get("growth") or {}
+    props = t.get("props") or {}
+    variants = props.get(name)
+    only_pct = None
+    if variants is None and name.endswith("百分比"):
+        # `normalize_main_prop("攻击", "30.0%")` 返回 **攻击百分比**, 但生成物里的 key 是 `攻击`
+        # (同名两变体: 固定 / 百分比)。不在这里回落到基名, `value_grid("攻击百分比")` 就是空的 →
+        # `_main_props_like` 判 False → **主属性是百分比的声骸整只被跳过**(2026-11-20 实测:
+        # 格洛犸图 攻击 30.0% + 5 条词条, 被当成"读失败"丢掉, 一屏 5 格)。
+        variants = props.get(name[:-3])
+        only_pct = True
     out: list[tuple[float, float, bool, float]] = []
-    for v in ((t.get("props") or {}).get(name) or []):
+    for v in (variants or []):
+        if only_pct and not v.get("pct"):
+            continue
         curve = growth.get(str(v.get("growth"))) or []
         pct = bool(v.get("pct"))
         for lv in levels:
