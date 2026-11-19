@@ -1,7 +1,10 @@
 """评估遍历终止条件的静态守卫（不需要游戏）。
 
-2026-11-14：改为**不识别「声骸N/3000」**，直接遍历，直到「连续两行 0 词条」或「网格为空」。
-这里钉住两件事：①代码里不再有 count OCR / 步数上限；②存在 0 级尾部早停。
+2026-11-14：改为**不识别「声骸N/3000」**，直接遍历，直到「0 级尾部」或「网格为空」。
+2026-11-19 修：0 级尾部从"连续 12 格"改成"**整屏全 0 连续 2 屏**" —— 0 级件会按套装/获得顺序
+夹在列表中间，12 格规则在真机上把 43 条当成了到底(见 CHANGELOG 补记 54)。
+这里钉住四件事：①代码里不再有 count OCR / 步数上限；②0 级尾部早停按**屏**判；
+③结束原因要写进"评估完成"日志；④空网格的报错文案还在。
 """
 
 import os
@@ -22,11 +25,19 @@ class TestEvalTraverseEnd(unittest.TestCase):
         for token in ('read_count(', 'count_box', 'total_limit', 'anchor_ok'):
             self.assertNotIn(token, src, msg=f'评估不应再依赖声骸数量: 发现 {token}')
 
-    def test_zero_tail_stop(self):
+    def test_zero_tail_stop_is_per_screen(self):
+        """0 级尾部必须按**整屏**判, 不能按"连续 N 格" —— 后者会中途截断(2026-11-19 只有 43 条)。"""
         src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
-        self.assertIn('ZERO_TAIL_STOP', src)
-        self.assertIn('zero_run', src)
+        self.assertIn('ZERO_TAIL_SCREENS', src)
+        self.assertIn('zero_screens', src)
         self.assertIn('视为 0 级尾部', src)
+        self.assertIn('zero_cells == len(cells)', src, msg='必须"整屏全 0"才计一屏')
+        self.assertNotIn('ZERO_TAIL_STOP', src, msg='旧的"连续 12 格"规则会中途截断, 别再回来')
+
+    def test_stop_reason_logged(self):
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('结束原因: {stop_reason}', src,
+                      msg='只看到条数不知道为什么停 —— 结束原因必须写进完成日志')
 
     def test_empty_grid_error_has_no_anchor_hint(self):
         src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))

@@ -492,8 +492,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         no_new_screen = 0          # 连续滚动后无新格的次数 → 到底
         empty_scan = 0             # 网格区连续扫描为空的次数 → 真到底(0级角标 +0 也能被识别, 空=列表底)
         stop_all = False           # 到底 / 0 级尾部 → 正常收尾并输出报告
-        zero_run = 0               # 连续 0 词条格数(排序正确时 0 级在尾部, 可提前结束)
-        ZERO_TAIL_STOP = 12        # 连续两行(6 列 ×2) 0 词条 → 视为 0 级尾部
+        zero_screens = 0           # 连续"整屏全是 0 词条"的屏数(到 ZERO_TAIL_SCREENS 收工)
+        # 连续 3 整屏 0 词条(≈90 格)才认"进了 0 级段"。单屏/两屏都不够 —— 0 级件是按套装夹在列表
+        # 中间的(2026-11-19 21:26 那次第 4 屏只有 13 个 0 级格, 旧版"连续 12 格"当场把 43 条当成了到底)。
+        ZERO_TAIL_SCREENS = 3
         # ── 滚动调参(2026-11-14 真机实测后定的量) ────────────────────────────
         SCROLL_TARGET_ROWS = 3.0    # 每次滚 3 行(可见 5 行 → 留 ~2 行重叠, 滚过头也还有 1 行缓冲)
         SCROLL_SETTLE_STEP = 0.15   # 位移采样间隔(动画期间轮询)
@@ -526,6 +528,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         click_fail_total = 0     # 全场"点了没读到属性"的格数(报告里可查)
         bag_retry_done = False   # 开局 B×2 后仍空网格 → 补按一次 B(开始时可能人在大世界)
         resynced = False         # 连续点空时"复位背包重扫"用过没有(只做一次, 防来回拉锯)
+        stop_reason = ''         # 结束原因(写进"评估完成"那行, 免得只看到一个条数不知道为啥停)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -1257,6 +1260,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                    '\n若那张图里不是背包列表（例如是控制台/桌面），说明游戏被别的窗口挡住了 ——'
                                    '这版截图会抓到遮挡窗口，请把游戏放最前面（或最小化 cmd）再试。'
                                    if fail_shot else ''))
+                        stop_reason = '到达背包底部(网格区连续为空)'
                         self.log_info('到达背包底部(网格区无角标), 评估结束', notify=True)
                         break
                     scroll_grid()
@@ -1331,6 +1335,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                 click_fail = 0
                                 screen_invalid = True
                                 break
+                            stop_reason = f'连续 {click_fail} 格点击失败'
                             self.log_warning(f'连续 {click_fail} 格点击后都读不到属性, 评估中止'
                                              f'(已记录 {evaluated} 条, 生成部分报告)', notify=True)
                             stop_all = True
@@ -1365,7 +1370,6 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         stats = stats[:5]
 
                     if stats:
-                        zero_run = 0
                         badge = badge_hue_at(nx, ny)
                         cand_list = get_sets_by_echo(echo_name) if echo_name else []
                         cached = panel_set_cache.get(echo_name) if echo_name else None
@@ -1398,19 +1402,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         rec['badge_hue'] = badge[0] if badge and badge[1] else None
                         verdict, verdict_cn, score = rec["verdict"], rec["verdict_cn"], rec["score"]
                     else:
-                        # 0级声骸(0词条): 无评估价值——**跳过不记录、不终止**。
-                        # 0级集中在列表底部, 置 processed_any 让它继续滚动推进(不触发"无新格"提前结束),
-                        # 列表真到底由"网格连续为空(empty_scan)"判定; key 入 seen_sigs 防重叠重复扫。
+                        # 0级声骸(0词条): 无评估价值——**跳过不记录、不终止**(除非整屏 0 级, 见屏末判定)。
+                        # 0 级件不一定都在尾部(按套装/获得顺序时会夹在中间), 所以这里只计数,
+                        # 到底与否交给"整屏全 0 连续 2 屏 / 网格连续为空"两条。
                         processed_any = True
                         seen_sigs.add(key)
-                        zero_run += 1
                         zero_cells += 1
                         self.log_debug(f'[评估跳过] {echo_name} | 0级(无词条)')
-                        if zero_run >= ZERO_TAIL_STOP:
-                            # 按等级排序时 0 级在列表尾部 → 连续两行 0 词条即视为到底, 不再往下点
-                            self.log_info(f'连续 {zero_run} 格 0 词条, 视为 0 级尾部, 评估结束', notify=True)
-                            stop_all = True
-                            break        # 立刻停手: 继续点剩下的格子只会重复打同一句日志
                         continue
 
                     last_sig = sig
@@ -1441,6 +1439,21 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 # 失败 = 点了但读不到属性(面板滚走/点空) —— 与"重复"分开计数，否则分不清是重叠还是坏了
                 self.log_info(f'本屏完成: {len(cells)} 格, 新增 {evaluated - eval_before} 条, '
                               f'重复 {dups} 格, 失败 {miss} 格, 0词条 {zero_cells} 格')
+                # ── 0 级尾部: **整屏都是 0 词条**才记一屏, 连续 3 屏才收工 ──────────────
+                # 不能按"连续 12 格"判: 0 级件是按套装/获得顺序**夹在列表中间**的(实测 2026-11-19 21:26:
+                # 第 4 屏只有 13 个 0 级格, 12 格规则当场把 43 条当成"到底"; 而 17:00 那次旧版要到整屏
+                # 跑完才生效, 所以扫满 146 才停)。整屏全 0 才说明进了 0 级段, 一屏不够(可能只是某个套装的
+                # 一批 0 级件), 三屏 ≈90 格连续 0 级才收工。真到底仍由"网格连续为空"兜底。
+                if zero_cells == len(cells):
+                    zero_screens += 1
+                    self.log_info(f'[0级] 本屏 {zero_cells} 格全是 0 词条 (连续 {zero_screens} 屏)')
+                else:
+                    zero_screens = 0
+                if zero_screens >= ZERO_TAIL_SCREENS:
+                    stop_reason = f'0级尾部(连续 {zero_screens} 屏 0 词条)'
+                    self.log_info(f'连续 {zero_screens} 屏全是 0 词条, 视为 0 级尾部, 评估结束', notify=True)
+                    stop_all = True
+                    break
                 # ── 无重叠守卫(内容级，不依赖像素测量) ─────────────────────────
                 # 非首屏却**一格重复都没有** = 这次滚过头了(≥5 行)，中间整行被跳过。
                 # 像素测不准也能发现漏行：重复数是"真滚了几行"的直接证据。
@@ -1462,11 +1475,13 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     else:
                         no_new_screen += 1
                         if no_new_screen >= 3:
+                            stop_reason = '连续滚动无新内容'
                             self.log_info('连续滚动无新内容, 评估结束', notify=True)
                             break
                 else:
                     scroll_fail += 1
                     if scroll_fail >= 2:
+                        stop_reason = f'滚动受阻 {scroll_fail} 次'
                         self.log_warning(f'连续 {scroll_fail} 次滚动受阻, 评估中止'
                                          f'(已记录 {evaluated} 条, 生成部分报告)', notify=True)
                         stop_all = True
@@ -1497,6 +1512,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                           f'(套装来源: {" / ".join(f"{k}={v}" for k, v in src_stat.most_common())}'
                           f'; 点击失败 {click_fail_total} 格'
                           + (f'; 面板回顶失败 {panel_dbg_restore_fail} 次' if panel_dbg_restore_fail else '')
+                          + (f'; 结束原因: {stop_reason}' if stop_reason else '')
                           + ')', notify=True)
             if on_done:
                 self.handler.post(lambda: on_done(json_path, ss_dir))
