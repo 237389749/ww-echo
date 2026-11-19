@@ -519,6 +519,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         SCROLL_SETTLE_TIMEOUT = 3.0  # 等画面静止的最长时间(真机 ease-in 动画约 1s 收尾)
         SCROLL_STILL_RATIO = 0.02   # 相邻两帧变化像素占比 < 此值 = 画面静止(动画结束)
         SHIFT_DIFF_OK = 18.0        # 对齐残差 ≤ 此值才认为位移可信
+        # 开局滚轮标定(2026-11-19): 先用 6 格小步滚一次, 用**行线位移**量真实 px/格。
+        # 为什么必须标定: 图像相关在这台机器上残差常年 27~34(永远"不可信") → px/格 一直停在默认 8,
+        # 而实测 ≈15 → 每次请求 2 行实际滚 3~4 行, 整行被跳过(43/146 的根源)。
+        SCROLL_PROBE_NOTCHES = 6    # 标定用的小步(位移 <1 个行距 → 没有周期歧义)
+        SCROLL_LINE_COST_OK = 6.0   # 行线匹配的平均误差 ≤ 此值(像素)才认这次标定
         SCROLL_CHANGE_MIN = 0.12    # 画面变化占比 < 此值 = 什么都没发生(只有悬停/选中框)
         SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
         SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
@@ -1118,6 +1123,21 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             before = _wait_still(rect)      # 先等上一屏的收尾动画停下来, 否则基准帧是糊的
             total = 0.0
             used = None
+            # ── 开局标定: 6 格小步 → 行线位移 → 真实 px/格 ────────────────────────
+            # 只在还没量过时做; 失败就保留默认值(宁可欠滚: 欠滚有去重兜底, 过滚整行漏)。
+            if scroll_model.observations == 0 and SCROLL_PROBE_NOTCHES > 0:
+                if _real_wheel(SCROLL_PROBE_NOTCHES):
+                    after = _wait_still(rect)
+                    moved, cost = echo_grid.row_shift_by_lines(before, after, rect, pitch,
+                                                               max_rows=1.2)
+                    change = echo_grid.frame_change_ratio(before, after, rect)
+                    if cost <= SCROLL_LINE_COST_OK and moved > 0.03 and change >= SCROLL_CHANGE_MIN:
+                        scroll_model.observe(SCROLL_PROBE_NOTCHES, moved * pitch, weight=1.0)
+                        total, used, before = moved, '真实滚轮', after
+                        self.log_info(f'滚动标定: {SCROLL_PROBE_NOTCHES} 格 → {moved:.2f} 行 '
+                                      f'(≈{scroll_model.px_per_notch:.1f}px/格, 行线残差 {cost:.1f})')
+                    else:
+                        self.log_debug(f'滚动标定失败(位移 {moved:.2f} 行, 残差 {cost:.1f}), 先用默认值')
             # 首滚保守：px/格 还没实测过(默认值有 ±50% 误差)，先滚 ≤2.5 行再把残余补到目标。
             # 宁可多一屏，也不要第一次就滚过 5 行 —— 越过 5 行就没有重叠，漏行连发现都发现不了。
             first_scroll = scroll_model.observations == 0

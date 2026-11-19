@@ -336,5 +336,68 @@ class TestScrollModel(unittest.TestCase):
         self.assertAlmostEqual(m.px_per_notch, 12.0)
 
 
+class TestRowShiftByLines(unittest.TestCase):
+    """开局滚动标定用的**行线位移**(2026-11-19): 图像相关在这台机器上残差 27~34 永远不可信,
+    px/格 学不到 → 每次请求 2 行实际滚 3~4 行, 整行被跳过(43/146)。行线是结构信号, 小位移(<1 行距)
+    没有周期歧义, 用来量 6 格小步最稳。"""
+
+    PITCH = 138
+    RECT = (100, 89, 820, 800)
+
+    def _frame(self):
+        import cv2
+        import numpy as np
+        img = np.full((889, 1254, 3), 20, np.uint8)
+        for k in range(5):
+            y = 184 + 138 * k
+            for c in range(6):
+                x = 117 + 115 * c
+                cv2.rectangle(img, (x, y - 107), (x + 110, y + 2), (90, 90, 90), -1)
+                cv2.line(img, (x + 4, y), (x + 106, y), (0, 190, 255), 3)
+        return img
+
+    def _shift(self, img, dy):
+        import cv2
+        import numpy as np
+        m = np.float32([[1, 0, 0], [0, 1, dy]])
+        return cv2.warpAffine(img, m, (img.shape[1], img.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+
+    def test_small_shifts_resolve(self):
+        f = self._frame()
+        # 只测 <1 个行距: 位移正好 1 行距时行线自相似(周期歧义), 本来就量不出来 ——
+        # 标定只用 6 格小步(实测 0.3~0.6 行), 不会踩到这个区间。
+        for frac in (0.2, 0.4, 0.6, 0.8):
+            with self.subTest(frac=frac):
+                rows, cost = echo_grid.row_shift_by_lines(
+                    f, self._shift(f, -int(self.PITCH * frac)), self.RECT, self.PITCH, max_rows=1.2)
+                self.assertAlmostEqual(rows, frac, delta=0.06)
+                self.assertLess(cost, 6.0, msg='行线应能干净对齐')
+
+    def test_no_move(self):
+        f = self._frame()
+        rows, cost = echo_grid.row_shift_by_lines(f, f, self.RECT, self.PITCH)
+        self.assertAlmostEqual(rows, 0.0, delta=0.05)
+
+    def test_blank_frames_are_untrusted(self):
+        import numpy as np
+        blank = np.zeros((889, 1254, 3), np.uint8)
+        rows, cost = echo_grid.row_shift_by_lines(blank, blank, self.RECT, self.PITCH)
+        self.assertGreaterEqual(cost, 6.0, msg='没有行线时必须判"不可信", 不能给 0 行')
+
+
+class TestScrollModelGuard(unittest.TestCase):
+    def test_garbage_measurement_is_clamped(self):
+        """42 格只量到 32px(≈0.76 px/格)显然是错测 —— 不能让它把 px/格 拉到 1,
+        否则 notches_for 会顶到上限(160), 一屏滚到底。"""
+        m = echo_grid.ScrollModel(px_per_notch=8.0)
+        m.observe(42, 32)
+        self.assertGreaterEqual(m.px_per_notch, 4.0)
+
+    def test_calibrated_distance(self):
+        m = echo_grid.ScrollModel(px_per_notch=15.0)
+        # 2 行 × 159px ÷ 15 ≈ 21 格(默认 8px/格 会算成 40 格, 实际滚出 4 行)
+        self.assertAlmostEqual(m.notches_for(2.0, 159.0), 21, delta=2)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

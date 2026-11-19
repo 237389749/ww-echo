@@ -540,6 +540,36 @@ def estimate_row_shift(before_bgr, after_bgr, rect, pitch, max_rows=8, min_overl
     return best_dy / pitch, best_diff
 
 
+def row_shift_by_lines(before_bgr, after_bgr, rect, pitch, max_rows=1.2):
+    """用**等级条行线**量两帧之间的小位移(< max_rows 行) → (rows, cost)。
+
+    为什么要它（2026-11-19 真机）：`estimate_row_shift` 的图像相关在这台机器上残差常年 27~34
+    （对不齐），代码只好"按已滚动处理"，于是 **px/格 永远学不到、也纠正不了** —— 实际每格滚得
+    比模型假设的远一倍，每次都多滚一截、整行被跳过(43/146 就是这么来的)。
+    行线是**结构信号**：每格一条、等间距，两帧只差一个平移；只要位移 < 1 个行距就没有"周期歧义"，
+    所以拿它做**开局小步标定**(滚 6 格)最可靠。
+
+    rows > 0 = 内容向上走了(列表往下翻)。cost = 平均最近邻误差(像素, 越小越可信, 参考 <6)。
+    """
+    if cv2 is None or np is None or before_bgr is None or after_bgr is None or pitch <= 1:
+        return 0.0, 1e9
+    rows_b, _ = detect_row_lines(before_bgr, rect)
+    rows_a, _ = detect_row_lines(after_bgr, rect)
+    if len(rows_b) < 2 or len(rows_a) < 2:
+        return 0.0, 1e9
+    max_s = int(round(max(0.0, float(max_rows)) * float(pitch)))
+    best_s, best_cost = 0, 1e9
+    for s in range(0, max_s + 1):
+        shifted = [y + s for y in rows_a]
+        dists = sorted(min(abs(y - z) for z in rows_b) for y in shifted)
+        # 用**中位数**而不是均值: 视口边缘常多出一条(半截行)或吃掉一条, 均值会被它带偏;
+        # 中位数只要求"过半行线对得上"就认, 正好匹配"位移 < 1 个行距"的标定场景。
+        cost = float(dists[len(dists) // 2])
+        if cost < best_cost - 0.5:          # 明显更好才换(抗噪声, 平手取更小的位移)
+            best_s, best_cost = s, cost
+    return best_s / float(pitch), best_cost
+
+
 def frame_change_ratio(before_bgr, after_bgr, rect, thresh=25):
     """两帧在 rect 内的"变化像素占比" —— **不依赖对齐**，用来判"画面到底动没动"。
 
@@ -594,6 +624,8 @@ class ScrollModel:
         if notches <= 0 or moved < 1.0:
             return
         ratio = moved / notches
-        ratio = max(1.0, min(60.0, ratio))
+        # 学习值必须落在**物理上可能**的区间里: 真机实测 8~15 px/格; 一次错测(比如把"没动"量成 0.2 行)
+        # 会把 px/格 拉到 1 → 下次 notches 直接顶到 max_notches(160) → 一屏滚到底、整片漏扫。
+        ratio = max(4.0, min(30.0, ratio))
         self.px_per_notch = (1.0 - weight) * self.px_per_notch + weight * ratio
         self.observations += 1

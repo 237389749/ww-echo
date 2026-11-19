@@ -378,6 +378,10 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   每屏/每格检查; 停止后不生成报告、不回调 `on_done`; UI 启动前 `reset_stop()` 防竞争。
 - **滚轮 = 布局算距离 + 闭环校正(2026-11-14 二次)**: PostMessage 的 `WM_MOUSEWHEEL` 会被 UE 忽略(Slate 用真实光标
   做命中测试) → `scroll_grid` 主路径 `bring_to_front()`+`SetCursorPos(网格中心)`+**Pynput scroll**。
+  **开局先标定 px/格(2026-11-19, 勿删)**: 第一次滚只发 **6 格**, 用**等级条行线**量位移
+  (`echo_grid.row_shift_by_lines`, 中位数匹配; 位移 <1 行距没有周期歧义) → 真实 px/格;
+  因为 `estimate_row_shift` 的图像相关在真机上残差常年 27~34(永远"不可信"), 不标定就永远按默认 8 px/格,
+  而这台机器实际 ≈15 → 每次多滚一倍、整行跳过(43/146 的根因)。学习值限幅 **[4, 30] px/格**。
   **一次只发一种输入**、发完**测到停稳**再判(旧版三种输入连发会叠到 6 行 > 可见 5 行 → 整行漏掉; 旧版 0.6s 单次采样
   在真机上只量到 +0.5 行(实际 4 行) → 校正/受阻判定全错)。距离 = `ScrollModel.notches_for(行数, 行距)`；
   **px/格 固定 8.0，不随帧宽缩放**（1254 帧实测 8.6：64 格滚了 4 行；曾按 `8.0×帧宽/1920` 算成 5.2
@@ -502,7 +506,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**324 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**329 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`
