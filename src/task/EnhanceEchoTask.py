@@ -49,6 +49,20 @@ def _tier_from_level(level, n_stats: int) -> int:
     return tier
 
 
+# 声骸网格区(归一化)。点击点一律**夹在这个框内**(见 clamp_to_grid)。
+GRID_BOX = (0.10, 0.15, 0.72, 0.92)
+# 点击点离网格边缘至少留这个比例: 边缘格/重试点落到框外时会点到背包两侧/底部的
+# "整理·筛选·培养"按钮, 游戏会跳去别的功能界面(2026-11-19 用户现场)。
+CLICK_INSET = 0.012
+
+
+def clamp_to_grid(x, y, box=GRID_BOX, inset=CLICK_INSET):
+    """把归一化点击点夹进网格区(留 `inset` 边), 返回 (x, y)。"""
+    x0, y0, x1, y1 = box
+    return (min(max(x, x0 + inset), x1 - inset),
+            min(max(y, y0 + inset), y1 - inset))
+
+
 # 详情面板的 COST 角标: 实测 219 张面板里 117 张 OCR 把数字并进同一个框(`COST 4`/`COST4`),
 # 其余 102 张只读到标签 `COST` —— 后者取**同一行右侧**的数字框(102/102 都能找到)。
 _COST_RE = re.compile(r'COST\s*([134])')
@@ -370,6 +384,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.log_debug(f'保存失败画面失败: {e}')
         return ''
 
+    def reset_bag_view(self, presses: int = 2, wait: float = 0.9) -> None:
+        """按 B 把背包**关掉再打开**, 让声骸列表回到默认状态(顶部 + 默认排序)。
+
+        为什么(2026-11-19 用户口径): 背包的列表滚动位置是**跨轮保留**的 —— 上一轮停在列表下部,
+        这一轮就从中间开始扫(实测 21:06 那次首格就在中部), 上面的件永远扫不到。
+        别去"猜滚了多少格"做补偿: 关掉再打开 = 回顶, 与上一次停在哪无关。
+        `presses=2`: 第一下关掉(或从别的界面退回), 第二下重新打开。
+        开局若本来就在大世界(背包没开), 两下 B 会以"关闭"收尾 —— 由首屏空网格的兜底再补一下。
+        """
+        for _ in range(max(1, presses)):
+            self.send_key('b', after_sleep=wait)
+        self.log_info(f'复位背包: 按 {presses} 次 B 重新打开(声骸列表应回到顶部)')
+
     def resolve_set_name(self, echo_name: str, badge=None, effect_set=None,
                          effect_src: str = '', use_icon: bool = False) -> tuple[str, str]:
         """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
@@ -447,11 +474,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         # 网格角标 OCR 区 / 右侧详情面板区。所有坐标均用归一化比例(除以帧宽高), 分辨率无关;
         #   1920x1200 帧换算参考: 名字 y≈0.10, COST y≈0.21, 主属性 y≈0.37/0.42, 词条 y≈0.45..0.61(第5条),
         #   "声骸技能"行 y≈0.62 由 read_detail 按行过滤; "前 2 行=主属性"是相对行序判断, 不依赖帧高
-        grid_box = (0.10, 0.15, 0.72, 0.92)
+        grid_box = GRID_BOX
         detail_box = (0.66, 0.10, 0.995, 0.635)
         # 找套装要读**整块**详情面板(含最下面的合鸣效果区) —— `detail_box` 只到 0.635，
         # 套装名在面板下半截，会漏。**归一化比例**(self.ocr 的入参口径; 别传像素, 见 _effect_box_px)
         EFFECT_BOX = (0.66, 0.08, 0.995, 0.95)
+
+        # 点击点必须落在**网格区内**(留 `CLICK_INSET` 边): 布局模型给出的边缘格、以及"换行线另一侧"
+        # 的重试点都可能落到网格外 —— 背包两侧/底部是"整理·筛选·培养"这类按钮, 点到就跳去别的功能界面
+        # (2026-11-19 用户现场: 中途进入游戏其他功能界面)。
+        def clamp_click(x, y):
+            return clamp_to_grid(x, y, grid_box)
 
         seen_sigs = set()          # 已处理声骸的去重签名(名字+全行档位值, 防滚动重叠漏拦)
         seen_stat_sigs = set()     # 只按属性行(不含名字)的去重签名: OCR 名字抖动(无常凶驾/无常冈驾)时防重复记录
@@ -491,6 +524,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         click_fail = 0           # 连续"点了却读不到属性"的格数(到 click_fail_stop 就中止)
         click_fail_stop = 6      # 连续这么多格"点了却读不到属性"就中止(一整行; 用户口径: 计入失败)
         click_fail_total = 0     # 全场"点了没读到属性"的格数(报告里可查)
+        bag_retry_done = False   # 开局 B×2 后仍空网格 → 补按一次 B(开始时可能人在大世界)
+        resynced = False         # 连续点空时"复位背包重扫"用过没有(只做一次, 防来回拉锯)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -1186,6 +1221,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if '无法把游戏窗口拉到前台' in str(e):
                     raise
                 self.log_debug(f'前置自检跳过(取 hwnd 失败): {e}')
+            # 开局复位(用户口径 2026-11-19): **按两次 B** 关掉再打开背包 —— 声骸列表回到默认(顶部/默认排序)。
+            # 不做的话会从上一轮停下的滚动位置继续(实测 21:06 那次首格落在列表中部, 上面的件永远扫不到)。
+            self.reset_bag_view(presses=2)
+            self.sleep(0.8)
             # 先读一次当前详情面板作为基线: 第一次点击若没生效(点在空白/边框),
             # 面板还是上一次选中的声骸 → 会被误记成本屏第一只(实测报告 #1 变成了之前手选的那只)
             try:
@@ -1200,9 +1239,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     break
                 cells = scan_grid()
                 if not cells:
+                    empty_scan += 1
+                    if evaluated == 0 and not results and not bag_retry_done:
+                        # 开局那两下 B 也可能是"打开→关闭"(开始时人就在大世界) → 补按一次再扫
+                        bag_retry_done = True
+                        self.reset_bag_view(presses=1)
+                        empty_scan = 0
+                        continue
                     # 网格区 OCR 不到角标: 0级角标 +0 也能被识别, 连续为空 ≈ 列表真到底;
                     # 首屏即空(且一个都未记录)才 raise, 提示可能不在背包界面
-                    empty_scan += 1
                     fail_shot = self._save_fail_frame() if empty_scan == 1 else ''
                     if empty_scan >= 2:
                         if evaluated == 0 and not results:
@@ -1224,6 +1269,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 dups = 0             # 本屏"真重复"格数(内容与已记录的一致) —— 与新增一起看可知重叠对不对
                 miss = 0             # 本屏"点了但读不到属性"的格数 —— 这是**失败**，不是重复
                 zero_cells = 0       # 本屏 0 词条格数
+                screen_invalid = False   # 本屏被判"跑偏了"(点空一整行) → 复位背包后重扫, 不结算本屏
                 for nx, ny in cells:
                     if self.stop_requested():
                         stopped = True
@@ -1240,7 +1286,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         dy_ratio = 0.08
                     alt_ratio = 0.08 if dy_ratio < 0 else -0.30
                     delta = (alt_ratio - dy_ratio) * pitch_px / fh if pitch_px > 1 else -0.035
-                    click_points = ((nx, ny), (nx, max(0.02, ny + delta)))
+                    click_points = (clamp_click(nx, ny), clamp_click(nx, ny + delta))
                     echo_name, paired_all, sig, cost, level = '', [], '', None, None
                     for attempt, (cx, cy) in enumerate(click_points):
                         self.click(cx, cy, after_sleep=0.8)
@@ -1272,6 +1318,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         self.log_info(f'[失败] 格({nx:.3f},{ny:.3f}) 点击后没读到属性 '
                                       f'(本屏第 {miss} 格, 连续 {click_fail} 次)')
                         if click_fail >= click_fail_stop:
+                            if not resynced:
+                                # 一整行都点不出属性 = 屏幕已经不在声骸列表(中途被点进了别的功能界面,
+                                # 或背包被关掉) → 复位背包重扫一次, 而不是直接中止丢掉后面的件。
+                                resynced = True
+                                shot = self._save_fail_frame()
+                                self.log_warning(
+                                    f'连续 {click_fail} 格点击后都读不到属性 → 疑似被点进了别的功能界面, '
+                                    f'复位背包后重扫一次(已记录 {evaluated} 条)'
+                                    + (f'; 当时画面已存: {shot}' if shot else ''), notify=True)
+                                self.reset_bag_view(presses=2)
+                                click_fail = 0
+                                screen_invalid = True
+                                break
                             self.log_warning(f'连续 {click_fail} 格点击后都读不到属性, 评估中止'
                                              f'(已记录 {evaluated} 条, 生成部分报告)', notify=True)
                             stop_all = True
@@ -1373,6 +1432,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                 if stop_all or stopped:
                     break
+                if screen_invalid:
+                    # 已经复位过背包: 不滚屏、不判重叠, 直接重扫本屏(此时在列表顶部, 重复由去重吸收)
+                    layout_model = None      # 重开背包后重新标定, 不吃旧模型
+                    panel_dirty = False
+                    continue
                 # 本屏小结: "新增 + 重复" 直接反映滚动重叠对不对(滚 3 行应剩 ~2 行重复);
                 # 失败 = 点了但读不到属性(面板滚走/点空) —— 与"重复"分开计数，否则分不清是重叠还是坏了
                 self.log_info(f'本屏完成: {len(cells)} 格, 新增 {evaluated - eval_before} 条, '
