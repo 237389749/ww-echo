@@ -218,6 +218,25 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 return int(m.group(1))
         return parse_cost(boxes or [])             # 标签与数字仍是两个框 → 走同行规则
 
+    @staticmethod
+    def _main_props_like(paired_all) -> bool:
+        """前 2 行里的第 1 行是不是**真主属性** —— 用来区分"+0 级面板根本没有主属性行"。
+
+        +0 的面板只有 名字 / +0 / COST / `持有数量：N` / 声骸技能…；把 `持有数量` 当主属性，
+        技能描述里的 `加成提升10.00%` 就会被当成一条词条，报告里出现"0 级却有 1 词条"的假记录
+        （2026-11-19 report1 的 #145/#146）。判据 = 第 1 行归一化后能落在官方主属性取值网格上
+        （与报告「数值可疑」用的是同一份数据）。**判不了就放行**：宁可多记一条，不要漏真声骸。
+        """
+        if not paired_all or len(paired_all) < 2:
+            return False
+        try:
+            from src.echo_inventory import normalize_main_prop
+            from src.echo_main_prop import value_grid
+            n, v = paired_all[0]
+            return bool(value_grid(normalize_main_prop(n, v, None, None), None))
+        except Exception:                          # noqa: BLE001 - 判不了不要中断评估
+            return True
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -404,10 +423,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
         SET_PANEL_STEP = 4          # 找套装时每次只滚 4 格(小步: 大步会一步跨过目标文本)
         SET_PANEL_FIRST_STEP = 8    # 但第一步放大: 主词条区肯定没有套装名, 先跳过那一段
-        SET_PANEL_MAX_STEPS = 16    # 8 + 15×4 = 68 格上限(滚到底仍没命中就回退其它信号)
-        PANEL_UP_STEP = 8           # 回顶: 一次滚 8 格(实测面板 ≈20px/格, 一屏内容 ~400px)
-        PANEL_UP_MAX = 8            # 回顶最多 8 步(64 格), 超出判"回不去"并告警
-        PANEL_MOVE_RATIO = 0.02     # 上滚一帧后"动了没"的变化占比门槛(8 格≈160px → 约 10%)
+        SET_PANEL_MAX_STEPS = 24    # **只是安全上限**(8+23×4=100 格); 真正的"到底"判定是画面不再变化
+        PANEL_UP_STEP = 8           # 回顶首步; 之后翻倍(8→16→32→64), 只为少滚几次
+        PANEL_UP_MAX_STEP = 64      # 单次最大格数
+        PANEL_UP_MAX_ITERS = 8      # 安全上限(8+16+32+64+… 早超过任何面板的实际长度)
+        PANEL_MOVE_RATIO = 0.02     # **端点判据**: 滚一下再看画面变化占比是否过线(= 有没有动)
 
         grid_pitch = {'row': None, 'col': None}   # 上一屏的列/行间距(像素), 本屏角标漏检时用于推断
         layout_model = None      # 网格布局模型(比例): 首屏标定后跨屏复用, 后续屏幕只需行检测
@@ -631,29 +651,31 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 last = cur
             return last
 
-        def restore_panel_top(down_notches=0):
-            """把详情面板滚回顶部 —— 判据 = **内容不再移动**。
+        def restore_panel_top():
+            """把详情面板滚回顶部 —— 判据 = **画面不再变化**(与"滚了几步/多少格"无关)。
 
-            2026-11-19 真机修正(之前一直是假判据)：游戏详情面板的**名字 / +25 / COST 是固定表头**
-            —— 实测同一只声骸在 8/12/16/20 格四个滚动位置上，面板顶部 0~30% 逐像素不动，
-            只有中间 30~80% 在滚。所以"名字行可见 ⇒ 已回顶"**永远成立**，旧实现每次都在第一步就
-            返回 True、根本没上滚（面板数据集里 `_top.png` 与最后一个滚动步**逐字节相同**就是铁证），
-            下一只自然读不到词条。滚轮上滚到顶后会被钳住、画面不再变化 —— 用这个当判据才与布局无关。
-
-            `down_notches` = 这次往下滚了多少格：先**一次性大回滚**(滚动条到顶会被钳住, 宁多不少),
-            再小步校正 —— 长面板（实测有滚 80 格的）光靠固定步数会不够。
+            2026-11-19 真机修正(之前是假判据)：面板的**名字 / +25 / COST 是固定表头** —— 四个滚动位置上
+            顶部 0~30% 逐像素不动，"名字可见 ⇒ 已回顶"**永远成立**（数据集里 `_top.png` 与最后一步
+            逐字节相同就是铁证）。现在只看画面：滚一下 → 等动画停稳 → 比帧；**滚了但画面没变 = 到顶**。
+            步长翻倍(8→16→32→64)只为少滚几次，判定与步长/格数无关；长面板(实测滚过 80 格)也够。
             """
             box = _effect_box_px()
             before = self.frame
-            back = max(PANEL_UP_STEP, min(60, int(down_notches or 0) + PANEL_UP_STEP))
-            for attempt in range(PANEL_UP_MAX):
-                if not _panel_scroll(back if attempt == 0 else PANEL_UP_STEP):
+            advance = PANEL_UP_STEP
+            still = 0
+            for _ in range(PANEL_UP_MAX_ITERS):
+                if not _panel_scroll(advance):
                     return False
                 after = _panel_settled(before, box)
                 moved = echo_grid.frame_change_ratio(before, after, box) >= PANEL_MOVE_RATIO
                 before = after
-                if not moved:       # 滚不动了 = 已经到顶
-                    return True
+                if not moved:
+                    still += 1
+                    if still >= 2:      # 连续两次滚不动 = 已经到顶
+                        return True
+                    continue
+                still = 0
+                advance = min(advance * 2, PANEL_UP_MAX_STEP)
             return False
 
 
@@ -689,8 +711,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     if not _panel_scroll(-advance):
                         break
                     total += advance
-                    self.sleep(0.16)
-                    cur = self.frame
+                    cur = _panel_settled(prev, box)     # 等滚动动画停稳再 OCR/比帧(0.16s 会取到糊帧)
                     texts = self.ocr(*EFFECT_BOX)
                     dbg_ocr(f'effect{step}', texts)
                     if panel_dbg_dir:
@@ -735,11 +756,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 滚过就必须回顶：词条区在面板中间(30~80%)，面板停在下面 → 下一只读不到词条
                     nonlocal panel_dirty
                     panel_dirty = True
-                    if restore_panel_top(total):
+                    if restore_panel_top():
                         panel_dirty = False
                     else:
                         restore_ok = False
-                        self.log_warning(f'详情面板没回顶(上滚 {PANEL_UP_MAX} 步仍没停住) '
+                        self.log_warning(f'详情面板没回顶(上滚 {PANEL_UP_MAX_ITERS} 次画面还在动) '
                                          f'— 下一只会先回顶再读')
                 if panel_dbg_dir:
                     panel_dbg_summary(tag, evaluated + 1, echo_name, cands, frames, total,
@@ -1068,10 +1089,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if ocr_quality(texts_retry) > ocr_quality(texts):
                     texts = texts_retry
                     self.log_debug('详情面板低置信重读: 采用第二次结果')
+            # COST 角标**只当佐证**：1× OCR 读到就带上(不额外放大重读 —— 那个 3× 裁剪重识别
+            # 换成别的分辨率/字体就失效, 和套装图标是同一类问题)。真正的主口径是下面 evaluate_one
+            # 里"第 2 行 = COST 固有属性"的结构反推(分辨率无关)。两者都在时用反推, 不一致只记日志。
             cost = parse_cost(texts)
-            if cost is None:
-                # 全屏 OCR 把数字框整个漏掉时(实测 27/135) → 只截角标区放大重读一次
-                cost = self.read_cost_badge()
             fh = float(getattr(self.executor.method, 'height', 0) or 1200.0)
             properties = [p for p in self.find_boxes(texts, match=property_pattern)
                           if p.name.strip() not in ('声骸技能', 'COST', 'Z', 'C')]
@@ -1218,13 +1239,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 按相对行序排除, 分辨率无关; 即使主属性固定值恰好命中词条档位
                     # (如 主属性生命=510 ∈ {510}, 防御=50 ∈ {50}) 也不会误收;
                     # 剩余行再叠加"数值≈档位集合"(离散匹配)才算词条, 最多 5 条
+                    #
+                    # **+0 级面板没有主属性行**(只有 名字/+0/COST/持有数量：N/声骸技能…)，此时"前 2 行"
+                    # 会把 `持有数量：1` 当主属性、把技能描述里的 `加成提升10.00%` 当成一条词条
+                    # → 报告里出现"1 词条 / 0 级"的假记录(2026-11-19 report1 的 #145/#146 就是)。
+                    # 所以先验一次"第 1 行像不像真主属性"，不像就按 0 级跳过(与"0 词条不入报告"同一口径)。
                     stats = []
-                    for raw_n, v_str in paired_all[2:]:
-                        norm = self._normalize_stat(raw_n, v_str)
-                        val = parse_number(v_str)
-                        if norm and is_stat_match(norm, val):
-                            stats.append((norm, val))
-                    stats = stats[:5]
+                    if self._main_props_like(paired_all):
+                        for raw_n, v_str in paired_all[2:]:
+                            norm = self._normalize_stat(raw_n, v_str)
+                            val = parse_number(v_str)
+                            if norm and is_stat_match(norm, val):
+                                stats.append((norm, val))
+                        stats = stats[:5]
 
                     tier = len(stats)
                     if stats:
@@ -1839,16 +1866,26 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                       for (n, v), d in zip(stats, details)],
         }
         # L2: 主属性 / COST / 官方管理方案判定 —— 全部可选, 不给就一个键都不加(旧报告不受影响)
-        if main_props and cost not in (1, 3, 4):
-            # COST 角标没读出来(实测 146 条里有 3 条, 都是连着的) → 用**第 2 行 = COST 固有属性**反推。
-            # 口径与离线 `echo_inventory.infer_cost` 同一份; 反推不出唯一值就返回 None(不猜)。
+        # COST 主口径 = **第 2 行(COST 固有属性)结构反推**(分辨率无关); 角标 OCR 只当佐证,
+        # 反推不出唯一值时才退回它, 两者冲突时以反推为准(角标"4 读成 A"这类误读更常见)。
+        badge_cost = cost if cost in (1, 3, 4) else None
+        if main_props:
             from src.echo_inventory import infer_cost, normalize_main_prop
-            guessed = infer_cost(
+            inferred = infer_cost(
                 [(normalize_main_prop(n, v, None, tier), parse_number(v))
                  for n, v in list(main_props)[:2]], tier=tier)
-            if guessed in (1, 3, 4):
-                cost = guessed
-                rec["cost_inferred"] = True
+            if inferred in (1, 3, 4):
+                cost = inferred
+                rec["cost_src"] = "main"
+                if badge_cost and badge_cost != inferred:
+                    self.log_debug(f'[COST] 角标 {badge_cost} 与主属性反推 {inferred} 不一致, 采用反推'
+                                   f' ({echo_name})')
+            elif badge_cost:
+                cost = badge_cost
+                rec["cost_src"] = "badge"
+        elif badge_cost:
+            cost = badge_cost
+            rec["cost_src"] = "badge"
         if cost in (1, 3, 4):
             rec["cost"] = cost
         if main_props:

@@ -339,17 +339,14 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   副词条走期望/理想/库存三种口径 (全穷举不可行: 单只 ≈4×10⁷ 组合)。
   **注意**: 组合穷举(阶段二十九)用的是另一套口径(`ΣCOST≤12` + 名字互异 + `3+2`), 与 S2 的 43311/44111 不是一回事;
   `build_optimizer.md` §5.2 的组数(4736/1148)也基于旧数据, 现生成物实算约 15547/4410(子代理按同公式复算, 待复核)。
-- **数据源与刷新**: `Arikatsu/WutheringWaves_Data` 分支 `3.7`(Global 3.7.0 / Resource 3.7.8; 本机 `search/wwdata37`, sparse checkout 只取 `Textmaps/zh-Hans` + `BinData/phantom*` + `property`; 刷新 = 该目录 `git pull`)。生成命令见 `tools/gen_echo_data.py` 文档串(需 `--bindata`/`--textmaps`)。
+- **数据源**: `Arikatsu/WutheringWaves_Data` 分支 `3.7`(本机 `search/wwdata37`)。
 - **不变量**: 任何文本键解析不出 → **退出码 2 且不写文件**(宁失败不静默丢数据); 生成物**只读**, 策略(权重/`_core_first`)仍手写在 `echo_set_templates.json`。
 - **官方管理方案**(`PhantomManagePlanV2`): 每 (套装, COST) 的主属性**保留组/丢弃组**(PropId)。客户端表是 FlatBuffers `BinData`, 解码器已用服务端显式字段表**逐行 100/100 验证**; 它同时覆盖 3.7 的 3 个新套装(服务端表只到 34 套)。
 - **已知偏差(勿"修")**: `防御百分比` 的 8 个档位以**官方公示原文**为准(8.1/9.0/10.0/10.9/11.8/12.8/13.8/14.7; 18 张真实面板也只出现这 8 个值); zigrika 服务端的 `(std*mult+5000)//10000*10` 会多出 +0.1 的 5 个档 —— 那是服务端口径。
 - **3.7 新增 3 套**: 衔梦照世之心(36, 导电) / 镜影流电之瞬(37, 导电) / 茜染怀想之花(38, 治疗); 已用通用权重播种。
-- **套装图标已全部换成客户端官方贴图**(37 张, `assets/echo_icons/`): 与旧模板逐像素对比 **29 张完全一致**(corr=1.000)、**5 张不同**(失序彼岸之梦/奔狼燎原之焰/愿戴荣光之旅/此间永驻之光/流云逝尽之空 —— 旧版图标, 已换当前官方版)、**3 张新增**。
-  复现路径(需客户端安装 + 工作区 `search/CUE4Parse-master` + .NET 10 SDK):
-  ① `.scratch/scan_icons.py`(复用 ww-explore 的 pak 解析)列出 `IconElementAttri*` 条目; `.scratch/extract_icons.py` 用同一套 pak 解析导出 uasset/uexp 到松散文件树(`.scratch/loose/Aki/UI/...`);
-  ② `.scratch/iconexport/`(CUE4Parse 控制台程序)`IconExport <松散树> <aesKey> <输出目录> IconElementAttri` 解出 PNG(76×76; `...128_*` 是 128×128);
-  ③ `.scratch/swap_icons.py` 按 `gamedata` 的 `icon_file` 覆盖 `assets/echo_icons/`(先备份到 `.scratch/echo_icons_before/`)。
-  要点: `TextureDecoder.UseAssetRipperTextureDecoder = true`(纯 C# BC7 解码, 免 CUE4Parse-Natives/Detex 原生库)、`-p:CUE4PARSE_SKIP_NATIVE=true` 跳过 CMake、中文路径传参易失败(用 `mklink /J` 建 ASCII 联接)。
+- **套装图标已全部换成客户端官方贴图**(37 张, `assets/echo_icons/`): 与旧模板对比 29 张一致、5 张换成当前官方版、3 张新增。
+  复现路径(pak 解析 → CUE4Parse 解 PNG → 按 `icon_file` 覆盖)见 CHANGELOG 与 `tools/icon_export/`, 要点就两条:
+  `TextureDecoder.UseAssetRipperTextureDecoder = true`(纯 C# BC7 解码, 免原生库)、中文路径传参易失败(用 `mklink /J`)。
 - **主属性数值表(阶段二十七)**: 生成物多出 `main_props` 段 —— 5★ 主属性的 `StandardProperty` 基准值 +
   `PhantomGrowth` 成长曲线(26 档, 10000→50000) + 各属性名**多个变体**(`攻击` 同时有固定值 `30→150` 与
   百分比 `660→33.0%`)。运行时 `src/echo_main_prop.py::check_main_values` 用它判"面板读到的主属性**数值**是否
@@ -411,9 +408,10 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   同名多只走 `panel_set_cache`(名→(套装,来源)), 全场只滚一次。**面板图标在评估链里默认关**(`use_icon=False`)。
 - **⚠ 面板三块布局 / OCR 单位 / 回顶判据 / 数据集**(2026-11-19 真机, 一次踩齐):
   ①**布局**: 面板裁剪(482x783@1440x900)顶部 ~30% 是**固定表头**(名字/+25/COST 不随滚动)、中间 30~80%
-  才是滚动内容(词条/技能/合鸣效果)、底部是 HUD(培养按钮) → **回顶判据只能是"上滚后内容不再移动"**(连续两次),
-  "名字可见"恒为真(旧版就这么假回顶: `_top.png` 与最后一步逐字节相同); 滚下去时 `paired_all` 仍非空 →
-  判"读到了"要用 `_has_stat_rows`(词条对上档位)。实测 ≈**20px/格**, 回顶 8 格/步、最多 8 步。
+  才是滚动内容(词条/技能/合鸣效果)、底部是 HUD(培养按钮) → **端点判据一律"画面不变"**(用户口径, 不看步数):
+  滚一下 → `_panel_settled` 等动画停稳 → 比帧; 连续两次没变化 = 到顶/到底。步长(回顶 8→16→32→64 翻倍、
+  找套装 8/4)只为少滚几次、**与判定无关**。回顶绝不能用"名字可见"(恒为真); 滚下去时 `paired_all` 仍非空 →
+  判"读到了"要用 `_has_stat_rows`(词条对上档位)。实测 ≈**20px/格**。
   ②**OCR 单位**: `self.ocr(x,y,to_x,to_y)` 收**比例**, `_effect_box_px()` 给**像素** —— 直接喂会让
   `relative_box` 再乘一次帧宽高、裁出 (0,0) 空图 → 套装名链**从未生效**; OCR 一律用 `EFFECT_BOX`。
   ③**长图**只拼**会动的行**(`echo_panel_shot._moving_band` + 多候选带估位移), 否则底部 HUD 会被重复追加。
@@ -423,10 +421,12 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   `has_heading`/`name_own_line`(后两个已提到 `echo_set_templates`) —— 一次真机跑就能反复调判定。
   **落盘走 `echo_panel_shot.imwrite_unicode`**: `cv2.imwrite` 在中文路径上会写坏文件名。
 - **面板 COST 与主属性**(L2): `read_detail` 用 `parse_cost` 读 COST 角标(合框 `COST 4` 或"标签 + 同行右侧数字框"; 该批 219 张素材实测 219/219 可读), 前 2 行主属性与 COST 一起交给 `evaluate_one` → 报告「COST/主属性」列 + 官方管理方案判定。
-  **真机 20261008 那批漏读 27/135**(小字数字框整个没检出, 复跑截图可复现: `eval_062` 只剩 `COST`) →
-  现在 1× 读不到时走 `read_cost_badge()`: 只截 `_COST_ROI`(0.685,0.19–0.792,0.25)放大 3× 再 OCR
-  (离线 27/27 读回); **离线侧**另有 `echo_inventory.infer_cost` 用面板第 2 行(= COST 固有属性:
-  1C 生命 / 3C 攻击 100 / 4C 攻击 150)反推兜底 —— 角标与反推在真实数据上 108/108 一致
+  **COST 主口径 = "第 2 行反推"**(2026-11-19, 用户口径: 角标 OCR 和套装图标一样, 分辨率/字体一变就失效):
+  `evaluate_one` 用 `echo_inventory.infer_cost` 按**官方网格**反推(1C 生命 2280 / 3C 攻击 100 / 4C 攻击 150);
+  角标 OCR **只在 1× 就地读**(不再裁剪放大 3× 重识别)且**只当佐证** —— 反推不出唯一值才退回角标,
+  冲突时以反推为准(`rec['cost_src']` = main/badge)。真实数据 **140/140 一致、0 冲突**。
+  **+0 面板没有主属性行**(只有 名字/+0/COST/`持有数量：N`), 所以 `_main_props_like` 先验"第 1 行像不像真主属性",
+  不像就按 0 级跳过 —— 否则技能描述里的 `加成提升10.00%` 会被当成词条(report1 的 #145/#146 就是假记录)。
 - 套装语境(权重/键/首核/声骸清单)供评估自动映射 + 强化模式使用; run_tab 评估仍隐藏套装下拉(靠图标+名字映射), 未映射时用通用
 - **数据来源/工具备注**: 声骸↔套装 / 图标名 / 主属性方案 / 属性名 全由 **`tools/gen_echo_data.py`** 从官方配置表生成(见「官方静态数据层」; 生成物 `assets/gamedata/echo_data.json` **只读**)。旧的 `parse_wutherin_echoes.py` + `1.txt` + `echoes_check.md` 手工口径**已被取代**, 别当输入
 - 空格/未切换格**跳过继续**(不提前滚屏防漏真实格); 本屏无新内容才滚动 15 notches; 连续 3 次滚动无新格兜底
@@ -482,7 +482,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**289 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**294 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`

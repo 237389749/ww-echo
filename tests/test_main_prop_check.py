@@ -107,6 +107,25 @@ class TestReadCostBadge(unittest.TestCase):
         self.assertIsNone(EnhanceEchoTask.read_cost_badge(self._Fake([Box('暴击', 0, 0, 50)])))
 
 
+class TestMainPropsLike(unittest.TestCase):
+    """`_main_props_like`: 分辨"+0 级面板根本没有主属性行"（否则技能描述会被当成词条）。"""
+
+    def test_real_main_props(self):
+        for props in ([('暴击', '22.0'), ('攻击', '150.0')],       # COST 4 满级
+                      [('暴击伤害', '44.0'), ('攻击', '150.0')],
+                      [('攻击百分比', '30.0'), ('生命', '2280')],   # COST 1
+                      [('发暴击伤害', '44.0'), ('攻击', '150.0')]):  # OCR 前缀噪声也要认
+            with self.subTest(props=props):
+                self.assertTrue(EnhanceEchoTask._main_props_like(list(props)))
+
+    def test_zero_level_panel_has_no_main_props(self):
+        # +0 面板只有 持有数量；下一行是技能描述
+        props = [('持有数量', '1'), ('使用声骸技能，对敌人造成四段27.36%', '')]
+        self.assertFalse(EnhanceEchoTask._main_props_like(props))
+        self.assertFalse(EnhanceEchoTask._main_props_like([]))
+        self.assertFalse(EnhanceEchoTask._main_props_like([('暴击', '22.0')]))   # 只有 1 行 → 认不出
+
+
 
 class TestCheckMainProp(unittest.TestCase):
 

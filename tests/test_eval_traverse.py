@@ -64,14 +64,27 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('elif len(cand_list) == 1:', src)
         # 滚过面板就必须回顶(滚动条是所有声骸共用的)。**判据不能是"名字可见"**：名字/+25/COST
         # 在固定表头里，四个滚动位置逐像素不动(2026-11-19 真机) → 那个判据恒为真、等于没回顶。
+        # 端点判定 = **画面不再变化**(用户口径: 不看步数/格数)，所以: 等动画停稳再比帧 + 只按画面判。
         self.assertIn('restore_panel_top', src)
-        self.assertIn('PANEL_UP_STEP', src)
+        self.assertIn('_panel_settled', src)
+        self.assertIn('PANEL_MOVE_RATIO', src)
         self.assertNotIn('_panel_top_ok', src)
-        self.assertIn('_panel_settled', src)          # 必须等滚动动画停稳再比帧(否则一直判"还在动")
-        self.assertIn('restore_panel_top(total)', src)  # 大回滚按"往下滚了多少格"给距离
+        self.assertNotIn('restore_panel_top(total)', src)   # 不再按"滚了多少格"算距离
         # 面板滚下去时固定表头还在 → "读到了词条"才是真读到了；调用方要据此回顶重读
         self.assertIn('_has_stat_rows', src)
         self.assertIn('panel_dirty', src)
+
+    def test_cost_badge_is_only_corroboration(self):
+        """COST 主口径 = 第 2 行(COST 固有属性)反推；角标 OCR 只当佐证(分辨率/字体一变就失效)。
+
+        两者都在时用反推；反推不出唯一值才退回角标。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('infer_cost', src)
+        self.assertIn('cost_src', src)
+        # 1× OCR 读到就带上, 不再走"裁剪角标区放大 3× 重识别"那条路
+        self.assertNotIn('cost = self.read_cost_badge()', src)
+        self.assertIn('cost = parse_cost(texts)', src)
 
     def test_ocr_boxes_are_normalized(self):
         """`self.ocr(...)` 收的是**归一化比例**，不是像素 —— 2026-11-19 真机踩过。
