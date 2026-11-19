@@ -523,7 +523,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         # 为什么必须标定: 图像相关在这台机器上残差常年 27~34(永远"不可信") → px/格 一直停在默认 8,
         # 而实测 ≈15 → 每次请求 2 行实际滚 3~4 行, 整行被跳过(43/146 的根源)。
         SCROLL_PROBE_NOTCHES = 6    # 标定用的小步(位移 <1 个行距 → 没有周期歧义)
-        SCROLL_LINE_COST_OK = 6.0   # 行线匹配的平均误差 ≤ 此值(像素)才认这次标定
+        SCROLL_LINE_COST_OK = 6.0   # 行线匹配的中位误差 ≤ 此值(像素)才认这次测量
+        SCROLL_PAGE_FRACTION = 0.6  # 每次滚**一页的 60%**(4 行页 → 2.4 行; 5 行页 → 3 行)
         SCROLL_CHANGE_MIN = 0.12    # 画面变化占比 < 此值 = 什么都没发生(只有悬停/选中框)
         SCROLL_FIRST_ROWS = 2.5     # 首滚上限(px/格还没实测过, 保守一点, 漏行比多滚贵)
         SCROLL_SAFETY = 0.95        # 距离打 95 折发送: 欠滚可由补滚补齐, 过滚会整行漏
@@ -1061,11 +1062,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             self.log_debug(f'等静止超时({timeout:.1f}s): 画面一直在变(可能背景有动效), 用当前帧')
             return self.frame
 
-        def _measure_shift(before, pitch, rect):
+        def _measure_shift(before, pitch, rect, expect_rows=None):
             """等滚动动画**停稳**再量位移 → (rows, diff, change_ratio, seconds)。
 
             判据同 `_wait_still`：看**相邻两帧**是否还在变，而不是看位移读数是否"稳定"
             （ease-in 动画的慢启动会让位移读数长时间停在很小的值上）。
+
+            **量法优先用行线**(`row_shift_by_lines`)：图像相关在真机上残差 27~34(对不齐)，
+            一旦只能靠它，px/格 就永远学不到、闭环也永远不纠。行线给 `expect_rows`(按发了几格估的)
+            ±0.8 行窗口 → 既避开行线周期歧义，又比相关稳。行线不可信才退回相关。
             """
             t0 = time.time()
             prev = before
@@ -1087,6 +1092,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if time.time() - t0 >= SCROLL_SETTLE_TIMEOUT or self.stop_requested():
                     self.log_debug(f'滚动静止超时({SCROLL_SETTLE_TIMEOUT:.1f}s), 用最后一次读数')
                     break
+            if change >= SCROLL_CHANGE_MIN:
+                lrows, lcost = echo_grid.row_shift_by_lines(
+                    before, frame, rect, pitch, max_rows=max(1.2, (expect_rows or 1.0) + 1.0),
+                    expect_rows=expect_rows)
+                if lcost <= SCROLL_LINE_COST_OK and lrows > 0.02:
+                    return lrows, lcost, change, time.time() - t0
             return rows, diff, change, time.time() - t0
 
         def scroll_up(rows=1.0):
@@ -1115,10 +1126,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
             pitch = (layout_model.row_pitch_ratio * fw) if layout_model else 0.11 * fw
             pitch = max(20.0, pitch)
-            # 目标行数随**可见行数**收缩：1440x900 实测只看到 4 行(6 列 × 4 行)，
-            # 若仍按"5 行可见"滚 3 行，就只剩 1 行重叠，一次偏差就跳行。
+            # 一页 = **本屏检测到的行数 × 行距**(4/5 行随分辨率变, 6 列是常量)。
+            # 滚动量按**页的比例**算, 不写死"3 行": 1440x900 只显示 4 行, 滚 3 行只剩 1 行重叠,
+            # 一次偏差就跳行。留在页内的比例也决定了"滚完还剩几行重叠"。
             visible = int(grid_pitch.get('nrows') or 5)
-            rows = min(rows, max(1.5, visible - 1.8))
+            page_px = max(1.0, float(visible)) * pitch
+            rows = max(1.0, min(float(rows), visible - 1.0, float(visible) * SCROLL_PAGE_FRACTION))
+            self.log_debug(f'滚动规划: 本屏 {visible} 行 × {pitch:.0f}px = 一页 {page_px:.0f}px, '
+                           f'目标 {rows:.1f} 行({rows / max(1, visible):.0%} 页)')
             rect = _grid_rect_px()
             before = _wait_still(rect)      # 先等上一屏的收尾动画停下来, 否则基准帧是糊的
             total = 0.0
@@ -1160,7 +1175,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     sent = _drag_scroll(pitch, max(1, int(round(rows - total))))
                 if not sent:
                     continue
-                moved, diff, change, secs = _measure_shift(before, pitch, rect)
+                expect = notches * scroll_model.px_per_notch / max(1.0, pitch)
+                moved, diff, change, secs = _measure_shift(before, pitch, rect, expect_rows=expect)
                 if change < SCROLL_CHANGE_MIN:
                     self.log_debug(f'{name}: 画面无变化({change:.0%}), 换下一种方式')
                     continue
@@ -1199,7 +1215,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         break
                 elif not _real_wheel(notches):
                     break
-                moved, diff, change, secs = _measure_shift(before, pitch, rect)
+                expect = notches * scroll_model.px_per_notch / max(1.0, pitch)
+                moved, diff, change, secs = _measure_shift(before, pitch, rect, expect_rows=expect)
                 if change < SCROLL_CHANGE_MIN or diff > SHIFT_DIFF_OK or abs(moved) < 0.35:
                     self.log_warning(f'补滚无效: {notches} 格 → {moved:+.1f} 行 '
                                      f'(残差 {diff:.0f}), 停在 {total:.1f} 行')

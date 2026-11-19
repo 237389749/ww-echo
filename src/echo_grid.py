@@ -540,16 +540,21 @@ def estimate_row_shift(before_bgr, after_bgr, rect, pitch, max_rows=8, min_overl
     return best_dy / pitch, best_diff
 
 
-def row_shift_by_lines(before_bgr, after_bgr, rect, pitch, max_rows=1.2):
-    """用**等级条行线**量两帧之间的小位移(< max_rows 行) → (rows, cost)。
+def row_shift_by_lines(before_bgr, after_bgr, rect, pitch, max_rows=1.2,
+                       expect_rows=None, tol_rows=0.45):
+    """用**等级条行线**量两帧之间的小位移 → (rows, cost)。
 
     为什么要它（2026-11-19 真机）：`estimate_row_shift` 的图像相关在这台机器上残差常年 27~34
     （对不齐），代码只好"按已滚动处理"，于是 **px/格 永远学不到、也纠正不了** —— 实际每格滚得
     比模型假设的远一倍，每次都多滚一截、整行被跳过(43/146 就是这么来的)。
-    行线是**结构信号**：每格一条、等间距，两帧只差一个平移；只要位移 < 1 个行距就没有"周期歧义"，
-    所以拿它做**开局小步标定**(滚 6 格)最可靠。
+    行线是**结构信号**：每格一条、等间距，两帧只差一个平移。
 
-    rows > 0 = 内容向上走了(列表往下翻)。cost = 平均最近邻误差(像素, 越小越可信, 参考 <6)。
+    **周期歧义**：行线自相似，位移正好 k 个行距时和 0 分不清。两个办法一起用：
+      ① 开局标定只滚 6 格（位移 <1 行距, 天然无歧义）；
+      ② 平时给 `expect_rows`（按"发了几格 × 当前 px/格"估），只在 `expect ± tol_rows` 窗口里搜 ——
+         窗口**窄于 1 个行距**(tol 0.45 → 0.9 行距)就不会串行。
+
+    rows > 0 = 内容向上走了(列表往下翻)。cost = 最近邻误差的**中位数**(像素, <6 可信)。
     """
     if cv2 is None or np is None or before_bgr is None or after_bgr is None or pitch <= 1:
         return 0.0, 1e9
@@ -557,13 +562,19 @@ def row_shift_by_lines(before_bgr, after_bgr, rect, pitch, max_rows=1.2):
     rows_a, _ = detect_row_lines(after_bgr, rect)
     if len(rows_b) < 2 or len(rows_a) < 2:
         return 0.0, 1e9
-    max_s = int(round(max(0.0, float(max_rows)) * float(pitch)))
-    best_s, best_cost = 0, 1e9
-    for s in range(0, max_s + 1):
+    if expect_rows is None:
+        lo_rows, hi_rows = 0.0, max(0.0, float(max_rows))
+    else:
+        lo_rows = max(0.0, float(expect_rows) - float(tol_rows))
+        hi_rows = max(lo_rows, float(expect_rows) + float(tol_rows))
+    lo = int(round(lo_rows * pitch))
+    hi = int(round(hi_rows * pitch))
+    best_s, best_cost = lo, 1e9
+    for s in range(lo, hi + 1):
         shifted = [y + s for y in rows_a]
         dists = sorted(min(abs(y - z) for z in rows_b) for y in shifted)
         # 用**中位数**而不是均值: 视口边缘常多出一条(半截行)或吃掉一条, 均值会被它带偏;
-        # 中位数只要求"过半行线对得上"就认, 正好匹配"位移 < 1 个行距"的标定场景。
+        # 中位数只要求"过半行线对得上"就认。
         cost = float(dists[len(dists) // 2])
         if cost < best_cost - 0.5:          # 明显更好才换(抗噪声, 平手取更小的位移)
             best_s, best_cost = s, cost
