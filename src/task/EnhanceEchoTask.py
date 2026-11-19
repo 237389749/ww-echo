@@ -880,7 +880,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_info(f'[套装] 面板没读到套装信息(滚 {total} 格) → 回退环色/名字')
             return best
 
-        def _register_fail(nx, ny, why=''):
+        def _register_fail(nx, ny, why='', rc=''):
             """计一格"点了却没读到词条"; 返回 True = 本屏到此为止(已复位背包 / 该中止)。
 
             两处调用: ①根本没读到属性 ②面板换了但一条词条没配上(等级/主属性说它该有)。
@@ -899,7 +899,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     cv2.imwrite(os.path.join('logs', 'eval_fail_panel.png'), crop)
                 except Exception:                  # noqa: BLE001 - 存图失败不影响评估
                     pass
-            self.log_info(f'[失败] 格({nx:.3f},{ny:.3f}) 点击后没读到属性{why} '
+            self.log_info(f'[失败] 格{(" " + rc) if rc else ""}({nx:.3f},{ny:.3f}) 点击后没读到属性{why} '
                           f'(本屏第 {miss} 格, 连续 {click_fail} 次)')
             if click_fail < click_fail_stop:
                 return False
@@ -1379,12 +1379,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 empty_scan = 0
 
                 processed_any = False
+                screen_t0 = time.time()
                 eval_before = evaluated
                 dups = 0             # 本屏"真重复"格数(内容与已记录的一致) —— 与新增一起看可知重叠对不对
                 miss = 0             # 本屏"点了但读不到属性"的格数 —— 这是**失败**，不是重复
                 zero_cells = 0       # 本屏 0 词条格数
                 screen_invalid = False   # 本屏被判"跑偏了"(点空一整行) → 复位背包后重扫, 不结算本屏
-                for nx, ny in cells:
+                ncols = max(1, len(cells) // max(1, int(grid_pitch.get('nrows') or 5)))
+                for cell_i, (nx, ny) in enumerate(cells):
+                    rc = f'r{cell_i // ncols + 1}c{cell_i % ncols + 1}'
                     if self.stop_requested():
                         stopped = True
                         self.log_info('已请求停止, 结束评估(未生成报告)')
@@ -1418,6 +1421,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                                 break
                         if attempt == 0:
                             self.log_debug(f'点选未切换 → 换行线另一侧重试: ({nx:.3f},{ny:.3f})')
+                    # **每格都留一条可核对的面板读数**(用户 2026-11-20: 日志不够详细) ——
+                    # 名字/等级/属性行数/主属性像不像, 出问题时不用开调试数据集也能定位
+                    mp_like = bool(paired_all) and self._main_props_like(paired_all)
+                    rows_desc = ' / '.join(f'{n}={v}' for n, v in (paired_all or [])[:4]) or '(空)'
+                    panel_desc = (f'面板: {echo_name or "(无名)"} '
+                                  f'+{level if level is not None else "?"} '
+                                  f'属性行{len(paired_all)}(主属性{"像" if mp_like else "不像"})')
+                    self.log_debug(f'[格 {rc}] ({nx:.3f},{ny:.3f}) {panel_desc} :: {rows_desc}')
                     # 属性行签名(不含名字): 名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)时防重复记录
                     stat_key = '|'.join(f'{n}={round(parse_number(v), 1)}' for n, v in paired_all)
                     key = self.dedup_key(echo_name, paired_all) if paired_all else ''
@@ -1426,13 +1437,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     if not paired_all or (still_same and not known_repeat):
                         # 按布局点了、但**没读到属性**(面板滚走/点空/没切换) —— 计入失败。
                         # 用户口径(2026-11-19): 这种不能悄悄当"重复"混过去，要能看见、且不能无限继续。
-                        if _register_fail(nx, ny):
+                        if _register_fail(nx, ny, f' | {panel_desc} | {rows_desc}', rc=rc):
                             break
                         continue
                     click_fail = 0
                     if known_repeat:
                         # 滚动重叠导致的重扫(内容与已记录的一致) —— 这才是"重复"，用于判重叠对不对
                         dups += 1
+                        self.log_info(f'[格 {rc}] ({nx:.3f},{ny:.3f}) 重复(内容与已记录的一致) | '
+                                      f'{panel_desc}')
                         continue
 
                     processed_any = True
@@ -1465,7 +1478,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             echo_name, paired_all, sig = name2, paired2, sig2
                             cost, level = cost2 or cost, level2 if level2 is not None else level
                             stats = stats2
-                            self.log_debug(f'面板重读成功({len(stats)} 条词条): {echo_name}')
+                            self.log_info(f'[格 {rc}] 面板重读成功({len(stats)} 条词条): {echo_name}')
+                        else:
+                            self.log_info(f'[格 {rc}] 面板重读仍无词条: {name2 or "(无名)"} '
+                                          f'属性行{len(paired2)} 主属性'
+                                          f'{"像" if self._main_props_like(paired2) else "不像"}')
 
                     if stats:
                         badge = badge_hue_at(nx, ny)
@@ -1508,15 +1525,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             # 等级 ≥+5 或前 2 行像真主属性 → 它本该有词条, 这是**失败**
                             why = (f'(等级 +{level}, 主属性'
                                    f'{"像" if self._main_props_like(paired_all) else "不像"}, '
-                                   f'却没配出词条)')
-                            if _register_fail(nx, ny, why):
+                                   f'却没配出词条) | {rows_desc}')
+                            if _register_fail(nx, ny, why, rc=rc):
                                 break
                             continue
                         # 真 0 级: 无评估价值 —— 跳过不记录、不终止(整屏全 0 才计入尾部判定)
                         processed_any = True
                         seen_sigs.add(key)
                         zero_cells += 1
-                        self.log_debug(f'[评估跳过] {echo_name} | 0级(无词条)')
+                        self.log_info(f'[格 {rc}] ({nx:.3f},{ny:.3f}) 0级(无词条) 跳过 | {panel_desc}')
                         continue
 
                     last_sig = sig
@@ -1531,6 +1548,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
 
                     # 记录字段来自 evaluate_one, 这里补报告用的序号与截图名
                     results.append({"index": evaluated + 1, "screenshot": ss_name, **rec})
+                    self.log_info(f'[格 {rc}] ({nx:.3f},{ny:.3f}) {panel_desc} → 记录#{evaluated + 1}')
                     self.log_info(f"[评估#{evaluated + 1}] {echo_name} | {tier}/5词条 | 得分={score:.2f} "
                                   f"| {verdict_cn} | 套装={set_name}({set_src})")
                     evaluated += 1
@@ -1545,8 +1563,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     continue
                 # 本屏小结: "新增 + 重复" 直接反映滚动重叠对不对(滚 3 行应剩 ~2 行重复);
                 # 失败 = 点了但读不到属性(面板滚走/点空) —— 与"重复"分开计数，否则分不清是重叠还是坏了
-                self.log_info(f'本屏完成: {len(cells)} 格, 新增 {evaluated - eval_before} 条, '
-                              f'重复 {dups} 格, 失败 {miss} 格, 0词条 {zero_cells} 格')
+                self.log_info(f'本屏完成: {len(cells)} 格({ncols}×{len(cells) // max(1, ncols)}), '
+                              f'新增 {evaluated - eval_before} 条, 重复 {dups} 格, '
+                              f'失败 {miss} 格, 0词条 {zero_cells} 格, 耗时 {time.time() - screen_t0:.1f}s')
                 # ── 0 级尾部: **整屏都是 0 词条**才记一屏, 连续 3 屏才收工 ──────────────
                 # 不能按"连续 12 格"判: 0 级件是按套装/获得顺序**夹在列表中间**的(实测 2026-11-19 21:26:
                 # 第 4 屏只有 13 个 0 级格, 12 格规则当场把 43 条当成"到底"; 而 17:00 那次旧版要到整屏

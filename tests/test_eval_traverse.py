@@ -117,7 +117,9 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('[失败]', src)
         self.assertIn('click_fail_stop', src)
         self.assertIn('点击后都读不到属性, 评估中止', src)
-        self.assertIn('重复 {dups} 格, 失败 {miss} 格', src)
+        # 2026-11-20: 本屏小结加了行列/耗时, 两个计数仍必须在(分开断言, 不锁格式)
+        self.assertIn('重复 {dups} 格', src)
+        self.assertIn('失败 {miss} 格', src)
 
     def test_effect_box_geometry(self):
         """归一化的 EFFECT_BOX → 像素框要正好盖住右侧详情面板(不能是 0 尺寸/越界)。"""
