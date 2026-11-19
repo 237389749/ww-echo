@@ -891,6 +891,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             click_fail += 1
             click_fail_total += 1
             miss += 1
+            if why:
+                # 读不干净的**面板**存一张(不是整屏): 下次复发能直接看到当时面板长什么样
+                try:
+                    os.makedirs('logs', exist_ok=True)
+                    crop = self.box_of_screen(0.66, 0.10, 0.995, 0.635).crop_frame(self.frame)
+                    cv2.imwrite(os.path.join('logs', 'eval_fail_panel.png'), crop)
+                except Exception:                  # noqa: BLE001 - 存图失败不影响评估
+                    pass
             self.log_info(f'[失败] 格({nx:.3f},{ny:.3f}) 点击后没读到属性{why} '
                           f'(本屏第 {miss} 格, 连续 {click_fail} 次)')
             if click_fail < click_fail_stop:
@@ -1231,6 +1239,20 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.log_warning(f'本次只滚了 {total:.1f} 行(目标 {rows:.0f} 行), 重叠会被去重吸收')
             return True
 
+        def _parse_stats(paired_all):
+            """属性行 → 真词条(前 2 行主属性排除 + 档位离散匹配, 最多 5 条)。
+
+            提取成闭包是为了"面板没读干净 → 重读一次再解析"能复用同一份规则。
+            """
+            out = []
+            if self._main_props_like(paired_all):
+                for raw_n, v_str in paired_all[2:]:
+                    norm = self._normalize_stat(raw_n, v_str)
+                    val = parse_number(v_str)
+                    if norm and is_stat_match(norm, val):
+                        out.append((norm, val))
+            return out[:5]
+
         def _has_stat_rows(paired_all):
             """详情读数里有没有**真词条**(2 行主属性之后、能对上官方档位的那几条)。
 
@@ -1426,14 +1448,22 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 会把 `持有数量：1` 当主属性、把技能描述里的 `加成提升10.00%` 当成一条词条
                     # → 报告里出现"1 词条 / 0 级"的假记录(2026-11-19 report1 的 #145/#146 就是)。
                     # 所以先验一次"第 1 行像不像真主属性"，不像就按 0 级跳过(与"0 词条不入报告"同一口径)。
-                    stats = []
-                    if self._main_props_like(paired_all):
-                        for raw_n, v_str in paired_all[2:]:
-                            norm = self._normalize_stat(raw_n, v_str)
-                            val = parse_number(v_str)
-                            if norm and is_stat_match(norm, val):
-                                stats.append((norm, val))
-                        stats = stats[:5]
+                    stats = _parse_stats(paired_all)
+                    # **可疑面板**: 等级/主属性说它该有词条, 却一条没配上 —— 多半是这一格没读干净
+                    # (面板重新选中后滚动位置没回顶 / 还没刷新完)。先回顶 + 等 0.3s 重读一次;
+                    # 真机 2026-11-20 首屏 5/24 格就是这种情况(以前被静默当成"0 级", 现在报失败)。
+                    if not stats and ((level is not None and level >= 5)
+                                      or (paired_all and self._main_props_like(paired_all))):
+                        if restore_panel_top():
+                            panel_dirty = False
+                        self.sleep(0.3)
+                        name2, paired2, sig2, cost2, level2 = read_detail()
+                        stats2 = _parse_stats(paired2)
+                        if stats2:
+                            echo_name, paired_all, sig = name2, paired2, sig2
+                            cost, level = cost2 or cost, level2 if level2 is not None else level
+                            stats = stats2
+                            self.log_debug(f'面板重读成功({len(stats)} 条词条): {echo_name}')
 
                     if stats:
                         badge = badge_hue_at(nx, ny)
