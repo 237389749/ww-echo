@@ -16,8 +16,8 @@
 | 引擎 | `ww_engine/`（in-tree） | 不再有 site-packages 补丁；4 处 `[ww-echo patch]` 已合并进 vendored 代码 |
 | 显示器/分辨率 | **任意窗口比例**（1024x768 起；`supported_resolution.ratio=None` 时按帧宽高线性映射） | 真机评估需要游戏在"背包声骸列表"界面；只有"全屏+黑边"才需显式设 `ratio='16:9'` |
 
-> **本机当前状态（2026-11-19 复核）**：`requirements.txt` 已按钉死版本装进**系统 Python 3.13.16**
-> （`python -m pip install -r requirements.txt`，**301** 项单测在该解释器上全绿、`import mainui` 通过），
+> **本机当前状态（2026-11-20 复核）**：`requirements.txt` 已按钉死版本装进**系统 Python 3.13.16**
+> （`python -m pip install -r requirements.txt`，**349** 项单测在该解释器上全绿、`import mainui` 通过），
 > 因此 `python mainui.py` / `run.cmd`（无 `.venv` 时回落到 PATH 的 `python`）可直接跑。
 > `%TEMP%\ww-echo-venv313` 是 2026-11-13 旧会话遗留的临时环境（约 1.1GB），**已不被引用，可删**。
 
@@ -34,9 +34,10 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 | B1 | `python -m unittest discover -s tests` | **349 项**（`Ran 349 tests` / `OK (skipped=2)`；无素材时个别用例 `skipTest`，总数不变） | 仅代码 |
 | B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
 | B3 | `python tools/eval_icon_match.py` | **217/219**（99.1%）；s1 中位 ≈0.894；名字候选一致 196/211 | 同上 |
-| B4 | `python tools/ui_shot.py`（可加 `--dark`） | 离屏渲染 **7 页** PNG，无异常 | 仅代码 |
+| B4 | `python tools/ui_shot.py`（可加 `--dark` / `--size 940x620`） | 离屏渲染 **7 页** PNG，无异常；940x620 下**无横向滚动**（组合穷举内容最小宽 493 / 套装配置 227，`hmax=0`） | 仅代码 |
 | B5 | `python tools/echo_plan.py --list` | 库存 **109 只 / 47 个名字**；COST `{1:55, 3:35, 4:19}`（满级数按输出核对） | 同 B2 |
 | B6 | `python tools/echo_plan.py --list-profiles` | **4 个**预设：爱弥斯 / 绯雪 / 西格莉卡 / 仇远 | 仅 `assets/char_profiles.json` |
+| B7 | `python tools/analysis/verify_eval_run.py eval_report6.json --log logs/ok-echo.log --check --expect 160` | 条数 **160** / 重复 0 / 回顶 0 / 缺 COST 0 / 假主属性 0 / 词条缺失 0 / `text=139(87%)` / `effect=0` / 失败 0；`结束原因: 到达0级尾部` | 本机 `eval_report6.json`（**未入库**，`.gitignore` 的 `eval_report*`） |
 
 > **2026-11-13 通用共效 0.6→0.5**：只影响"通用/套装未映射"件的评分与判定；B2 的 109 只里
 > 套装来源有 1 只 `default`（通用），其分数/判定可能变化，需在素材机重跑 B2 核对。
