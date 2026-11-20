@@ -105,6 +105,14 @@ class TestInferCost(unittest.TestCase):
         self.assertIsNone(infer_cost([("攻击", 30.0), ("攻击", 68.0)], None, 1))
         self.assertEqual(infer_cost([("攻击", 30.0), ("攻击", 100.0)], None, 5), 3)
 
+    def test_level_breaks_the_tolerance_tie(self):
+        # 2026-11-20 report3 #145: 只给 tier 窗口(+5..+25)时, 4C 在 +5 的 54.0 与 3C 在 +11 的
+        # 55.0(20×2.75)只差 1.0, 落在 TOL_FLAT 内 → "不唯一" → 报告缺 COST。
+        # 等级是硬信号: 取 +5 这一点, 只有 4C 的 54.0 命中。
+        main = [("暴击", 7.9), ("攻击", 54.0)]
+        self.assertIsNone(infer_cost(main, None, 1))
+        self.assertEqual(infer_cost(main, 5, 1), 4)
+
     def test_resolve_cost_prefers_badge(self):
         self.assertEqual(resolve_cost(4, [("暴击", 22.0), ("攻击", 150.0)], None, 5), (4, False))
         self.assertEqual(resolve_cost(None, [("暴击", 22.0), ("攻击", 150.0)], None, 5), (4, True))

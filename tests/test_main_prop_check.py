@@ -194,6 +194,15 @@ class TestEvaluateOneIsAdditive(unittest.TestCase):
         self.assertEqual(rec['plan_check']['state'], 'ok')
         self.assertEqual(rec['plan_check']['plan'], {'lock': [8, 9], 'discard': []})
 
+    def test_cost_inferred_with_level(self):
+        # 2026-11-20 report3 #145(等级 +5): 主属性 暴击 7.9% + 攻击 54.0 —— 只按 tier 窗口会与
+        # 3C 在 +11 的 55.0 撞车(容差 1.0) → 缺 COST/plan_check; 传 level 后按 +5 取网格唯一。
+        rec = _task().evaluate_one('测试声骸', [('攻击', 50.0)], '碎梦亡鬼之魇', 'text',
+                                   main_props=[('暴击', '7.9%'), ('攻击', '54')], level=5)
+        self.assertEqual(rec['cost'], 4)
+        self.assertEqual(rec['cost_src'], 'main')
+        self.assertIn('plan_check', rec)
+
     def test_cost_only(self):
         rec = _task().evaluate_one('测试声骸', self.STATS, '凝夜白霜', 'icon', cost=4)
         self.assertEqual(rec['cost'], 4)

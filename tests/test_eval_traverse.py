@@ -44,6 +44,17 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('未在背包界面检测到声骸网格', src)
         self.assertNotIn('页面锚点也未识别到', src)
 
+    def test_first_cell_is_not_dropped_by_baseline(self):
+        """B 打开背包默认选中第一只 → 开局基线就是 r1c1 的内容, 不能拿它当"点选未切换"判据。
+
+        2026-11-20 report3: r1c1 的 `sig` 与基线相同 → 被判"点击失败"丢掉, 159 = 160-1。
+        点 r1c1 本来就不会换面板, 所以首格必须按面板内容记录。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn("last_sig = ''", src)
+        self.assertNotIn('_, _, last_sig, _, _ = read_detail()', src,
+                         msg='基线不能再直接当 last_sig: 点 r1c1 本来就不会换面板')
+
     def test_preflight_checks_input_permission(self):
         """开跑前必须先确认能把游戏拉到前台 —— 否则"没管理员"会伪装成"检测不到网格"。
 

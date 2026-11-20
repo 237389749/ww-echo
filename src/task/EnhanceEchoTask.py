@@ -1338,12 +1338,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             # 不做的话会从上一轮停下的滚动位置继续(实测 21:06 那次首格落在列表中部, 上面的件永远扫不到)。
             self.reset_bag_view(presses=2)
             self.sleep(0.8)
-            # 先读一次当前详情面板作为基线: 第一次点击若没生效(点在空白/边框),
-            # 面板还是上一次选中的声骸 → 会被误记成本屏第一只(实测报告 #1 变成了之前手选的那只)
+            # 复位后游戏**默认选中第一只**(用户口径 2026-11-20) —— 这份基线就是 r1c1 的内容。
+            # 所以它不能当"点选未切换"的参照: 点 r1c1 本来就不会换面板, 拿基线去比必然把首格
+            # 判成"点击失败"(2026-11-20 report3 的 r1c1 就是这么丢的: 159 = 160-1, 面板内容
+            # 与任何已记录条都对不上)。基线只留作日志证据, `last_sig` 置空 → 首格无论点击
+            # 是否真的生效, 面板里的就是这一格。
             try:
-                _, _, last_sig, _, _ = read_detail()
+                base_name, _, _, _, base_level = read_detail()
+                self.log_debug(f'开局基线(复位后默认选中的第一只): {base_name or "(无名)"} '
+                               f'+{base_level if base_level is not None else "?"}')
             except Exception as e:
                 self.log_debug(f'读初始详情失败(忽略): {e}')
+            last_sig = ''
 
             while not stop_all:
                 if self.stop_requested():
@@ -2156,9 +2162,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         badge_cost = cost if cost in (1, 3, 4) else None
         if main_props:
             from src.echo_inventory import infer_cost, normalize_main_prop
+            rows = list(main_props)[:2]
+            # 等级 `+NN` 是比词条数更硬的信号: 有它就按那一点取网格(唯一), 没有才用词条数窗口。
+            # 2026-11-20 report3 #145: 只给 tier=1 的窗口(+5..+25)时, +5 的 `攻击 54.0`(4C 固有)
+            # 与 +11 的 `55.0`(3C 固有)只差 1.0, 正好落在 TOL_FLAT 内 → 反推"不唯一" → 整条缺 COST。
             inferred = infer_cost(
-                [(normalize_main_prop(n, v, None, tier), parse_number(v))
-                 for n, v in list(main_props)[:2]], tier=tier)
+                [(normalize_main_prop(n, v, level, tier), parse_number(v)) for n, v in rows],
+                level=level, tier=tier)
+            if inferred not in (1, 3, 4) and level is not None:
+                # 等级 OCR 读错(如 +15 认成 +16)时, 按等级取网格会全不中 → 退回词条数窗口(旧行为)
+                inferred = infer_cost(
+                    [(normalize_main_prop(n, v, None, tier), parse_number(v)) for n, v in rows],
+                    tier=tier)
             if inferred in (1, 3, 4):
                 cost = inferred
                 rec["cost_src"] = "main"
