@@ -2709,3 +2709,21 @@ B(满级) 另用 `_legacy_threshold` 单独取前后值。
   只换来 2 条判定变化，不划算。
 
 单测 350（无新增：脚本是测量工具，不碰判定/评分）。
+
+**补记 70（2026-11-20 夜：「导入最新素材」失效 —— 它只认 eval_debug，而那份数据集 11-13 起默认关）**
+
+用户报「组合穷举里的声骸库存导入最新素材失效」。复现：`load_inventory("")` 抛
+`FileNotFoundError: 找不到评估素材: logs/eval_debug/ 为空`，即使工作区根就躺着 `eval_report6.json`。
+
+- 根因：`latest_debug_dir()` 只找 `logs/eval_debug/`；而 `SAVE_DEBUG_DATASET` 从 2026-11-13 起**默认关**，
+  评估产物改由「保存报告」写在报告同目录的同名 `.json` —— 这条链从那天起就断了（CLI 的 `--list` 默认同样受影响）。
+- 修法（`src/echo_inventory.py`）：新增 `latest_eval_json()`（工作区根/`logs/` 里最新的、顶层 `results` 非空的 JSON，
+  挡掉 `char_profiles.json` 之类）+ `latest_inventory_path()`（与 `logs/eval_debug` 最新目录**按 mtime 取新**）；
+  `load_inventory("")` 与 `tools/echo_plan.py --list` 都走它。`latest_debug_dir()` 只收目录；
+  目录内的 JSON 也改成按 mtime 取最新（原来按文件名字典序，会拿到旧的）。
+- UI：`PlanTab._import("")` 先解析来源再导入，InfoBar 显示"来源: <文件名>"、标签 tooltip 给完整路径；
+  找不到时提示"工作区没有评估产物 JSON…请用「选择…」"。
+- 实测：工作区 `load_inventory("")` → **160 只**（`eval_report6.json`）；`echo_plan.py --list` → 160 / 49 名 /
+  COST `{1:66,3:77,4:17}`；离屏 `PlanTab()._import("")` 同样 160 只。
+
+单测 350 → **353**（新增 `TestLatestInventorySource` 3 例）。

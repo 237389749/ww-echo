@@ -226,6 +226,10 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   `<报告名>.json` 到报告同目录**(临时目录随后会被删)。「组合穷举」页「选择…」或
   `tools/echo_plan.py --inventory <该 json>` 直接导入它; `logs/eval_debug/<ts>/` 那条路只在需要
   **图标识别补套装**时才用(需 `SAVE_DEBUG_DATASET=True` + 一份 `image_report.md` 转录)。
+  **「导入最新素材」/ 省略 `--inventory` = `echo_inventory.latest_inventory_path()`**(2026-11-20 修):
+  取工作区根或 `logs/` 里**最新的、顶层 `results` 非空**的 JSON(挡 `char_profiles.json` 之类), 与
+  `logs/eval_debug` 最新目录**按 mtime 比新**; 只认 eval_debug 会永远失败 —— `SAVE_DEBUG_DATASET`
+  从 11-13 起默认关, 那条链早断了。目录内的 JSON 也按 mtime 取(不是文件名字典序)。
 - **性能**: 109 只数据集 3+2 约 3 千余组 / 0.08 秒(名字分组 → 名字组合 → 实例笛卡尔积); 组合规模大时靠 `top_k` 堆,
   取消走 `plan(..., should_stop=...)`(每 512 组查一次)。
 
@@ -525,7 +529,7 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**349 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**353 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`
