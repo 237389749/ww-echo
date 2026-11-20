@@ -16,12 +16,14 @@ from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF,
                             HeaderCardWidget, IndeterminateProgressBar, InfoBar, InfoBarPosition,
                             PrimaryPushButton, PushButton, SettingCard, SettingCardGroup,
-                            StrongBodyLabel, SubtitleLabel, SwitchButton, ToolTipFilter)
+                            SingleDirectionScrollArea, StrongBodyLabel, SubtitleLabel, SwitchButton,
+                            ToolTipFilter)
 
 from ww_engine import og
 
 from src.echo_stats import DEFAULT_WEIGHTS
 from src.echo_set_templates import get_set_weights
+from ui.widgets import make_scroll_transparent
 
 
 class RunTab(QWidget):
@@ -63,7 +65,14 @@ class RunTab(QWidget):
 
     # ══════════════════ 界面 ══════════════════
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        # **必须套滚动容器**(2026-11-20 用户: 拖动/最大化后界面"消失或变矮") —— 运行页内容比其它页多,
+        # 窗口高度不够时纯 QVBoxLayout 会被压到最小以下, 卡片直接被裁掉(620 高度就看不到日志/部分卡片)。
+        # 套上 `SingleDirectionScrollArea` 后, 内层 widget 保持 sizeHint(卡片是固定高度), 放不下就滚动。
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.view = QWidget()
+        layout = QVBoxLayout(self.view)
         layout.setContentsMargins(16, 12, 16, 16)
         layout.setSpacing(12)
         # 构建顺序有讲究: 「规则」框必须在「任务卡组」之前 —— 任务卡组末尾会调 _on_task_changed,
@@ -74,6 +83,10 @@ class RunTab(QWidget):
         layout.addWidget(self._build_task_group())
         layout.addWidget(self._build_eval_card())
         layout.addWidget(self._build_log_card(), 1)
+        scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.view)
+        outer.addWidget(scroll, 1)
         self._update_strategy_info(self.strategy_combo.currentText())
         self._update_status_text()
 

@@ -24,6 +24,7 @@ from ui.settings_tab import SettingsTab
 from ui.debug_tab import DebugTab
 from ui.about_tab import AboutTab
 from ui.dev_tab import DevTab
+from ui.widgets import LogView
 
 # 日志视图样式: 等宽 + 中文回退字体(与旧版一致)
 LOG_QSS = "QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px; }"
@@ -31,7 +32,7 @@ LOG_QSS = "QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font
 
 def new_log_view() -> QTextEdit:
     """一份独立日志视图。**一个 QWidget 只能属于一个父布局**, 所以每页各要一份, 不能共享。"""
-    view = QTextEdit()
+    view = LogView()                   # sizeHint 压小, 见 ui/widgets.LogView
     view.setReadOnly(True)
     view.setStyleSheet(LOG_QSS)
     return view

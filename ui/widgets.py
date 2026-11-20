@@ -1,7 +1,25 @@
 """
 UI 共享小工具(Fluent 页面里重复用到、且各页踩过同一坑的东西放这里)。
 """
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtCore import QSize
+from PySide6.QtWidgets import QScrollArea, QTextEdit
+
+
+class LogView(QTextEdit):
+    """日志视图(等宽字体由调用方设)。
+
+    **sizeHint 必须压小(2026-11-20)**: QTextEdit 默认 sizeHint 高 192px, 会把运行页/调试页的
+    sizeHint 撑到 833 —— 套上滚动容器后, 默认 760 的窗口就出现滚动条、日志卡被切在窗口下沿。
+    这里只把"建议高度"压到 70(实际高度由布局里的 stretch 决定, 窗口高时照常长高);
+    `minimumSizeHint` 同步压到 60, 让页面最小高度落在 620 附近, 再矮才出滚动条。
+    """
+    HINT_HEIGHT = 70
+
+    def sizeHint(self) -> QSize:
+        return QSize(480, self.HINT_HEIGHT)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(120, 60)
 
 
 def make_scroll_transparent(scroll: QScrollArea) -> QScrollArea:
