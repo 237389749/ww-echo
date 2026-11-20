@@ -169,5 +169,29 @@ class TestLowFirst(unittest.TestCase):
         self.assertEqual(cleaned["测试套"]["low_first"], {"below": 0.25, "top": 3})
 
 
+class TestEchoSetCounts(unittest.TestCase):
+    """一值单键 / 一值多键 —— 评估链只对单键名字锁定套装(2026-11-20 report4 的教训)。
+
+    统计的权威来源是生成物 `echoes[name].sets`；评估链里 `len(get_sets_by_echo(name)) == 1`
+    才允许按名字锁定，多键必须逐只读面板（格洛犸图 → 长路启航之星/雪落无声之愿）。
+    """
+
+    def test_official_distribution(self):
+        counts = T.echo_set_counts()
+        self.assertEqual(len(counts), 229, msg='官方索引 229 个显示名(含异相皮肤)')
+        dist = {}
+        for c in counts.values():
+            dist[c] = dist.get(c, 0) + 1
+        self.assertEqual(dist, {1: 71, 2: 108, 3: 47, 4: 3},
+                         msg='单键 71 / 多键 158；数据换版后要重新确认评估口径')
+
+    def test_known_cases(self):
+        counts = T.echo_set_counts()
+        self.assertEqual(counts['格洛犸图'], 2)      # 长路启航之星 / 雪落无声之愿
+        self.assertEqual(counts['冰盈舞者'], 3)
+        self.assertEqual(counts['辛吉勒姆'], 1)      # 一值单键 → 可按名锁定
+        self.assertEqual(counts['无常凶鹭'], 1)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

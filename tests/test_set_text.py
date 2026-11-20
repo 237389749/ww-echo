@@ -105,8 +105,11 @@ class TestEvalWiring(unittest.TestCase):
         with open(path, encoding='utf-8') as f:
             src = f.read()
         self.assertIn('read_set_by_effect(', src)
-        self.assertIn('match_set_effect(texts, cands)', src)
         self.assertIn('resolve_set_name(echo_name, badge', src)
+        # 效果原文兜底已停用(2026-11-20 宁缺毋滥): 只允许出现在注释里
+        self.assertIn('# cand, s1, s2 = match_set_effect(texts, cands)', src)
+        self.assertNotIn('\n                    cand, s1, s2 = match_set_effect', src,
+                         msg='效果原文兜底不能回到线上链（会把技能描述误认成套装）')
 
     def test_panel_name_source_is_propagated(self):
         """读到套装名明文时 `set_src` 必须是 `text`（不是一律 `effect`）。
@@ -119,7 +122,7 @@ class TestEvalWiring(unittest.TestCase):
         with open(path, encoding='utf-8') as f:
             src = f.read()
         self.assertIn("best = (named, 1.0, 0.0, 'text')", src)
-        self.assertIn("best = (cand, s1, s2, 'effect')", src)
+        self.assertIn('效果原文兜底已停用', src)
         self.assertIn('effect_src = read_set_by_effect(cand_list, echo_name)', src)
 
     def test_panel_text_beats_wrong_candidates(self):

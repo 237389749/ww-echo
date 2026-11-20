@@ -3,7 +3,7 @@
 重放的全部意义是"**离线跑一遍就能代表线上**"，所以这里锁住它与线上同一套判据：
   ① 套装名**独占一行**（或已见到「合鸣效果」标题）才算；
   ② 名字只出现在长行里、又没见标题 → 不能用名字硬认（会误判技能描述里的偶然命中）；
-  ③ 名字读不到时走**效果原文**反查；
+  ③ 名字读不到时**不再用效果原文兜底**（2026-11-20 用户口径: 宁缺毋滥；效果原文会把技能描述误认成套装）；
   ④ 都没读到 → `(None, '', -1, '')`，由调用方回退环色/名字。
 """
 import os
@@ -42,12 +42,15 @@ class TestReplay(unittest.TestCase):
         steps = [_step(0, '合鸣效果'), _step(1, '隐世回光 2件套: 治疗效果提升10%')]
         self.assertEqual(rp.replay(steps, CANDS)[:3], ('隐世回光', 'text', 1))
 
-    def test_effect_text_fallback(self):
-        """面板上只有效果原文（没有套装名行）→ 走 match_set_effect。"""
+    def test_effect_text_alone_is_not_used(self):
+        """面板上只有效果原文（没有套装名行）→ 不再兜底，交给调用方回退环色/名字。
+
+        2026-11-20 用户口径「宁缺毋滥」：效果原文是长文本覆盖率，会把技能描述里的
+        "热熔伤害"匹配成熔山裂谷（report5: 6 次 effect 里 4 次是绿熔蜥误判）。
+        """
         eff = ' '.join(set_effect_texts('隐世回光'))
         steps = [_step(0, '合鸣效果'), _step(1, eff)]
-        name, src, step, _ = rp.replay(steps, ['隐世回光'])
-        self.assertEqual((name, src, step), ('隐世回光', 'effect', 1))
+        self.assertEqual(rp.replay(steps, ['隐世回光'])[:3], (None, '', -1))
 
     def test_nothing(self):
         steps = [_step(0, '声骸技能', '造成伤害'), _step(1, '冷却时间 15 秒')]

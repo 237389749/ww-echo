@@ -15,9 +15,9 @@ from src.echo_parse import parse_number  # noqa: F401  (旧调用面: from src.t
 from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
                             tier_index, DEFAULT_WEIGHTS)  # noqa
 from src.echo_main_prop import check_main_values
-from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_effect, match_set_text,
+from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_text,
                                     get_set_core_first, get_set_low_first, has_heading, name_own_line,
-                                    get_sets_by_echo, normalize_echo_name, load_gamedata)
+                                    get_sets_by_echo, echo_set_counts, normalize_echo_name, load_gamedata)
 from src.echo_icon_match import (match_icon, MIN_MARGIN, MIN_SCORE,
                                  badge_hue, filter_by_set_hue, hue_group)
 from src.task.BaseEchoTask import BaseEchoTask
@@ -418,9 +418,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                          effect_src: str = '', use_icon: bool = False) -> tuple[str, str]:
         """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
 
-        信号优先级(2026-11-19 现状):
+        信号优先级(2026-11-19 现状；2026-11-20 起**评估链不再传 effect_set**，效果原文兜底已停用):
         ① **详情面板「合鸣效果」区**(`effect_set` + `effect_src`): 先在效果区读到**套装名明文**
-           (`text`, 最稳), 读不到再用**效果原文**的字符覆盖率反查(`effect`); 调用方已按名字候选约束过;
+           (`text`, 最稳), 读不到再用**效果原文**的字符覆盖率反查(`effect`; 参数保留给离线重放/旧报告);
         ② **卡片徽章环色**(`badge=(hue|None, ok)`): 名字多个候选时用环色过滤(85% 可唯一定位);
         ③ **名字候选**(config 套装在候选内则优先) → ④ config(评估=通用)。
         来源 'text'/'effect'/'hue'/'name'/'default' 记入报告, 便于离线核对。
@@ -545,7 +545,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         screens_done = 0         # 已扫完的屏数(首屏"0 重复"是正常的, 守卫要跳过它)
         back_steps = 0           # 本屏"滚过头"后的回滚次数(每屏最多 2 次, 防来回拉锯)
         panel_dirty = False      # 找套装后没回顶(滚动条是共用的) → 读下一格前先回顶
-        panel_set_cache = {}     # 声骸名 → (套装, 来源): 同名多只只滚一次面板
+        # **不要按声骸名缓存套装**: 同名不同件可以属于不同套装(格洛犸图 → 长路启航之星/雪落无声之愿),
+        # 按名字复用会把第一只读到的套装套给所有同名件(2026-11-20 report4 #21/#23/#24 实测)。
+        # 多候选的名字一律逐只读面板(见下方 stats 分支)。
         click_fail = 0           # 连续"点了却读不到属性"的格数(到 click_fail_stop 就中止)
         click_fail_stop = 6      # 连续这么多格"点了却读不到属性"就中止(一整行; 用户口径: 计入失败)
         click_fail_total = 0     # 全场"点了没读到属性"的格数(报告里可查)
@@ -843,12 +845,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         best = (named, 1.0, 0.0, 'text')
                         break
                     named = None
-                    cand, s1, s2 = match_set_effect(texts, cands)
-                    if cand:
-                        self.log_info(f'[套装] 按合鸣效果文本命中: {cand} '
-                                      f'(覆盖 {s1:.2f} / 次优 {s2:.2f}, 滚 {total} 格)')
-                        best = (cand, s1, s2, 'effect')
-                        break
+                    # **效果原文兜底已停用**(2026-11-20 用户口径: 宁缺毋滥) —— 它原本是"套装名明文"
+                    # 链路没打通时的唯一信号; 现在明文(含 text-lcs / 放开到 37 套)已足够, 而效果原文
+                    # 是长文本覆盖率匹配, 会把技能描述里的"热熔伤害"当成套装效果(report5: 6 次 effect
+                    # 里 4 次是绿熔蜥的误判)。保留注释备查; 需要看效果匹配结果用 check_set_panel.py。
+                    # cand, s1, s2 = match_set_effect(texts, cands)
+                    # if cand and seen_heading is not None:
+                    #     self.log_info(f'[套装] 按合鸣效果文本命中: {cand} '
+                    #                   f'(覆盖 {s1:.2f} / 次优 {s2:.2f}, 滚 {total} 格)')
+                    #     best = (cand, s1, s2, 'effect')
+                    #     break
                     if echo_grid.frame_change_ratio(prev, cur, box) < SCROLL_STILL_RATIO:
                         still += 1
                         if still >= 2:                 # 到底了仍没读到 → 交给环色/名字兜底
@@ -1321,6 +1327,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             if dbg_dir:
                 self.log_info(f'调试数据集目录: {os.path.abspath(dbg_dir)}', notify=True)
             self.log_info('评估遍历: 不识别声骸数量, 直到「连续两行 0 词条 / 网格为空」结束')
+            # 套装判定口径写进日志(用户 2026-11-20): 一值单键(名字只属一套)才按名字锁定,
+            # 一值多键(同名可属多套)必须逐只读面板 —— 官方索引 229 个显示名里 158 个是多键。
+            try:
+                counts = echo_set_counts()
+                multi = sum(1 for c in counts.values() if c > 1)
+                self.log_info(f'套装判定: {len(counts)} 个声骸名 — 单键 {len(counts) - multi} 个(按名锁定) / '
+                              f'多键 {multi} 个(逐只读面板)')
+            except Exception as e:                  # noqa: BLE001 - 统计失败不该拦评估
+                self.log_debug(f'套装统计读取失败(忽略): {e}')
             # 前置自检: 能不能把游戏拉到前台（= 输入权限是否够）。缺了它，故障会伪装成"检测不到网格"：
             # 没管理员 → bring_to_front 被 UIPI 拒 → 别的窗口盖着游戏 → 截图抓到遮挡窗口（实测 2026-11-18）。
             try:
@@ -1493,20 +1508,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     if stats:
                         badge = badge_hue_at(nx, ny)
                         cand_list = get_sets_by_echo(echo_name) if echo_name else []
-                        cached = panel_set_cache.get(echo_name) if echo_name else None
-                        if cached:
-                            # 同名多只: 套装只滚一次面板，之后直接复用(省时且避免反复滚)
-                            set_name, set_src = cached
-                        elif len(cand_list) == 1:
+                        if len(cand_list) == 1:
                             # **只属于一套** → 名字就是答案，不滚面板、不做 OCR(用户口径)
                             set_name, set_src = self.resolve_set_name(echo_name, badge)
                         else:
-                            # 名字多义/没认出来 → 滚面板读「合鸣效果」区的套装名明文
+                            # 名字多义/没认出来 → 滚面板读「合鸣效果」区的套装名明文。
+                            # **逐只读**: 同名不同件可以属于不同套装(格洛犸图 → 长路启航之星 /
+                            # 雪落无声之愿)。别按名字缓存套装 —— report4 的 #21/#23/#24 就是
+                            # 被第一只(长路)的缓存套错, 环色 7/102 两组的真值分别是长路/雪落。
+                            # 环色也不能当缓存键: 实测大量名字的环色落在候选之外(绿熔蜥 h18 对
+                            # 熔山裂谷 h7 / 轻云出月 ach), 只有面板明文是逐只可靠的。
                             effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list, echo_name)
                             set_name, set_src = self.resolve_set_name(echo_name, badge,
                                                                       effect_set, effect_src)
-                            if echo_name and set_src in ('text', 'effect'):
-                                panel_set_cache[echo_name] = (set_name, set_src)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         # level: 面板固定表头的 `+NN` —— 判"满级/未满级"的硬信号(见 _tier_from_level)

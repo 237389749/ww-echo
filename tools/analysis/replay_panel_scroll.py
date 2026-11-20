@@ -33,7 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.echo_set_templates import (get_sets_by_echo, has_heading,  # noqa: E402
-                                    match_set_effect, match_set_text, name_own_line)
+                                    match_set_text, name_own_line)
 
 
 class Box:
@@ -84,7 +84,8 @@ def load_dataset(path: Path):
 
 
 def replay(steps, cands):
-    """按**线上同一份判据**重放：套装名(且独占一行/见过标题)优先 → 效果原文反查。
+    """按**线上同一份判据**重放：套装名(且独占一行/见过标题)优先；**效果原文兜底已停用**
+    (2026-11-20 用户口径: 宁缺毋滥, 与线上链一致)。
 
     返回 `(套装名, 来源, 第几步, 备注)`；命中不了返回 `(None, '', -1, '')`。
     """
@@ -102,9 +103,10 @@ def replay(steps, cands):
                 named, how = named_all, how_all + '/all'
         if named and (heading_seen or name_own_line(texts, named)):
             return named, 'text', rec.get('step', 0), how
-        cand, s1, s2 = match_set_effect(texts, cands)
-        if cand:
-            return cand, 'effect', rec.get('step', 0), f'覆盖 {s1:.2f}/{s2:.2f}'
+        # 效果原文兜底已停用(线上同步): 长文本覆盖率会把技能描述误认成套装效果
+        # cand, s1, s2 = match_set_effect(texts, cands)
+        # if cand:
+        #     return cand, 'effect', rec.get('step', 0), f'覆盖 {s1:.2f}/{s2:.2f}'
     return None, '', -1, ''
 
 

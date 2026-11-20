@@ -539,6 +539,19 @@ def get_sets_by_echo(echo_name: str) -> list[str]:
     return list(index[key]) if key else []
 
 
+def echo_set_counts() -> dict[str, int]:
+    """声骸显示名 → 它出现在几个套装里（官方索引口径）：**1 = 一值单键, ≥2 = 一值多键**。
+
+    2026-11-20 的教训：同名不同件可以属于不同套装（格洛犸图 → 长路启航之星 / 雪落无声之愿），
+    评估链里**只有一值单键**才允许"按名字锁定套装"；一值多键必须逐只读面板。
+    统计的权威来源是生成物 `echoes[name].sets`（229 个显示名，含异相皮肤），这里只是把它读成计数；
+    **别在运行时按名字缓存套装** —— 第一只的答案不能代表同名其它件。
+    """
+    gd = load_gamedata() or {}
+    echoes = gd.get("echoes") or {}
+    return {name: len(info.get("sets") or []) for name, info in echoes.items()}
+
+
 def get_set_by_echo(echo_name: str, prefer: str | None = None) -> str | None:
     """声骸名 → 套装名(评估时按声骸名选套装配置)。未录入返回 None(调用方回退通用)。
     多套装声骸: prefer 在候选内则取其(尊重调用方语境), 否则取声明顺序首个。"""

@@ -55,6 +55,26 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertNotIn('_, _, last_sig, _, _ = read_detail()', src,
                          msg='基线不能再直接当 last_sig: 点 r1c1 本来就不会换面板')
 
+    def test_set_read_per_echo_not_cached_by_name(self):
+        """同名不同件可以属于不同套装 → 套装必须逐只读面板, 不能按名字缓存。
+
+        2026-11-20 report4: 5 只「格洛犸图」第一只读到「长路启航之星」后被复用给全部,
+        而 #21/#23/#24 的真值是「雪落无声之愿」; 环色 7/102 两组恰好对应候选集的
+        长路启航之星(7) / 雪落无声之愿(102)。环色本身也不能当缓存键 —— 实测大量名字的环色
+        落在候选之外(绿熔蜥 h18 vs 熔山裂谷 h7 / 轻云出月 ach)。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertNotIn('panel_set_cache', src)
+
+    def test_effect_fallback_needs_heading(self):
+        """没看到「合鸣效果」标题时不能按效果原文反查 —— 技能描述会被误匹配成别的套装。
+
+        2026-11-20 report5: 绿熔蜥技能里的"热熔伤害"在滚 8 格(还没到套装区)时被匹配成
+        熔山裂谷(覆盖 0.36)并 break, 4 只判错; 滚到 12~16 格其实有明文。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('if cand and seen_heading is not None:', src)
+
     def test_preflight_checks_input_permission(self):
         """开跑前必须先确认能把游戏拉到前台 —— 否则"没管理员"会伪装成"检测不到网格"。
 
@@ -83,7 +103,7 @@ class TestEvalTraverseEnd(unittest.TestCase):
         self.assertIn('_effect_box_px', src)              # 整块面板，不能只读上半截
         # 名字没认出来（候选为空）时也要读面板 —— 实测 格洛玛图→格洛犸图 就是这样;
         # 反过来: **只属于一套的件不读面板**(2026-11-19 用户口径)
-        self.assertIn('elif len(cand_list) == 1:', src)
+        self.assertIn('if len(cand_list) == 1:', src)
         # 滚过面板就必须回顶(滚动条是所有声骸共用的)。**判据不能是"名字可见"**：名字/+25/COST
         # 在固定表头里，四个滚动位置逐像素不动(2026-11-19 真机) → 那个判据恒为真、等于没回顶。
         # 端点判定 = **画面不再变化**(用户口径: 不看步数/格数)，所以: 等动画停稳再比帧 + 只按画面判。
