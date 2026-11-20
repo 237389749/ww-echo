@@ -9,13 +9,15 @@ r"""一次真机评估的验收：条数 / 去重 / 套装来源 / 回顶·COST�
   - 每屏一行: 格数 / 新增 / 重复 / 网格几何 / 滚动行数与残差（`--screens` 全打印, 否则只打异常屏）
 支撑结论:
   - `docs/SESSION_2026-11-18.md` §8 的三条验收（条数 153±2、每屏重复 10~13 格、`set_src=text` 占多数）
-  - `docs/SESSION_2026-11-19.md` §9 的四个数（**当前口径**）:
-      条数预期 144（先跑出 146，减掉那两只 +0 假记录）/ `set_src=text` ≥ 85%
-      / 面板回顶失败 = 0 / 缺 COST = 0 / 报告里没有 `持有数量` 这类假主属性
+  - `docs/SESSION_2026-11-20.md` §0 的八项（**当前口径**，report6 全绿）:
+      条数 160（= 161 减去「梦魔/梦魇·咕咕河豚」同名同词条的重复记录）/ `set_src=text` ≥ 85%
+      / `effect` = 0 / 面板回顶失败 = 0 / 缺 COST = 0 / 词条缺失 = 0 / 完全重复 0 / 报告里没有
+      `持有数量` 这类假主属性。`--expect` 缺省不再写死（旧默认 144 会误杀 160 的报告），
+      真机验收一律显式给 `--expect 160`（见 `docs/BASELINE.md` B7）
   - `docs/BASELINE.md` 的「真机评估」验收口径
 用法:
   python tools/analysis/verify_eval_run.py eval_report.json
-  python tools/analysis/verify_eval_run.py eval_report.json --log logs/ok-echo.log --check
+  python tools/analysis/verify_eval_run.py eval_report.json --log logs/ok-echo.log --check --expect 160
   python tools/analysis/verify_eval_run.py --log logs/ok-echo.2026-11-14.log --screens   # 无 JSON 时只看日志
   python tools/analysis/verify_eval_run.py 旧报告.json --expect 146 --min-text-pct 85    # 旧口径复算
 """
@@ -225,11 +227,19 @@ def fake_main_prop_rows(rows):
 
 
 def main() -> int:
+    # Windows 控制台/管道默认 cp936：报告里的声骸名含 `·`(U+00B7) / `・`(U+30FB)，直接打印会
+    # UnicodeEncodeError 把验收打断（全项 PASS 却退出码 1）。改成不可编码字符替换，绝不让验收死在这。
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors='replace')
+        except (AttributeError, ValueError):   # 被 redirect_stdout 换成 StringIO / 已 detach
+            pass
+
     ap = argparse.ArgumentParser()
     ap.add_argument('json_path', nargs='?', help='评估产物 JSON（可选）')
     ap.add_argument('--log', default=str(ROOT / 'logs' / 'ok-echo.log'))
-    ap.add_argument('--expect', type=int, default=144,
-                    help='期望条数（SESSION_2026-11-19 §9：146 − 2 只 +0 假记录）')
+    ap.add_argument('--expect', type=int, default=None,
+                    help='期望条数（显式给；缺省只报数量、不判条数。当前真机基线 = 160，见 BASELINE B7）')
     ap.add_argument('--tol', type=int, default=2)
     ap.add_argument('--min-text-pct', type=float, default=85.0,
                     help='set_src=text 至少占比(%%), 低于则告警（SESSION_2026-11-19：≥85）')
@@ -258,11 +268,14 @@ def main() -> int:
     if args.json_path:
         data, rows = parse_report(Path(args.json_path))
         n = len(rows)
-        lo, hi = args.expect - args.tol, args.expect + args.tol
-        mark = 'PASS' if lo <= n <= hi else 'WARN'
-        print(f'\n[条数] {n}  (期望 {args.expect}±{args.tol} = {lo}~{hi})  -> {mark}')
-        if mark == 'WARN':
-            warns.append(f'条数 {n} 不在 {lo}~{hi}（声骸列表条数变了也会这样，看其它项）')
+        if args.expect is None:
+            print(f'\n[条数] {n}  (未给 --expect, 不判条数)  -> SKIP')
+        else:
+            lo, hi = args.expect - args.tol, args.expect + args.tol
+            mark = 'PASS' if lo <= n <= hi else 'WARN'
+            print(f'\n[条数] {n}  (期望 {args.expect}±{args.tol} = {lo}~{hi})  -> {mark}')
+            if mark == 'WARN':
+                warns.append(f'条数 {n} 不在 {lo}~{hi}（声骸列表条数变了也会这样，看其它项）')
         print(f"  时间={data.get('evaluated_at')}  顶层 set={data.get('set')}")
         print('  词条数分布: ' + str(dict(sorted(collections.Counter(
             len(r.get('stats') or []) for r in rows).items()))))

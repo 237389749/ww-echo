@@ -259,5 +259,41 @@ class RollingHealthGateTest(unittest.TestCase):
         self.assertIn('报告没有 level 字段', out)
 
 
+class ConsoleEncodingTest(unittest.TestCase):
+    """cp936 控制台打印声骸名里的 `·` / `・` 曾把验收打断：八项全 PASS 却 UnicodeEncodeError → exit 1。
+
+    修复点在 `main()` 入口（stdout/stderr `reconfigure(errors="replace")`）。这里用真正的 cp936
+    TextIOWrapper 当 stdout，名字必须原样走到打印分支。
+    """
+
+    def test_non_encodable_name_does_not_crash(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        log = d / 'ok-echo.log'
+        lines = [l for l in NEW_SESSION if '评估完成' not in l]
+        lines.insert(-1, _line('10:00:48,500',
+                               '[评估#3] 梦魔・咕咕河豚 | 5/5词条 | 得分=20.00 | 保留 | 套装=息界同调之律(name)'))
+        lines.append(_line('10:00:49,000', '评估完成, 共3个声骸'))
+        log.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'text', cost=3),
+                _row(3, '梦魔・咕咕河豚', '息界同调之律', 'name', cost=1)]
+        path = d / 'eval_report.json'
+        path.write_text(json.dumps(_report(rows), ensure_ascii=False), encoding='utf-8')
+
+        raw = io.BytesIO()
+        stdout = io.TextIOWrapper(raw, encoding='gbk')     # 默认 errors='strict'：就是真机控制台
+        stderr = io.TextIOWrapper(io.BytesIO(), encoding='gbk')
+        argv = ['verify_eval_run.py', str(path), '--log', str(log), '--check']
+        with patch.object(sys, 'argv', argv), \
+                patch.object(sys, 'stdout', stdout), patch.object(sys, 'stderr', stderr):
+            code = ver.main()          # 修复前：这里抛 UnicodeEncodeError
+        stdout.flush()
+        self.assertEqual(code, 0)
+        self.assertIn('[ok]', raw.getvalue().decode('gbk', errors='replace'))
+
+
 if __name__ == '__main__':
     unittest.main()
