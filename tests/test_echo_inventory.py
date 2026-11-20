@@ -18,7 +18,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.echo_inventory import (load_inventory, latest_debug_dir, normalize_main_prop,   # noqa: E402
+from src.echo_inventory import (latest_eval_json, latest_inventory_path, load_inventory,   # noqa: E402
+                                latest_debug_dir, normalize_main_prop,
                                 infer_cost, parse_level, resolve_cost, resolve_set,
                                 split_rows, substat_key, summarize)
 
@@ -200,6 +201,62 @@ class TestLoadInventory(unittest.TestCase):
     def test_missing_path_raises(self):
         with self.assertRaises(FileNotFoundError):
             load_inventory(os.path.join(tempfile.gettempdir(), "不存在的目录_zzz"))
+
+
+class TestLatestInventorySource(unittest.TestCase):
+    """「导入最新素材」: 2026-11-13 起 `SAVE_DEBUG_DATASET` 默认关 → 只有评估 JSON 可导。
+
+    旧实现只找 `logs/eval_debug/`，于是按钮永远报"找不到评估素材"(2026-11-20 用户实测)。
+    这里用临时工作区钉住三件事: ①只认"像评估产物"的 JSON ②按 mtime 取最新
+    ③JSON 与 debug 素材目录之间也按 mtime 选。
+    """
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self.tmp = tempfile.TemporaryDirectory()
+        os.chdir(self.tmp.name)
+        os.makedirs("logs", exist_ok=True)
+        self.addCleanup(self._cleanup)
+
+    def _cleanup(self):
+        os.chdir(self._cwd)
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _rec(name):
+        return {"index": 1, "name": name, "set": "长路启航之星", "cost": 4,
+                "main_props": [{"name": "暴击伤害", "value": 44.0},
+                               {"name": "攻击", "value": 150.0}],
+                "stats": [{"name": "暴击", "value": 6.3}]}
+
+    def _write(self, path, payload, stamp):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.utime(path, (stamp, stamp))
+
+    def test_latest_eval_json_ignores_non_reports(self):
+        self._write("eval_report_old.json", {"set": "通用", "results": [self._rec("旧件")]}, 1000)
+        self._write("eval_report_new.json", {"set": "通用", "results": [self._rec("新件")]}, 2000)
+        self._write("char_profiles.json", {"爱弥斯": {"scaling": "攻击"}}, 3000)   # 不是评估产物
+        self.assertEqual(os.path.basename(latest_eval_json()), "eval_report_new.json")
+        items = load_inventory("")
+        self.assertEqual([i.name for i in items], ["新件"])
+
+    def test_newer_debug_dir_beats_older_json(self):
+        self._write("eval_report.json", {"set": "通用", "results": [self._rec("旧件")]}, 1000)
+        d = os.path.join("logs", "eval_debug", "20260101_000000")
+        os.makedirs(d)
+        with open(os.path.join(d, "image_report.md"), "w", encoding="utf-8") as f:
+            f.write("")
+        os.utime(d, (2000, 2000))
+        self.assertEqual(os.path.basename(latest_inventory_path()), "20260101_000000")
+
+    def test_no_source_raises_helpfully(self):
+        self.assertEqual(latest_inventory_path(), "")
+        with self.assertRaises(FileNotFoundError) as ctx:
+            load_inventory("")
+        self.assertIn("eval_debug", str(ctx.exception))
+        self.assertIn("json", str(ctx.exception).lower())
 
 
 class TestRealDataset(unittest.TestCase):

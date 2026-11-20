@@ -2,10 +2,12 @@
 声骸**库存导入** —— 把既有的评估产物变成 `EchoItem` 列表, 供组合穷举(`src/echo_combos.py`)使用。
 
 两个来源(与评估阶段的落盘约定一致):
-1. `logs/eval_debug/<时间戳>/`(**推荐**, 数据最全): `image_report.md` 提供
+1. **评估 JSON**(顶层 `results`: `evaluate_one` 的记录) —— **推荐/默认**: 取
+   `name/set/cost/main_props/stats`, 不需要图片素材; 运行页保存报告时写在报告同目录。
+   路径省略时走 `latest_inventory_path()`: 工作区里最新的评估 JSON 或 `logs/eval_debug/<ts>/`(按 mtime)。
+2. `logs/eval_debug/<时间戳>/`(素材最全, 需 `SAVE_DEBUG_DATASET=True`): `image_report.md` 提供
    名字 / 等级 / COST / 主属性 2 行 / 副词条 5 条; 套装用同目录 `<tag>_full.png` 的详情面板图标识别
    (`src/echo_icon_match`, 高置信优先) → 与线上评估同一套消歧口径。
-2. 评估 JSON(顶层 `results`: `evaluate_one` 的记录): 直接取 `name/set/cost/main_props/stats`。
 
 **主属性 2 行**(实测 219 张面板, 见 `logs/eval_debug/20260911_110817/image_report.md`):
 - 第 1 行 = 声骸的主属性(暴击/暴伤/属伤/共效/治疗/攻·生·防 的百分比…), COST/套装决定可选范围;
@@ -48,9 +50,51 @@ _ROOM = "logs/eval_debug"
 
 
 def latest_debug_dir() -> str:
-    """`logs/eval_debug/` 下最新的素材目录(无则返回空串)。"""
-    dirs = sorted(glob.glob(os.path.join(_ROOM, "*")), key=os.path.getmtime)
+    """`logs/eval_debug/` 下最新的素材目录(无则返回空串; 只收目录, 防同名杂文件)。"""
+    dirs = [p for p in glob.glob(os.path.join(_ROOM, "*")) if os.path.isdir(p)]
+    dirs.sort(key=os.path.getmtime)
     return dirs[-1] if dirs else ""
+
+
+def _is_eval_report(path: str) -> bool:
+    """是不是评估产物 JSON(顶层 `results` 非空) —— 挡住 char_profiles/gamedata 这类。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and isinstance(data.get("results"), list) and bool(data["results"])
+
+
+def latest_eval_json() -> str:
+    """最新的**评估产物 JSON**(运行页保存报告时同名写在报告目录; 默认落在工作区根)。
+
+    只扫**工作区根 / `logs/` 一层** —— 报告目录由用户在保存框里选, 落在别处时请用
+    「选择…」/ `--inventory` 显式指定; 不往 `logs/*/` 深挖, 免得把临时重放产物当成交付物。
+    """
+    cands = []
+    for base in (".", "logs"):
+        cands += glob.glob(os.path.join(base, "*.json"))
+    best, best_mtime = "", -1.0
+    for p in cands:
+        try:
+            mtime = os.path.getmtime(p)
+        except OSError:
+            continue
+        if mtime > best_mtime and _is_eval_report(p):
+            best, best_mtime = p, mtime
+    return best
+
+
+def latest_inventory_path() -> str:
+    """「最新素材」= 最新的评估 JSON 或 `logs/eval_debug/<ts>/`, 按 mtime 取新。
+
+    为什么不只找 `logs/eval_debug`: 2026-11-13 起 `SAVE_DEBUG_DATASET` 默认关，
+    评估产物改由「保存报告」写在报告同目录的 `<报告名>.json` —— 只认 eval_debug 会永远
+    "找不到素材"(2026-11-20 用户实测: 组合穷举页「导入最新素材」直接报错)。
+    """
+    cands = [p for p in (latest_eval_json(), latest_debug_dir()) if p]
+    return max(cands, key=os.path.getmtime) if cands else ""
 
 
 def imread(path: str):
@@ -320,16 +364,19 @@ def load_inventory(path: str = "", use_icons: bool = True) -> list[EchoItem]:
     素材目录里没有整帧(`*_full.png`)时 `use_icons` 自动失效 → 只能按名字候选定套装
     (多义名字会退到"通用" —— 这种只会在离线裁剪过素材时出现)。
     """
-    path = path or latest_debug_dir()
+    path = path or latest_inventory_path()
     if not path:
-        raise FileNotFoundError("找不到评估素材: logs/eval_debug/ 为空(先跑一次评估模式)")
+        raise FileNotFoundError(
+            "找不到评估数据: 工作区没有评估产物 JSON, `logs/eval_debug/` 也为空 —— "
+            "先在「运行」页评估并保存报告(会在报告同目录写出同名 .json), 或用「选择…」手动指定")
+    logger.info(f"库存导入来源: {path}")
     if os.path.isdir(path):
         report = os.path.join(path, "image_report.md")
         frames = {os.path.basename(p).replace("_full.png", ""): p
                   for p in glob.glob(os.path.join(path, "*_full.png"))} if use_icons else {}
         if os.path.exists(report):
             return _finish(_load_report(report, frames))
-        jsons = sorted(glob.glob(os.path.join(path, "*.json")))
+        jsons = sorted(glob.glob(os.path.join(path, "*.json")), key=os.path.getmtime)
         if jsons:
             return _finish(_load_json(jsons[-1]))
         raise FileNotFoundError(f"目录里既没有 image_report.md 也没有评估 JSON: {path}")

@@ -13,7 +13,8 @@
     # 同一套 5 件
     python tools/echo_plan.py --set-a 隐世回光 --bare 生命=20000 --scaling 生命
 
-参数省略时: 素材取 `logs/eval_debug/` 最新目录(或 `--dir` 指定 / `--inventory <评估JSON>`)。
+参数省略时: 素材取**最新评估产物**(工作区根/`logs/` 里最新的 `results` JSON; 没有才退回
+`logs/eval_debug/` 最新目录), 也可 `--dir` 指定素材目录 / `--inventory <评估JSON>` 显式指定。
 **契约**: 补正一律视为生效; 伤害只用于排序(`E = 缩放总值 × 双爆区 × 加成区`), 倍率/加深/防御/抗性
 在方案内是常数 —— CLI 额外把它折进「伤害」列(与 calculator 对数字用), 排序与「排序分 E」一致。
 """
@@ -200,7 +201,8 @@ def print_result(res, req, bare, corrections, args):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="声骸组合穷举 + 伤害排名(离线, 用评估数据)")
-    ap.add_argument("--inventory", default="", help="评估 JSON 文件; 省略则用 --dir(默认最新素材目录)")
+    ap.add_argument("--inventory", default="",
+                    help="评估 JSON 文件; 省略则按「最新素材」(最新评估 JSON 或 --dir 素材目录)")
     ap.add_argument("--dir", default="", help="logs/eval_debug/<时间戳> 素材目录")
     ap.add_argument("--no-icons", action="store_true", help="跳过套装图标识别(快, 但多义名字会退到通用)")
     ap.add_argument("--list", action="store_true", help="只打印库存概览")

@@ -10,6 +10,7 @@
 伤害只用于排序: `E = 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区)`, 共效不计。
 """
 import csv
+import os
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor
@@ -28,7 +29,7 @@ from src.echo_combos import (PlanRequest, candidate_pool, energy_is_damage, inst
 from src.char_profiles import (CRIT_DEFAULTS, ENERGY_DEFAULTS, build_profile, corrections_of,
                                 delete as delete_profile, derived_of, load_all as load_profiles,
                                 upsert as upsert_profile)
-from src.echo_inventory import load_inventory, summarize
+from src.echo_inventory import latest_inventory_path, load_inventory, summarize
 from src.echo_panel import (BASE_KEYS, ELEMENT_KEYS, EXTRA_BONUS_KEYS, GENERIC_BONUS_KEY, SPECIALTY_KEYS,
                                Correction, DerivedBonus, aggregate, defense_zone, resist_zone)
 from src.echo_set_templates import STAT_ORDER, get_all_set_names
@@ -481,8 +482,15 @@ class PlanTab(QWidget):
             self._import(path)
 
     def _import(self, path):
+        # 空路径 = 「导入最新素材」: 由 domain 决定是哪个(最新评估 JSON 或 eval_debug 素材目录)
+        source = path or latest_inventory_path()
+        if not source:
+            self._info(False, "没有可导入的素材",
+                       "工作区里没有评估产物 JSON（「运行」页保存报告时会写出同名 .json），"
+                       "logs/eval_debug 也为空 —— 请用「选择…」指定文件。")
+            return
         try:
-            items = load_inventory(path)
+            items = load_inventory(source)
         except Exception as e:                                   # noqa: BLE001 - 直接反馈给用户
             self._info(False, "导入失败", str(e))
             return
@@ -492,11 +500,13 @@ class PlanTab(QWidget):
         no_cost = s.get("no_cost") or 0
         self.inv_label.setText(f"{s['total']} 只 / {s['names']} 个名字(满级 {n_max}) | "
                                f"套装 {len(s['by_set'])} 个")
+        self.inv_label.setToolTip(f"来源: {source}")
         self._info(True, "已导入库存", f"{s['total']} 只(COST {s['by_cost']})"
                                        + (f", 含「{next(iter(s['by_set']))}」等 {len(s['by_set'])} 套"
                                           if s['by_set'] else "")
                                        + (f"；⚠ {no_cost} 只缺 COST 会被跳过(重新评估可补全)"
-                                          if no_cost else ""))
+                                          if no_cost else "")
+                                       + f"\n来源: {os.path.basename(source)}")
         self.status.setText(f"库存 {s['total']} 只(已按 5★ 处理); 选好套装后点「开始穷举」"
                             + (f" —— 注意 {no_cost} 只缺 COST 未入池" if no_cost else ""))
 
