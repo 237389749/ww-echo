@@ -716,26 +716,29 @@ details.rules summary{cursor:pointer;font-weight:bold;font-size:15px}
 .w{display:inline-block;margin:2px 4px 2px 0;padding:1px 6px;border-radius:3px;background:#e3f2fd;color:#1565c0}
 """
 
-# 评估报告筛选脚本(原生 JS, 无外部依赖): 得分区间 + 判定多选 + 名称包含
+# 评估报告筛选脚本(原生 JS, 无外部依赖): 得分区间 + 判定多选 + 名称包含 + 套装 + COST
 _EVAL_JS = """
 function applyFilter(){
   var min=parseFloat(document.getElementById('fmin').value);
   var max=parseFloat(document.getElementById('fmax').value);
   var nm=document.getElementById('fname').value.trim();
   var st=document.getElementById('fset').value;
+  var co=document.getElementById('fcost').value;
   var vs=Array.prototype.slice.call(document.querySelectorAll('.fv'))
             .filter(function(c){return c.checked}).map(function(c){return c.value});
   var shown=0;
   document.querySelectorAll('#tbody tr').forEach(function(tr){
     var s=parseFloat(tr.getAttribute('data-score'));
-    var v=tr.getAttribute('data-verdict');
+    // 判定按**中文口径**过滤: "保留(词条缺失)" 以"保留"开头也算保留; 不合格/不建议强化分开选
+    var v=tr.getAttribute('data-vcn')||tr.getAttribute('data-verdict')||'';
     var n=tr.getAttribute('data-name')||'';
     var ok=true;
     if(!isNaN(min)&&!(s>=min)) ok=false;
     if(!isNaN(max)&&!(s<=max)) ok=false;
-    if(vs.length&&vs.indexOf(v)<0) ok=false;
+    if(vs.length&&!vs.some(function(x){return v.indexOf(x)===0})) ok=false;
     if(nm&&n.indexOf(nm)<0) ok=false;
     if(st&&(tr.getAttribute('data-set')||'')!==st) ok=false;
+    if(co&&(tr.getAttribute('data-cost')||'')!==co) ok=false;
     tr.style.display=ok?'':'none';
     if(ok) shown++;
   });
@@ -743,7 +746,8 @@ function applyFilter(){
 }
 ['fmin','fmax','fname'].forEach(function(id){
   document.getElementById(id).addEventListener('input',applyFilter)});
-document.getElementById('fset').addEventListener('change',applyFilter);
+['fset','fcost'].forEach(function(id){
+  document.getElementById(id).addEventListener('change',applyFilter)});
 document.querySelectorAll('.fv').forEach(function(c){
   c.addEventListener('change',applyFilter)});
 document.getElementById('fclear').addEventListener('click',function(){
@@ -751,6 +755,7 @@ document.getElementById('fclear').addEventListener('click',function(){
   document.getElementById('fmax').value='';
   document.getElementById('fname').value='';
   document.getElementById('fset').value='';
+  document.getElementById('fcost').value='';
   document.getElementById('fsort').value='orig';
   document.querySelectorAll('.fv').forEach(function(c){c.checked=true});
   applySort();
@@ -846,6 +851,7 @@ Lv5 / Lv10 为结构判定：<b>只看首条</b>——首条在「首核」内�
 <p><b>再下方的「通用评分」</b>：散件口径 —— 按<b>主属性族</b>只启用 攻击/生命/防御 其中一族的
 百分比(0.5) + 固定(0.25)（生命主属性的件，攻击%/固定攻击的副词条不计）；暴击 1.0 / 暴击伤害 0.7 /
 共鸣效率 0.5 不变；<b>专伤统一 0.2</b>（低于固定攻击 0.25、远低于攻击% 0.5，因为通用口径不知道角色吃哪种）。
+<b>主属性是 3C 增伤/共效、4C 暴击/爆伤/治疗时，识别不出三系 → 默认按攻击族（输出向）算</b>。
 同名同套装的重复件往往只能当散件或狗粮，这个数衡量那部分价值；<b>只作参考，不参与判定</b>。</p>
 <p><b>建议强化</b>（未满级）：总分 ≥ B(满级)（已达保留线, 稳了）；或「继续开到满级达 B(满级) 的概率 ≥ 60%」<b>且</b>
 现有条分 ≥ A(现有) —— 后者是"现有几条自己站得住"，只看前瞻会放过"权重低但档位好"的件。<br>
@@ -877,8 +883,11 @@ def _build_eval_html(data):
 
     pass_n = sum(1 for r in results if r["verdict"] == "pass")
     pend_n = sum(1 for r in results if r["verdict"] == "pending")
-    fail_n = sum(1 for r in results if r["verdict"] == "fail")
-    zero_n = sum(1 for r in results if r["verdict"] == "zero")
+    # fail 一个码里有两档文案(满级"不合格" / 未满级"不建议强化") —— 按 verdict_cn 拆开统计,
+    # 报告筛选也给两个独立选项(旧报告没有 verdict_cn 时都归"不建议强化")
+    bad_n = sum(1 for r in results if r["verdict"] == "fail"
+                and "不合格" in (r.get("verdict_cn") or ""))
+    fail_n = sum(1 for r in results if r["verdict"] == "fail") - bad_n
     keep_n = sum(1 for r in results if r["verdict"] == "keep")
     hold_n = sum(1 for r in results if r["verdict"] == "hold")
 
@@ -973,7 +982,7 @@ def _build_eval_html(data):
                         f'style="color:#c62828;font-size:11px">⚠ 数值可疑</div>')
         cost_txt = f'{r["cost"]}C' if r.get("cost") else "—"
         rows.append(
-            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-name="{name}" data-set="{set_name}"'
+            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-vcn="{vcn}" data-name="{name}" data-set="{set_name}"'
             f' data-cost="{r.get("cost") or ""}" data-plan="{pc.get("state") or ""}"'
             f' data-mpval="{"bad" if mvc else ""}"'
             f' data-comp="{comp if comp is not None else -1}">'
@@ -1011,7 +1020,7 @@ def _build_eval_html(data):
 <span style="background:#e3f2fd;color:#1565c0">建议重铸 {keep_n}</span>
 <span style="background:#fff3e0;color:#e65100">建议强化 {pend_n}</span>
 <span style="background:#ffebee;color:#c62828">不建议强化 {fail_n}</span>
-<span style="background:#eceff1;color:#607d8b">0级/无词条 {zero_n}</span>
+<span style="background:#ffebee;color:#b71c1c">不合格 {bad_n}</span>
 </div>
 </div>
 {rules_html}
@@ -1021,16 +1030,18 @@ def _build_eval_html(data):
 <span>≤ <input id="fmax" type="number" step="0.1" style="width:70px"></span>
 <span class="sep">|</span>
 <span>判定:</span>
-<label><input type="checkbox" class="fv" value="pass" checked> 达标</label>
-<label><input type="checkbox" class="fv" value="hold" checked> 保留</label>
-<label><input type="checkbox" class="fv" value="keep" checked> 建议重铸</label>
-<label><input type="checkbox" class="fv" value="pending" checked> 建议强化</label>
-<label><input type="checkbox" class="fv" value="fail" checked> 不建议强化</label>
-<label><input type="checkbox" class="fv" value="zero" checked> 0级/无词条</label>
+<label><input type="checkbox" class="fv" value="达标" checked> 达标</label>
+<label><input type="checkbox" class="fv" value="保留" checked> 保留</label>
+<label><input type="checkbox" class="fv" value="建议重铸" checked> 建议重铸</label>
+<label><input type="checkbox" class="fv" value="建议强化" checked> 建议强化</label>
+<label><input type="checkbox" class="fv" value="不建议强化" checked> 不建议强化</label>
+<label><input type="checkbox" class="fv" value="不合格" checked> 不合格</label>
 <span class="sep">|</span>
 <span>名称: <input id="fname" list="namelist" placeholder="包含匹配" style="width:130px"></span>
 <span class="sep">|</span>
 <span>套装: <select id="fset">{set_options}</select></span>
+<span class="sep">|</span>
+<span>COST: <select id="fcost"><option value="">全部</option><option value="4">4C</option><option value="3">3C</option><option value="1">1C</option></select></span>
 <span class="sep">|</span>
 <span>排序: <select id="fsort"><option value="orig">默认</option><option value="comp_desc">完成度 ↓</option><option value="comp_asc">完成度 ↑</option></select></span>
 <datalist id="namelist">{datalist}</datalist>
