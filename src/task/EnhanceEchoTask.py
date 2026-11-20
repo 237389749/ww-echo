@@ -472,6 +472,34 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.log_debug(f'[套装映射] {echo_name} → {cfg_set} (名字未收录, 用默认)')
         return cfg_set, 'default'
 
+    def quick_set_from_header(self, echo_name: str, badge, cands, icon_box):
+        """快速模式: **不滚面板**能定的套装 —— 详情面板图标(固定表头) → 徽章环色收窄。
+
+        为什么能省时间: 图标在固定表头、等级 `+NN` 右侧, 与面板滚动位置无关。report6 的 139 张
+        真机面板回归: top-1 **99.3%**(138/139)、置信闸内 **100%**(123/123), 而滚面板读合鸣效果明文
+        实测 1.41s/步、平均 2.8 步/只(整轮 20.2 分钟里占 **9.3 分钟**)。见
+        `tools/analysis/icon_accuracy_report.py` / `panel_scroll_time.py`。
+
+        返回 `(套装名, 来源)`; **None = 两个信号都不够**, 调用方去滚面板读明文(低置信件才付这笔时间)。
+        精确模式(`config['套装精确模式']`)不走这里 —— 那条路总是读明文。
+        """
+        icon_set, score, margin = match_icon(self.frame, icon_box)
+        if icon_set:
+            note = f' — 名字候选 {cands} 由图标纠正' if cands and icon_set not in cands else ''
+            self.log_info(f'[套装图标] {echo_name} → {icon_set} '
+                          f'(s1={score:.3f} margin={margin:.3f}, 不滚面板){note}')
+            return icon_set, 'icon'
+        cands = list(cands or [])
+        if len(cands) > 1 and badge is not None:
+            narrowed = filter_by_set_hue(cands, badge[0], badge[1])
+            if len(narrowed) == 1:
+                self.log_info(f'[套装环色] {echo_name} → {narrowed[0]}'
+                              f' (候选 {cands} 按环色 {hue_group(badge[0])} 过滤, 不滚面板)')
+                return narrowed[0], 'hue'
+        self.log_debug(f'[套装快速] {echo_name} 图标未达置信线'
+                       f'(s1={score:.3f}/{MIN_SCORE} margin={margin:.3f}/{MIN_MARGIN}) → 滚面板读明文')
+        return None
+
     def request_stop(self):
         """UI「停止」调用: 置停止事件, evaluate_only 在每格/每屏之间检查后退出。"""
         self._stop_event.set()
@@ -1534,16 +1562,32 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             # **只属于一套** → 名字就是答案，不滚面板、不做 OCR(用户口径)
                             set_name, set_src = self.resolve_set_name(echo_name, badge)
                         else:
-                            # 名字多义/没认出来 → 滚面板读「合鸣效果」区的套装名明文。
-                            # **逐只读**: 同名不同件可以属于不同套装(格洛犸图 → 长路启航之星 /
-                            # 雪落无声之愿)。别按名字缓存套装 —— report4 的 #21/#23/#24 就是
-                            # 被第一只(长路)的缓存套错, 环色 7/102 两组的真值分别是长路/雪落。
-                            # 环色也不能当缓存键: 实测大量名字的环色落在候选之外(绿熔蜥 h18 对
-                            # 熔山裂谷 h7 / 轻云出月 ach), 只有面板明文是逐只可靠的。
-                            effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list, echo_name)
-                            set_name, set_src = self.resolve_set_name(echo_name, badge,
-                                                                      effect_set, effect_src,
-                                                                      use_icon=True, icon_box=icon_box)
+                            # 名字多义/没认出来 → 两条路(2026-11-20 用户拍板):
+                            # ① **精确模式**(`config['套装精确模式']`): 总是滚到「合鸣效果」区读套装名明文
+                            #    (2026-11-19 口径, 最稳, 但下滑占整轮 46% 的时间);
+                            # ② **默认快速**: 先试固定表头 —— 套装图标(动态框) → 徽章环色收窄。
+                            #    report6 139 张面板回归: top-1 99.3%、闸内 100%; 两个信号都不够
+                            #    (约 11%)才回退去滚面板, 低置信件才付这笔时间。
+                            # **逐只判定**, 不按名字/环色缓存套装: 同名不同件可以属于不同套装
+                            # (格洛犸图 → 长路启航之星 / 雪落无声之愿), report4 的 #21/#23/#24
+                            # 就是被第一只(长路)的名字缓存套错的。
+                            precise = bool(self.config.get('套装精确模式'))
+                            if precise:
+                                effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list, echo_name)
+                                set_name, set_src = self.resolve_set_name(echo_name, badge,
+                                                                          effect_set, effect_src,
+                                                                          use_icon=True, icon_box=icon_box)
+                            else:
+                                quick = self.quick_set_from_header(echo_name, badge, cand_list, icon_box)
+                                if quick:
+                                    set_name, set_src = quick
+                                else:
+                                    # 回退: 滚面板读明文(图标刚试过, 这里不再重复匹配)
+                                    effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list, echo_name)
+                                    set_name, set_src = self.resolve_set_name(echo_name, badge,
+                                                                              effect_set, effect_src,
+                                                                              use_icon=False,
+                                                                              icon_box=None)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         # level: 面板固定表头的 `+NN` —— 判"满级/未满级"的硬信号(见 _tier_from_level)

@@ -94,6 +94,8 @@ def main() -> int:
     ap.add_argument("--out", default=str(REPO / ".scratch" / "ui_shots"), help="输出目录")
     ap.add_argument("--size", default="1180x820", help="窗口尺寸 WxH")
     ap.add_argument("--dark", action="store_true", help="用深色主题渲染(自检深色适配)")
+    ap.add_argument("--eval", action="store_true",
+                    help="运行页切到「评估声骸」再拍(看评估专属卡片, 如「精确模式」开关)")
     a = ap.parse_args()
 
     app = QApplication(sys.argv)
@@ -140,6 +142,8 @@ def main() -> int:
         app.processEvents()
     w, h = (int(x) for x in a.size.lower().split("x"))
     win.resize(w, h)
+    if a.eval:
+        win.run_page.task_combo.setCurrentText("评估声骸")
     app.processEvents()
 
     out = Path(a.out)

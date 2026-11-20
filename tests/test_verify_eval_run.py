@@ -139,11 +139,20 @@ class MainGateTest(unittest.TestCase):
         self.assertIn('面板套装信息一条都没读到', out)
 
     def test_effect_only_is_warn_not_fail(self):
-        """面板读到了但只是按效果原文反查（text 0%）→ 提醒，不判失败。"""
+        """面板读到了但只是按效果原文反查（text/icon 0%）→ 提醒，不判失败（旧报告兼容）。"""
         code, out = self._run(_report([_row(1, '先锋幼岩', '隐世回光', 'effect'),
                                        _row(2, '无归的谬误', '隐世回光', 'effect')]), ['--check'])
         self.assertEqual(code, 0, out)
-        self.assertIn('set_src=text 只占 0%', out)
+        self.assertIn('text+icon 只占 0%', out)
+
+    def test_icon_counts_as_panel_signal(self):
+        """2026-11-20 起 set_src=icon 与 text 同为一等信号：全 icon 的报告必须过门槛。"""
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'icon', cost=4),
+                _row(2, '无归的谬误', '隐世回光', 'icon', cost=3)]
+        code, out = self._run(_report(rows), ['--check'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('[ok]', out)
+        self.assertIn('icon 100%', out)
 
     def test_count_mismatch_fails(self):
         code, out = self._run(_report([_row(1, '先锋幼岩', '隐世回光', 'text')]), ['--check'])

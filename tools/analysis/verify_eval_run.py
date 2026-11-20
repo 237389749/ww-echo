@@ -10,7 +10,9 @@ r"""一次真机评估的验收：条数 / 去重 / 套装来源 / 回顶·COST�
 支撑结论:
   - `docs/SESSION_2026-11-18.md` §8 的三条验收（条数 153±2、每屏重复 10~13 格、`set_src=text` 占多数）
   - `docs/SESSION_2026-11-20.md` §0 的八项（**当前口径**，report6 全绿）:
-      条数 160（= 161 减去「梦魔/梦魇·咕咕河豚」同名同词条的重复记录）/ `set_src=text` ≥ 85%
+      条数 160（= 161 减去「梦魔/梦魇·咕咕河豚」同名同词条的重复记录）/ **`text+icon` ≥ 85%**
+      （2026-11-20 晚起评估默认「图标优先」：图标在固定表头、不滚面板，report6 139 张回归 top-1 99.3%，
+      所以 icon 与 text 同为一等信号；`effect` 仍是已停用弱信号，只作旧报告兼容）
       / `effect` = 0 / 面板回顶失败 = 0 / 缺 COST = 0 / 词条缺失 = 0 / 完全重复 0 / 报告里没有
       `持有数量` 这类假主属性。`--expect` 缺省不再写死（旧默认 144 会误杀 160 的报告），
       真机验收一律显式给 `--expect 160`（见 `docs/BASELINE.md` B7）
@@ -241,8 +243,8 @@ def main() -> int:
     ap.add_argument('--expect', type=int, default=None,
                     help='期望条数（显式给；缺省只报数量、不判条数。当前真机基线 = 160，见 BASELINE B7）')
     ap.add_argument('--tol', type=int, default=2)
-    ap.add_argument('--min-text-pct', type=float, default=85.0,
-                    help='set_src=text 至少占比(%%), 低于则告警（SESSION_2026-11-19：≥85）')
+    ap.add_argument('--min-panel-pct', '--min-text-pct', dest='min_text_pct', type=float, default=85.0,
+                    help='text+icon 至少占比(%%)，低于则告警（2026-11-20：图标升为一等信号；旧名 --min-text-pct）')
     ap.add_argument('--screens', action='store_true', help='打印每一屏')
     ap.add_argument('--check', action='store_true', help='有问题时退出码 1')
     args = ap.parse_args()
@@ -337,25 +339,30 @@ def main() -> int:
         src = collections.Counter(r.get('set_src') or 'default' for r in rows)
         total = sum(src.values()) or 1
         pretty = {k: f'{v}({v * 100 / total:.0f}%)' for k, v in src.most_common()}
-        text_pct = src.get('text', 0) * 100 / total
-        panel_pct = (src.get('text', 0) + src.get('effect', 0)) * 100 / total
-        # text = 合鸣效果区读到**套装名明文**（最稳）; effect = 只按效果原文反查（弱一点）
+        n_text, n_icon, n_effect = src.get('text', 0), src.get('icon', 0), src.get('effect', 0)
+        text_pct = n_text * 100 / total
+        icon_pct = n_icon * 100 / total
+        panel_pct = (n_text + n_icon + n_effect) * 100 / total
+        # 2026-11-20 起 **icon 与 text 同为一等信号**(图标在固定表头、不滚面板, report6 回归 top-1 99.3%);
+        # effect 是已停用的弱信号, 只作旧报告兼容(计入"面板合计", 不计入硬门槛)。
+        hard_pct = (n_text + n_icon) * 100 / total
         if panel_pct <= 0:
             verdict = 'FAIL'
-        elif text_pct >= args.min_text_pct:
+        elif hard_pct >= args.min_text_pct:
             verdict = 'PASS'
         else:
             verdict = 'WARN'
-        print(f'\n[套装来源] {pretty}  -> {verdict} (text {text_pct:.0f}% / 面板合计 {panel_pct:.0f}%, '
-              f'text 门槛 {args.min_text_pct:.0f}%)')
+        print(f'\n[套装来源] {pretty}  -> {verdict} (text {text_pct:.0f}% / icon {icon_pct:.0f}% / '
+              f'面板合计 {panel_pct:.0f}%, 门槛 {args.min_text_pct:.0f}%)')
         if verdict == 'FAIL':
-            problems.append('面板套装信息一条都没读到（text/effect 都是 0）')
+            problems.append('面板套装信息一条都没读到（text/icon/effect 都是 0）')
             print('    面板没滚到 / 鼠标不在面板上 / 名字被读坏 —— 看日志里的 [套装] 行')
         elif verdict == 'WARN':
-            warns.append(f'set_src=text 只占 {text_pct:.0f}%：面板读到了，但多数是按效果原文反查')
+            warns.append(f'set_src=text+icon 只占 {hard_pct:.0f}%'
+                         f'（text {text_pct:.0f}% / icon {icon_pct:.0f}%）')
         if verdict != 'PASS':
             bad = [(r.get('index'), r.get('name'), r.get('set'), r.get('set_src')) for r in rows
-                   if (r.get('set_src') or 'default') != 'text']
+                   if (r.get('set_src') or 'default') not in ('text', 'icon')]
             for x in bad[:12]:
                 print(f'    #{x[0]:>3} {x[1]} -> {x[2]} ({x[3]})')
 

@@ -229,13 +229,21 @@ class RunTab(QWidget):
         self.traditional_card.hBoxLayout.addSpacing(16)
         self.traditional_card.setVisible(False)
 
+        # 评估: 默认「图标优先」(不滚面板, report6 回归 top-1 99.3%); 勾选后总是下滑读合鸣效果明文
+        self.precise_card = SettingCard(
+            FIF.ZOOM, "精确模式（评估）",
+            "默认图标优先(不滚面板, 约省 8 分钟/轮); 勾选=总是下滑读合鸣效果明文(更慢, 复核用)", self)
+        self.opt_precise = CheckBox("开启")
+        self._add_card_widget(self.precise_card, self.opt_precise)
+        self.precise_card.setVisible(False)
+
         self.pause_card = SettingCard(FIF.PAUSE, "成功后暂停", "一轮任务结束后暂停, 便于查看结果与报告", self)
         self.opt_pause = SwitchButton()
         self.opt_pause.setChecked(True)
         self._add_card_widget(self.pause_card, self.opt_pause)
 
         g.addSettingCards([self.task_card, self.strategy_card, self.set_label,
-                           self.traditional_card, self.pause_card])
+                           self.traditional_card, self.precise_card, self.pause_card])
         self.strategy_combo.currentTextChanged.connect(self._on_strategy_changed)
         self.task_combo.currentTextChanged.connect(self._on_task_changed)
         self._on_task_changed(self.task_combo.currentText())
@@ -265,7 +273,8 @@ class RunTab(QWidget):
         self.strategy_info_eval.setWordWrap(True)
         self.strategy_info_eval.setText(
             "评估模式 — 只读遍历背包, 截图+打分, 生成 HTML 报告\n\n"
-            "套装按实测定序: 合鸣效果区的套装名文字 → 合鸣效果原文 → 详情面板图标(旧 UI) → 卡片徽章环色 → 声骸名候选 → 通用\n\n"
+            "套装(默认图标优先): 详情面板图标(固定表头, 不滚面板) → 卡片徽章环色 → 图标低置信才下滑读"
+            "「合鸣效果」区明文 → 声骸名候选 → 通用; 勾选「精确模式」= 总是下滑读明文(更慢, 用于复核)\n\n"
             "完成后弹出保存框 → 生成 eval_report.html + 截图文件夹\n"
             "报告: 截图+名称+套装+COST/主属性+得分(完成度%)+判定+词条明细(按档位着色), 可按得分/判定/名称/套装筛选与排序\n"
             "不强化/不上锁/不丢弃 — 纯评估\n\n"
@@ -371,6 +380,7 @@ class RunTab(QWidget):
         # 套装语境只对强化有意义(评估=通用权重; 声骸个体与套装无自动映射) —— 隐藏整张卡而不是只藏控件
         self.set_label.setVisible(is_enhance)
         self.set_combo.setVisible(is_enhance)
+        self.precise_card.setVisible(not is_enhance)
         if not is_enhance:
             self.strategy_info_eval.setVisible(True)
         else:
@@ -385,10 +395,12 @@ class RunTab(QWidget):
         idx = self.strategy_combo.findText(self._settings.value("strategy", "渐进式"))
         if idx >= 0:
             self.strategy_combo.setCurrentIndex(idx)
+        self.opt_precise.setChecked(self._settings.value("precise_set", "false") == "true")
 
     def _save_settings(self):
         self._settings.setValue("task", self.task_combo.currentText())
         self._settings.setValue("strategy", self.strategy_combo.currentText())
+        self._settings.setValue("precise_set", "true" if self.opt_precise.isChecked() else "false")
 
     # ── 套装 ──
     def _load_sets(self):
@@ -507,13 +519,17 @@ class RunTab(QWidget):
         task.config['强化策略'] = self.strategy_combo.currentText()
         # 评估按面板套装信息自动映射套装(见 evaluate_only / resolve_set_name); 这里置"通用"仅作映射失败时的兜底
         task.config['当前套装'] = '通用' if is_eval else self.set_combo.currentText()
+        # 评估: 默认图标优先(不滚面板); 勾选"精确模式"则总是下滑读合鸣效果明文
+        task.config['套装精确模式'] = bool(self.opt_precise.isChecked()) if is_eval else False
 
         if is_eval:
             self._running = True
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             self._append_log("══════════ 开始评估 ══════════")
-            self._append_log("评估按面板套装信息(合鸣效果区套装名/效果原文/图标/环色)或声骸名自动映射套装权重, 仅打分, 不修改声骸")
+            self._append_log("评估按面板套装信息(图标/环色/合鸣效果明文)或声骸名自动映射套装权重, 仅打分, 不修改声骸")
+            self._append_log("套装模式: " + ("精确模式(总是下滑读明文)" if task.config.get('套装精确模式')
+                                          else "图标优先(不滚面板, 低置信才下滑)"))
 
             def _on_eval_done(json_path, ss_dir):
                 self._eval_done_signal.emit(json_path, ss_dir)
