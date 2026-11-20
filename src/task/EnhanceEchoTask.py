@@ -13,7 +13,7 @@ from src import echo_grid
 from src import echo_panel_shot
 from src.echo_parse import parse_number  # noqa: F401  (旧调用面: from src.task.EnhanceEchoTask import parse_number)
 from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
-                            tier_index, DEFAULT_WEIGHTS)  # noqa
+                            tier_index, DEFAULT_WEIGHTS, generic_weights_for_main)  # noqa
 from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_text,
                                     get_set_core_first, get_set_low_first, has_heading, name_own_line,
@@ -2172,10 +2172,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         missing = tier - len(stats)
         # compute_weighted_score 内部会 parse_number(value_str), 需传字符串; 显式传套装名让其用映射套装权重
         score, details = self.compute_weighted_score([(n, str(v)) for n, v in stats], set_name=set_name)
-        # **通用评分(散件口径)**: 同一批词条按 13 词条通用权重再算一遍 —— 同名同套装的重复件往往
-        # 只能当散件/狗粮, 这个分数衡量它们"换到别的配队里"的价值。**不参与判定**(判定仍用专用分)。
+        # **通用评分(散件口径)**: 同一批词条按"散件权重"再算一遍 —— 主属性是 攻/生/防 时
+        # **只启用该族**的百分比+固定(生命主属性的件, 攻击%/固定攻击的副词条没有意义);
+        # 专伤不知道角色类型 → 统一 0.2(低于固定攻击、远低于攻击%)。**不参与判定**。
+        if main_props:
+            _gw = generic_weights_for_main(str(main_props[0][0]))
+        else:
+            _gw = DEFAULT_WEIGHTS       # 旧记录/离线无主属性 → 保持旧通用口径
         generic_score, _generic_details = self.compute_weighted_score(
-            [(n, str(v)) for n, v in stats], set_name='通用')
+            [(n, str(v)) for n, v in stats], weights=_gw)
         if missing > 0:
             # 读数不全(等级说还有词条没读到): 这份分数只是**下界**, 任何"丢/练"的判断都不可靠 ——
             #   ① 不能判"不合格": 漏读的那条可能正好让它达标(实测那只少了一条暴击 7.5 → 17.29 不合格,
@@ -2330,17 +2335,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return ('pending', '建议强化'), base5, None
         return ('fail', '不建议强化'), base5, None
 
-    def compute_weighted_score(self, paired_stats, set_name=None):
+    def compute_weighted_score(self, paired_stats, set_name=None, weights=None):
         """评分(薄封装, 实现见 `src.echo_scoring.compute_weighted_score`)。
 
         条分 = 档位值 ÷ 期望值 × 10 × 权重, 无效 0 分; 期望 = `echo_stats.get_mean` 的官方概率期望档位值。
-        权重来源: 套装 JSON (`get_set_weights`); 通用模式用 `DEFAULT_WEIGHTS` 表。
+        权重来源: 套装 JSON (`get_set_weights`); 通用模式用 `DEFAULT_WEIGHTS` 表;
+        `weights` 显式给一套权重(散件评分按主属性族算时用 `generic_weights_for_main`)。
         set_name: 显式指定套装名(评估按声骸名映射时用); None 时回退 config['当前套装'] ——
         这一句是任务运行时状态, 所以留在 adapter 侧, 纯计算在 domain 模块。
         """
-        if set_name is None:
+        if set_name is None and weights is None:
             set_name = self.config.get('当前套装', '通用')
-        return echo_scoring.compute_weighted_score(paired_stats, set_name)
+        return echo_scoring.compute_weighted_score(paired_stats, set_name, weights)
 
     def find_add_mat(self):
         return self.wait_ocr(0.09, 0.6, 0.38, 0.86, match=['阶段放入'], time_out=1)

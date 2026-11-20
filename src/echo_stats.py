@@ -124,6 +124,44 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "攻击": 0.25, "生命": 0.25, "防御": 0.25,
 }
 
+# 散件(通用)评分: 主属性是 攻击/生命/防御 时 **只启用该族**的百分比+固定 ——
+# 一只生命主属性的 1C 件, 攻击%/固定攻击 的副词条对它没有意义(2026-11-20 用户口径)。
+GENERIC_FAMILY_STATS: dict[str, tuple[str, str]] = {
+    "攻击": ("攻击百分比", "攻击"),
+    "生命": ("生命百分比", "生命"),
+    "防御": ("防御百分比", "防御"),
+}
+# 通用口径下不知道角色吃哪种专伤 → 统一给"低于固定攻击(0.25)、远低于攻击%(0.5)"的占位权重
+GENERIC_SPECIALTY_WEIGHT = 0.2
+
+
+def generic_weights_for_main(main_name: str | None) -> dict[str, float]:
+    """散件(通用)评分权重: 按主属性族只启用一族(攻/生/防), 专伤统一 0.2。
+
+    - 主属性名含 攻击/生命/防御 → 该族: 百分比 0.5 + 固定 0.25, 另两族不启用;
+    - 主属性是 暴击/爆伤/属伤/治疗(4C/3C) → 默认 **攻击族**(输出向; 4C 第 2 行固有也是攻击 150);
+    - `main_name` 为 None(旧记录/离线无主属性) → 调用方回退 `DEFAULT_WEIGHTS`, 这里不猜。
+
+    暴击/爆伤/共效不随主属性变; 专伤 0.2 是"不知道角色技能类型"时的占位, 不是真实收益。
+    """
+    family = "攻击"
+    if main_name:
+        for key in ("生命", "防御", "攻击"):
+            if key in main_name:
+                family = key
+                break
+    weights = {
+        "暴击": 1.0, "暴击伤害": 0.7, "共鸣效率": 0.5,
+        "普攻伤害加成": GENERIC_SPECIALTY_WEIGHT,
+        "重击伤害加成": GENERIC_SPECIALTY_WEIGHT,
+        "共鸣技能伤害加成": GENERIC_SPECIALTY_WEIGHT,
+        "共鸣解放伤害加成": GENERIC_SPECIALTY_WEIGHT,
+    }
+    pct, flat = GENERIC_FAMILY_STATS[family]
+    weights[pct] = 0.5
+    weights[flat] = 0.25
+    return weights
+
 
 def snap_to_tier(stat_name: str, raw_value: float) -> float | None:
     tiers = _TIERS.get(stat_name)

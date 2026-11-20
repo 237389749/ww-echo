@@ -18,13 +18,14 @@ from src.echo_set_templates import get_set_weights
 from src.echo_stats import DEFAULT_WEIGHTS, get_mean, snap_to_tier, tier_percentile
 
 
-def compute_weighted_score(paired_stats, set_name=None) -> tuple[float, list[str]]:
+def compute_weighted_score(paired_stats, set_name=None, weights=None) -> tuple[float, list[str]]:
     """`[(词条名, 数值串), ...]` → `(总分, 明细行列表)`。
 
-    set_name: 套装名(`None` / `'通用'` = 通用权重表)。**只按传入的词条算** —— 主属性不要传进来
-    (3C 固有"攻击 100"会被当成攻击词条, 实测踩过; 见 CLAUDE.md「组合穷举」)。
+    set_name: 套装名(`None` / `'通用'` = 通用权重表)。`weights` 给了就直接用那套权重
+    (散件评分按主属性族算时用 `echo_stats.generic_weights_for_main`), 优先于 set_name。
+    **只按传入的词条算** —— 主属性不要传进来(3C 固有"攻击 100"会被当成攻击词条, 实测踩过)。
     """
-    set_weights = get_set_weights(set_name if set_name != '通用' else None)
+    set_weights = weights if weights is not None else get_set_weights(set_name if set_name != '通用' else None)
 
     total = 0.0
     details = []

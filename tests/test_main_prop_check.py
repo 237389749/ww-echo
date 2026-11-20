@@ -202,6 +202,30 @@ class TestEvaluateOneIsAdditive(unittest.TestCase):
         self.assertAlmostEqual(rec['score_generic'], round(want, 2), places=2)
         self.assertEqual(rec['verdict'], _task().evaluate_one('测试声骸', self.STATS, '凝夜白霜', 'icon')['verdict'])
 
+    def test_generic_score_follows_main_prop(self):
+        """主属性族: 生命主属性只启用 生命%/固定生命, 攻击%/固定攻击 不计; 专伤统一 0.2。"""
+        from src.echo_stats import generic_weights_for_main
+        from src.echo_scoring import compute_weighted_score
+        stats = [('生命百分比', 9.4), ('攻击百分比', 9.4), ('暴击', 6.3), ('生命', 40.0), ('攻击', 40.0)]
+        rec = _task().evaluate_one('测试声骸', stats, '隐世回光', 'text',
+                                   main_props=[('生命', '22.8%'), ('生命', '2280')])
+        gw = generic_weights_for_main('生命')
+        want, _ = compute_weighted_score([(n, str(v)) for n, v in stats], weights=gw)
+        self.assertAlmostEqual(rec['score_generic'], round(want, 2), places=2)
+        self.assertEqual(gw['生命百分比'], 0.5)
+        self.assertEqual(gw['生命'], 0.25)
+        self.assertEqual(gw.get('攻击百分比', 0), 0)
+        self.assertEqual(gw.get('攻击', 0), 0)
+        self.assertEqual(gw['普攻伤害加成'], 0.2)
+
+    def test_generic_weights_family_selection(self):
+        from src.echo_stats import generic_weights_for_main
+        self.assertEqual(generic_weights_for_main('暴击')['攻击百分比'], 0.5)   # 4C 暴击 → 输出向
+        self.assertEqual(generic_weights_for_main('防御')['防御百分比'], 0.5)
+        self.assertEqual(generic_weights_for_main('攻击')['攻击'], 0.25)
+        for k in ('攻击百分比', '生命百分比', '防御百分比'):
+            self.assertLessEqual(generic_weights_for_main('生命').get(k, 0), 0.5)
+
     def test_cost_inferred_with_level(self):
         # 2026-11-20 report3 #145(等级 +5): 主属性 暴击 7.9% + 攻击 54.0 —— 只按 tier 窗口会与
         # 3C 在 +11 的 55.0 撞车(容差 1.0) → 缺 COST/plan_check; 传 level 后按 +5 取网格唯一。
