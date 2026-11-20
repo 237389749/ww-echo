@@ -36,13 +36,13 @@ if str(ROOT) not in sys.path:
 
 RE_START = '评估遍历: 不识别声骸数量'
 RE_DONE = re.compile(r'评估完成, 共(\d+)个声骸')
-RE_SCREEN = re.compile(r'本屏完成: (\d+) 格, 新增 (\d+) 条, 重复(?:/点空)? (\d+) 格'
+RE_SCREEN = re.compile(r'本屏完成: (\d+) 格(?:\([^)]*\))?, 新增 (\d+) 条, 重复(?:/点空)? (\d+) 格'
                        r'(?:, 失败 (\d+) 格)?, 0词条 (\d+) 格')
 RE_SCROLL = re.compile(r'滚动\((.*?)\): (-?\d+) 格 → ([+-]?\d+\.\d) 行 \(≈([\d.]+)px/格, '
                        r'残差 (\d+), 停稳 ([\d.]+)s, 画面变化 (\d+)%\)')
 RE_GRID = re.compile(r'本屏网格: (\d+) 列 × (\d+) 行 \(行距 (\d+)px\)')
 RE_GUARD = '本屏无重叠'
-RE_STUCK = '滚动受阻'
+RE_STUCK = re.compile(r'滚动受阻: 三种输入')
 RE_OVER = re.compile(r'一次滚了 ([\d.]+) 行\(可见 (\d+) 行\)')
 RE_SHORT = re.compile(r'本次只滚了 ([\d.]+) 行\(目标 (\d+) 行\)')
 RE_SETTEXT = re.compile(r'\[套装\] 合鸣效果区读到套装名: (.*?)\((.*?), 滚 (\d+) 格\)')
@@ -132,8 +132,10 @@ def parse_log(path: Path):
             if cur is not None:
                 cur.guarded = True
             continue
-        if RE_STUCK in ln:
-            stats['stuck'] += 1
+        if RE_STUCK.search(ln):
+            # `info_set` 行是同一条 warning 的镜像(给 UI/日志各发一次), 不重复计数
+            if 'info_set' not in ln:
+                stats['stuck'] += 1
             continue
         m = RE_OVER.search(ln)
         if m:
