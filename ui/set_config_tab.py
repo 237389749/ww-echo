@@ -6,13 +6,14 @@ import os
 import shutil
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QHeaderView, QTableWidgetItem,
+from PySide6.QtWidgets import (QFileDialog, QHeaderView, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, FluentIcon as FIF, InfoBar,
-                            InfoBarPosition, MessageBox, PushButton, PushSettingCard, SettingCard,
-                            SettingCardGroup, SpinBox, TableWidget, TitleLabel)
+                            InfoBarPosition, MessageBox, PushButton, SettingCardGroup, SpinBox,
+                            TableWidget, TitleLabel)
 
+from ui.widgets import WrapSettingCard
 from src.echo_set_templates import STAT_ORDER
 from src.echo_stats import DEFAULT_WEIGHTS
 
@@ -39,6 +40,7 @@ class SetConfigTab(QWidget):
         title = TitleLabel()
         title.setText("套装配置")
         sub = CaptionLabel()
+        sub.setWordWrap(True)
         sub.setText("每个套装独立配置有效词条与权重; 勾选=有效(自动带出通用默认权重), "
                     "「首核」= Lv5/Lv10 首条必须命中的核心词条; 低权重门槛按套装可选。")
         layout.addWidget(title)
@@ -46,28 +48,27 @@ class SetConfigTab(QWidget):
 
         # ── 顶部: 选择 + 保存/导入/导出 ──
         g_top = SettingCardGroup("模板", self)
-        self.pick_card = SettingCard(FIF.LIBRARY, "当前套装",
-                                     "保存后评估/强化立即使用该套装权重(评估仍优先按面板图标映射)", self)
         self.set_combo = ComboBox()
         self.set_combo.setMinimumWidth(180)
         self.set_combo.currentTextChanged.connect(self._on_set_changed)
         self.save_btn = PushButton(FIF.SAVE, "保存当前套装")
         self.save_btn.clicked.connect(self._save)
-        self.pick_card.hBoxLayout.addWidget(self.set_combo, 0, Qt.AlignRight)
-        self.pick_card.hBoxLayout.addSpacing(12)
-        self.pick_card.hBoxLayout.addWidget(self.save_btn)
-        self.pick_card.hBoxLayout.addSpacing(16)
+        self.pick_card = WrapSettingCard(
+            FIF.LIBRARY, "当前套装",
+            "保存后评估/强化立即使用该套装权重(评估仍优先按面板图标映射)", self)
+        self.pick_card.add_controls([self.set_combo, self.save_btn])
 
-        self.io_card = SettingCard(FIF.SYNC, "导入 / 导出 / 重新加载",
-                                   "导入会覆盖当前模板(自动备份为 .bak); 重新加载会丢弃未保存的修改", self)
+        io_widgets = []
         for text, icon, slot in (("导出", FIF.SAVE, self._export),
                                  ("导入", FIF.FOLDER, self._import),
                                  ("重新加载", FIF.SYNC, self._reload)):
             btn = PushButton(icon, text)
             btn.clicked.connect(slot)
-            self.io_card.hBoxLayout.addWidget(btn)
-            self.io_card.hBoxLayout.addSpacing(8)
-        self.io_card.hBoxLayout.addSpacing(8)
+            io_widgets.append(btn)
+        self.io_card = WrapSettingCard(
+            FIF.SYNC, "导入 / 导出 / 重新加载",
+            "导入会覆盖当前模板(自动备份为 .bak); 重新加载会丢弃未保存的修改", self)
+        self.io_card.add_controls(io_widgets)
         g_top.addSettingCards([self.pick_card, self.io_card])
         layout.addWidget(g_top)
 
@@ -113,9 +114,6 @@ class SetConfigTab(QWidget):
 
         # ── 首条判定(可选, 按套装): 低权重首条门槛 ──
         g_first = SettingCardGroup("首条判定 (Lv5 / Lv10)", self)
-        self.low_first_card = SettingCard(
-            FIF.FILTER, "低权重首条门槛",
-            "首条权重 ≤ 阈值时, 必须达到该词条的前 N 档(默认关; 典型只给轻云出月这类占位键套装启用)", self)
         self.low_first_enable = CheckBox("启用")
         self.low_first_enable.stateChanged.connect(self._on_low_first_enabled)
         self.low_first_below = DoubleSpinBox()
@@ -128,11 +126,12 @@ class SetConfigTab(QWidget):
         self.low_first_top.setRange(1, 8)
         self.low_first_top.setValue(2)
         self.low_first_top.setFixedWidth(80)
-        for w in (self.low_first_enable, CaptionLabel("权重 ≤"), self.low_first_below,
-                  CaptionLabel("前"), self.low_first_top, CaptionLabel("档")):
-            self.low_first_card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)
-            self.low_first_card.hBoxLayout.addSpacing(6)
-        self.low_first_card.hBoxLayout.addSpacing(10)
+        self.low_first_card = WrapSettingCard(
+            FIF.FILTER, "低权重首条门槛",
+            "首条权重 ≤ 阈值时, 必须达到该词条的前 N 档(默认关; 典型只给轻云出月这类占位键套装启用)", self)
+        self.low_first_card.add_controls(
+            [self.low_first_enable, CaptionLabel("权重 ≤"), self.low_first_below,
+             CaptionLabel("前"), self.low_first_top, CaptionLabel("档")])
         g_first.addSettingCard(self.low_first_card)
         self._on_low_first_enabled()
         layout.addWidget(g_first)

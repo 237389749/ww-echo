@@ -13,13 +13,15 @@ import csv
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QHeaderView, QTableWidgetItem,
+from PySide6.QtWidgets import (QFileDialog, QHeaderView, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, EditableComboBox,
                             FluentIcon as FIF, HeaderCardWidget, IndeterminateProgressBar, InfoBar,
-                            InfoBarPosition, MessageBox, PushButton, SettingCard, SettingCardGroup,
+                            InfoBarPosition, MessageBox, PushButton, SettingCardGroup,
                             SingleDirectionScrollArea, SpinBox, TableWidget, TitleLabel)
+
+from ui.widgets import FlowLayout, WrapSettingCard
 
 from src.echo_combos import (PlanRequest, candidate_pool, energy_is_damage, instance_tag,
                              is_max_level, plan, set_bonus_keys)
@@ -118,13 +120,19 @@ class PlanTab(QWidget):
         outer.addWidget(scroll, 1)
 
     # ── 角色与目标 ──
+    @staticmethod
+    def _flow_row(widgets, hspacing=10, vspacing=8) -> QWidget:
+        """把一排控件装进可换行的 FlowLayout(窄窗口下自动换行, 不再横向裁切)。"""
+        row = QWidget()
+        flow = FlowLayout(row, hspacing=hspacing, vspacing=vspacing)
+        for w in widgets:
+            flow.addWidget(w)
+        return row
+
     def _group_goal(self) -> SettingCardGroup:
         g = SettingCardGroup("角色与目标", self.view)
 
         # 角色预设: 把"这个角色每次都要填的那一堆"(裸面板/补正/专伤/天赋/门槛)存下来一键复用
-        self.profile_card = SettingCard(FIF.PEOPLE, "角色预设",
-                                        "把裸面板 / 补正 / 指定专伤 / 条件补正 / 门槛参数按角色存起来, "
-                                        "下次一键载入(存在 assets/char_profiles.json)", self.view)
         self.profile_combo = ComboBox()
         self.profile_combo.setMinimumWidth(140)
         load_btn = PushButton(FIF.DOWNLOAD, "载入")
@@ -135,27 +143,23 @@ class PlanTab(QWidget):
         save_btn.clicked.connect(self._save_profile)
         del_btn = PushButton(FIF.DELETE, "删除")
         del_btn.clicked.connect(self._delete_profile)
-        for w in (self.profile_combo, load_btn, self.profile_name_edit, save_btn, del_btn):
-            self.profile_card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)
-            self.profile_card.hBoxLayout.addSpacing(8)
-        self.profile_card.hBoxLayout.addSpacing(8)
+        self.profile_card = WrapSettingCard(
+            FIF.PEOPLE, "角色预设",
+            "把裸面板 / 补正 / 指定专伤 / 条件补正 / 门槛参数按角色存起来, "
+            "下次一键载入(存在 assets/char_profiles.json)", self.view)
+        self.profile_card.add_controls([self.profile_combo, load_btn, self.profile_name_edit,
+                                        save_btn, del_btn])
 
-        self.goal_card = SettingCard(FIF.TILES, "缩放属性与暴击口径",
-                                     "缩放属性决定主属性最优解(攻击/防御/生命角色完全不同); "
-                                     "暴击口径影响「暴击区」", self.view)
         self.scaling_combo = ComboBox()
         self.scaling_combo.addItems(list(BASE_KEYS))
         self.crit_combo = ComboBox()
         for text, _key in CRIT_MODES:
             self.crit_combo.addItem(text)
-        self.goal_card.hBoxLayout.addWidget(self.scaling_combo, 0, Qt.AlignRight)
-        self.goal_card.hBoxLayout.addSpacing(12)
-        self.goal_card.hBoxLayout.addWidget(self.crit_combo)
-        self.goal_card.hBoxLayout.addSpacing(16)
+        self.goal_card = WrapSettingCard(
+            FIF.TILES, "缩放属性与暴击口径",
+            "缩放属性决定主属性最优解(攻击/防御/生命角色完全不同); 暴击口径影响「暴击区」", self.view)
+        self.goal_card.add_controls([self.scaling_combo, self.crit_combo])
 
-        self.mode_card = SettingCard(FIF.LIBRARY, "模式与套装",
-                                     "5 = 同一套装 5 只; 3+2 = 套装 A 3 只 + 套装 B 2 只"
-                                     "(两套时必须指定 4C 归属)", self.view)
         self.mode_combo = ComboBox()
         self.set_a_combo, self.set_b_combo, self.cost4_combo = ComboBox(), ComboBox(), ComboBox()
         self.set_a_combo.setMinimumWidth(170)
@@ -166,27 +170,23 @@ class PlanTab(QWidget):
         self.mode_combo.addItems(["5", "3+2"])
         self.cost4_combo.addItems(["请选择", "A", "B"])
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)   # 控件都建好后再接信号
-        for w in (self.mode_combo, self.set_a_combo, self.set_b_combo, self.cost4_combo):
-            self.mode_card.hBoxLayout.addWidget(w, 0, Qt.AlignRight)
-            self.mode_card.hBoxLayout.addSpacing(8)
-        self.mode_card.hBoxLayout.addSpacing(16)
+        self.mode_card = WrapSettingCard(
+            FIF.LIBRARY, "模式与套装",
+            "5 = 同一套装 5 只; 3+2 = 套装 A 3 只 + 套装 B 2 只(两套时必须指定 4C 归属)", self.view)
+        self.mode_card.add_controls([self.mode_combo, self.set_a_combo, self.set_b_combo,
+                                     self.cost4_combo])
 
-        self.level_card = SettingCard(FIF.EDUCATION, "候选等级 / 专伤口径",
-                                      "满级件: 未满级件词条还会涨, 用现状词条排名会低估它; "
-                                      "专伤: 默认只计该套装有效词条里的专伤(如雪落无声之愿只认共鸣解放)",
-                                      self.view)
         self.max_level_check = CheckBox("只用满级件")
         self.max_level_check.setChecked(True)
         self.all_bonus_check = CheckBox("专伤不过滤")
         self.all_bonus_check.setChecked(False)
         self.all_bonus_check.setToolTip("勾选 = 所有类型专伤都计入(旧口径, 用来看差异)")
-        self.level_card.hBoxLayout.addWidget(self.max_level_check, 0, Qt.AlignRight)
-        self.level_card.hBoxLayout.addSpacing(14)
-        self.level_card.hBoxLayout.addWidget(self.all_bonus_check)
-        self.level_card.hBoxLayout.addSpacing(16)
+        self.level_card = WrapSettingCard(
+            FIF.EDUCATION, "候选等级 / 专伤口径",
+            "满级件: 未满级件词条还会涨, 用现状词条排名会低估它; 专伤: 默认只计该套装有效词条里的专伤"
+            "(如雪落无声之愿只认共鸣解放)", self.view)
+        self.level_card.add_controls([self.max_level_check, self.all_bonus_check])
 
-        self.energy_card = SettingCard(FIF.SPEED_HIGH, "循环门槛(共效)",
-                                       "缺口扣分, 0 = 关闭", self.view)
         self.energy_min_spin = DoubleSpinBox()          # 下限%
         self.energy_min_spin.setRange(0, 300)
         self.energy_min_spin.setDecimals(0)
@@ -205,16 +205,13 @@ class PlanTab(QWidget):
         self.energy_floor_spin.setSingleStep(0.01)
         self.energy_floor_spin.setValue(0.85)
         self.energy_floor_spin.setFixedWidth(124)
+        energy_widgets = []
         for cap, w in (("下限", self.energy_min_spin), ("斜率", self.energy_slope_spin),
                        ("最低", self.energy_floor_spin)):
-            self.energy_card.hBoxLayout.addWidget(CaptionLabel(cap), 0, Qt.AlignRight)
-            self.energy_card.hBoxLayout.addSpacing(4)
-            self.energy_card.hBoxLayout.addWidget(w)
-            self.energy_card.hBoxLayout.addSpacing(8)
-        self.energy_card.hBoxLayout.addSpacing(8)
+            energy_widgets += [CaptionLabel(cap), w]
+        self.energy_card = WrapSettingCard(FIF.SPEED_HIGH, "循环门槛(共效)", "缺口扣分, 0 = 关闭", self.view)
+        self.energy_card.add_controls(energy_widgets)
 
-        self.crit_card = SettingCard(FIF.HEART, "暴击门槛(稳定性)",
-                                     "与共效同一公式: 低于目标就扣(单段/少段伤害看重稳定)", self.view)
         self.crit_target_spin = DoubleSpinBox()         # 目标暴击%
         self.crit_target_spin.setRange(0, 100)
         self.crit_target_spin.setDecimals(0)
@@ -233,28 +230,24 @@ class PlanTab(QWidget):
         self.crit_floor_spin.setSingleStep(0.01)
         self.crit_floor_spin.setValue(0.80)
         self.crit_floor_spin.setFixedWidth(124)
+        crit_widgets = []
         for cap, w in (("目标", self.crit_target_spin), ("斜率", self.crit_slope_spin),
                        ("最低", self.crit_floor_spin)):
-            self.crit_card.hBoxLayout.addWidget(CaptionLabel(cap), 0, Qt.AlignRight)
-            self.crit_card.hBoxLayout.addSpacing(4)
-            self.crit_card.hBoxLayout.addWidget(w)
-            self.crit_card.hBoxLayout.addSpacing(8)
-        self.crit_card.hBoxLayout.addSpacing(8)
+            crit_widgets += [CaptionLabel(cap), w]
+        self.crit_card = WrapSettingCard(FIF.HEART, "暴击门槛(稳定性)",
+                                         "与共效同一公式: 低于目标就扣(单段/少段伤害看重稳定)", self.view)
+        self.crit_card.add_controls(crit_widgets)
 
-        self.inv_card = SettingCard(FIF.FOLDER, "声骸库存",
-                                    "「运行」页评估后保存的报告同目录会生成同名 .json(推荐: 含套装/COST/主属性/词条); "
-                                    "也可选 logs/eval_debug 素材目录。导入即视为 5★(评估数据无稀有度字段)", self.view)
         self.import_btn = PushButton(FIF.DOWNLOAD, "导入最新素材")
         self.import_btn.clicked.connect(lambda: self._import(""))
         self.pick_btn = PushButton(FIF.FOLDER, "选择…")
         self.pick_btn.clicked.connect(self._pick_inventory)
         self.inv_label = CaptionLabel("尚未导入库存")
-        self.inv_card.hBoxLayout.addWidget(self.inv_label, 0, Qt.AlignRight)
-        self.inv_card.hBoxLayout.addSpacing(12)
-        self.inv_card.hBoxLayout.addWidget(self.import_btn)
-        self.inv_card.hBoxLayout.addSpacing(8)
-        self.inv_card.hBoxLayout.addWidget(self.pick_btn)
-        self.inv_card.hBoxLayout.addSpacing(16)
+        self.inv_card = WrapSettingCard(
+            FIF.FOLDER, "声骸库存",
+            "「运行」页评估后保存的报告同目录会生成同名 .json(推荐: 含套装/COST/主属性/词条); "
+            "也可选 logs/eval_debug 素材目录。导入即视为 5★(评估数据无稀有度字段)", self.view)
+        self.inv_card.add_controls([self.inv_label, self.import_btn, self.pick_btn])
 
         g.addSettingCards([self.profile_card, self.goal_card, self.mode_card, self.level_card, self.energy_card,
                            self.crit_card, self.inv_card])
@@ -263,10 +256,6 @@ class PlanTab(QWidget):
     # ── 战斗环境 ──
     def _group_battle(self) -> SettingCardGroup:
         g = SettingCardGroup("战斗环境(排序里是常数, 只影响展示的「伤害」列)", self.view)
-        self.env_card = SettingCard(FIF.SPEED_HIGH, "等级 / 防御 / 抗性",
-                                    "防御区 = (100+角色等级) / ((100+角色等级) + (99+怪物等级)×(1−无视防御)); "
-                                    "抗性区 = 1 − 抗性%", self.view)
-
         def spin(rng, val, decimals=0, suffix=""):
             w = DoubleSpinBox() if decimals else SpinBox()
             w.setRange(*rng)
@@ -281,14 +270,15 @@ class PlanTab(QWidget):
         self.monster_level_spin = spin((1, 120), 100, 0, " 级")
         self.def_ignore_spin = spin((0, 100), 0, 1, " %")
         self.resist_spin = spin((-100, 100), 10, 1, " %")
+        env_widgets = []
         for w, label in ((self.char_level_spin, "角色"), (self.monster_level_spin, "怪物"),
                          (self.def_ignore_spin, "无视防御"), (self.resist_spin, "抗性")):
-            cap = CaptionLabel(label)
-            self.env_card.hBoxLayout.addWidget(cap, 0, Qt.AlignRight)
-            self.env_card.hBoxLayout.addSpacing(4)
-            self.env_card.hBoxLayout.addWidget(w)
-            self.env_card.hBoxLayout.addSpacing(10)
-        self.env_card.hBoxLayout.addSpacing(8)
+            env_widgets += [CaptionLabel(label), w]
+        self.env_card = WrapSettingCard(
+            FIF.SPEED_HIGH, "等级 / 防御 / 抗性",
+            "防御区 = (100+角色等级) / ((100+角色等级) + (99+怪物等级)×(1−无视防御)); 抗性区 = 1 − 抗性%",
+            self.view)
+        self.env_card.add_controls(env_widgets)
         g.addSettingCard(self.env_card)
         return g
 
@@ -338,7 +328,6 @@ class PlanTab(QWidget):
         vb.addWidget(self.panel_table)
 
         # 补正录入行 + 明细表
-        add_row = QHBoxLayout()
         self.corr_key_combo = ComboBox()
         self.corr_key_combo.addItems(list(PANEL_ROWS))
         self.corr_key_combo.setMinimumWidth(170)
@@ -354,14 +343,11 @@ class PlanTab(QWidget):
         add_btn.clicked.connect(self._add_correction)
         del_btn = PushButton(FIF.DELETE, "删除选中")
         del_btn.clicked.connect(self._del_correction)
-        for w in (CaptionLabel("键"), self.corr_key_combo, CaptionLabel("值"), self.corr_value_spin,
-                  CaptionLabel("来源"), self.corr_source_combo, add_btn, del_btn):
-            add_row.addWidget(w)
-        add_row.addStretch(1)
-        vb.addLayout(add_row)
+        add_widgets = [CaptionLabel("键"), self.corr_key_combo, CaptionLabel("值"), self.corr_value_spin,
+                       CaptionLabel("来源"), self.corr_source_combo, add_btn, del_btn]
+        vb.addWidget(self._flow_row(add_widgets))
 
         # 推导补正(天赋): "共效 > 125 后每多 1% 给 2% 增伤, 上限 50%" 这类**逐组合不同**的补正
-        der_row = QHBoxLayout()
         self.derive_src_combo = ComboBox()
         self.derive_src_combo.addItems(list(DERIVE_SOURCES))
         self.derive_src_combo.setFixedWidth(104)
@@ -385,28 +371,24 @@ class PlanTab(QWidget):
         self.derive_key_combo.setFixedWidth(128)
         der_add = PushButton(FIF.ADD, "添加条件补正")
         der_add.clicked.connect(self._add_derived)
-        for w in (CaptionLabel("条件补正(天赋)"), CaptionLabel("触发"), self.derive_src_combo,
-                  CaptionLabel("≥"), self.derive_th_spin, CaptionLabel("每点+"), self.derive_per_spin,
-                  CaptionLabel("上限"), self.derive_cap_spin, CaptionLabel("加到"), self.derive_key_combo,
-                  der_add):
-            der_row.addWidget(w)
-        der_row.addStretch(1)
-        vb.addLayout(der_row)
+        der_widgets = [CaptionLabel("条件补正(天赋)"), CaptionLabel("触发"), self.derive_src_combo,
+                       CaptionLabel("≥"), self.derive_th_spin, CaptionLabel("每点+"), self.derive_per_spin,
+                       CaptionLabel("上限"), self.derive_cap_spin, CaptionLabel("加到"), self.derive_key_combo,
+                       der_add]
+        vb.addWidget(self._flow_row(der_widgets))
 
         # 指定专伤: 通用套(轻云出月)给 4 种专伤都配了 0.1 占位权重, 但角色通常只吃一种 ——
         # 不指定的话别的专伤副词条会被当成有效收益(实测仇远 3+2 差 8.7%)。
-        sp_row = QHBoxLayout()
         self.specialty_checks: list[tuple[str, CheckBox]] = []
-        sp_row.addWidget(CaptionLabel("计进加成区的专伤"))
+        sp_widgets = [CaptionLabel("计进加成区的专伤")]
         for key in SPECIALTY_KEYS:
             cb = CheckBox(key.replace("伤害加成", ""))
             cb.setToolTip("勾选后**只算勾选的专伤**; 全不勾 = 按套装模板的有效专伤并集"
                           "(通用套会把 普攻/重击/共技/共解 都带上)")
             self.specialty_checks.append((key, cb))
-            sp_row.addWidget(cb)
-        sp_row.addWidget(CaptionLabel("(全不勾 = 按套装模板并集)"))
-        sp_row.addStretch(1)
-        vb.addLayout(sp_row)
+            sp_widgets.append(cb)
+        sp_widgets.append(CaptionLabel("(全不勾 = 按套装模板并集)"))
+        vb.addWidget(self._flow_row(sp_widgets))
 
         self.corr_table = TableWidget()
         self.corr_table.setColumnCount(3)
@@ -427,7 +409,6 @@ class PlanTab(QWidget):
     def _card_result(self) -> HeaderCardWidget:
         card = HeaderCardWidget("结果排名", self.view)
         vb = _card_body(card)
-        bar = QHBoxLayout()
         self.run_btn = PushButton(FIF.PLAY, "开始穷举")
         self.run_btn.clicked.connect(self._start)
         self.cancel_btn = PushButton(FIF.CANCEL, "取消")
@@ -438,10 +419,9 @@ class PlanTab(QWidget):
         self.progress = IndeterminateProgressBar(self)
         self.progress.setVisible(False)
         self.status = CaptionLabel("未导入库存: 先点上方「导入最新素材」或「选择…」")
-        for w in (self.run_btn, self.cancel_btn, self.csv_btn, self.progress, self.status):
-            bar.addWidget(w)
-        bar.addStretch(1)
-        vb.addLayout(bar)
+        self.status.setWordWrap(True)
+        vb.addWidget(self._flow_row([self.run_btn, self.cancel_btn, self.csv_btn, self.progress]))
+        vb.addWidget(self.status)
 
         self.result_table = TableWidget()
         self.result_table.setColumnCount(9)
