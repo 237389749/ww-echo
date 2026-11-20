@@ -2672,3 +2672,19 @@ Exception: 未在背包界面检测到声骸网格(角标/结构线), 请确认�
 里的"热熔伤害"当成套装效果。副作用：名字读不到时直接交环色/名字候选，不再猜效果（那 2 条真 effect 用环色
 也能判对）。守卫：`test_set_text` 断言线上链里不能出现未注释的 `match_set_effect`，
 `test_replay_panel` 断言"只有效果原文"的面板不再兜底。
+
+**补记 68（2026-11-20 夜：验收命令的两个口径问题 —— cp936 打印崩溃 + 写死的 144）**
+
+用 report6 复跑 B7 时发现：**八项全 PASS，进程却退出码 1**。
+
+- 根因：`verify_eval_run.py` 打印日志里 `set_src!=text` 的条目时，声骸名含 `・`(U+30FB)，
+  Windows 默认 cp936 控制台编不出来 → `UnicodeEncodeError`（正是 `CLAUDE.md`「CLI 输出必须 GBK 可编码」那条坑）。
+  修法：`main()` 入口对 stdout/stderr `reconfigure(errors="replace")`（被 `redirect_stdout` 换成 StringIO 时
+  走 `AttributeError` 分支），不可编码字符替换成 `?`，不再让验收死在打印上。
+- 第二个：`--expect` 默认 **144**（11-19 口径）会把 160 条的报告判成 WARN。改为**缺省不判条数**
+  （`--expect` 必须显式给），真机验收用 `--expect 160`；`CLAUDE.md` / `README.md` / `docs/BASELINE.md`
+  的 144 口径同步为 **160**（report6）。
+- 守卫：`tests/test_verify_eval_run.ConsoleEncodingTest` —— 用真正的 cp936 `TextIOWrapper` 当 stdout，
+  跑含 `・` 名字的报告，断言退出码 0（修复前这里就抛 `UnicodeEncodeError`）。
+
+单测 349 → **350**。

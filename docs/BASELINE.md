@@ -84,7 +84,7 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `probe_scroll.py` | 只读几何报告（`--capture`）/ 实测滚轮位移曲线（`--scroll`，需管理员） | stdout + `%TEMP%/probe_scroll/*.png` | `docs/SESSION_2026-11-14.md` §2.8 |
 | `probe_scroll_capture.py` | 连续抓帧 + 模板匹配真值：滚动动画多久停、px/格 到底多少 | stdout + `%TEMP%/scroll_seq/*.png` | `docs/SESSION_2026-11-18.md` §2.1 |
 | `audit_sets.py <评估json>` | 一条命令核对：条数/重复/`set_src` 分布/多义但没定下来的清单 | stdout | `docs/SESSION_2026-11-18.md` §3 |
-| `verify_eval_run.py <评估json> [--log]` | **真机验收一条命令**（2026-11-19 口径）：条数 **144±2** / 完全重复 0 / `set_src=text` **≥85%** / **面板回顶失败 0** / **缺 COST 0** / **无 `持有数量` 假主属性**，外加每屏重叠与滚动健康（无重叠守卫、受阻、过滚）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项降级 SKIP） | stdout | `docs/SESSION_2026-11-19.md` §9、`docs/BASELINE.md` §2 |
+| `verify_eval_run.py <评估json> [--log]` | **真机验收一条命令**（2026-11-20 口径）：条数 **160±2**（`--expect` 必须显式给，缺省不判条数）/ 完全重复 0 / `set_src=text` **≥85%** / `effect` 0 / **面板回顶失败 0** / **缺 COST 0** / **词条缺失 0** / **无 `持有数量` 假主属性**，外加每屏重叠与滚动健康（无重叠守卫、受阻、过滚）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项降级 SKIP） | stdout | `docs/SESSION_2026-11-20.md` §0、`docs/BASELINE.md` §2 |
 | `replay_panel_scroll.py [目录]` | 评估时存的 `logs/panel_debug/<ts>/` → 逐只重放「找套装」：线上结论 vs 离线（第几步命中）、回顶是否成功、长图尺寸；`--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读/回顶失败退出码 1 | stdout（`logs/panel_debug/` 是输入，只读） | CHANGELOG 补记 48；`CLAUDE.md` 评估遍历·面板数据集 |
 | `check_set_panel.py <面板截图…>` | **不玩游戏**，拿截图跑真 OCR，验证 `match_set_text`/`match_set_effect` | stdout | `docs/SESSION_2026-11-18.md` §3 |
 

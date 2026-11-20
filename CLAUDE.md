@@ -528,15 +528,16 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 - 改动后跑: `python -m unittest discover -s tests`(**349 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
-- **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`
-  (条数 144±2 / 完全重复 0 / `set_src=text` ≥85% / **面板回顶失败 0** / **缺 COST 0** / **无 `持有数量` 假主属性**
-  / 每屏重复 8~14 / 无重叠守卫·受阻·过滚; 有问题退出码 1)
+- **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`
+  (条数 160±2 / 完全重复 0 / `set_src=text` ≥85% / **面板回顶失败 0** / **缺 COST 0** / **词条缺失 0** /
+  **无 `持有数量` 假主属性** / 每屏重复 8~14 / 无重叠守卫·受阻·过滚; 有问题退出码 1。
+  **`--expect` 缺省不判条数** —— 旧默认 144 会把 160 的报告误判, 真机一律显式给)
 - **环境**: 系统 Python 3.13.16 已装齐 `requirements.txt`(直接依赖全 `==`); `run.cmd` 优先仓库 `.venv` 再 PATH `python`
 - **2026-11-20 会话**: 见 `docs/SESSION_2026-11-20.md` —— 滚动 px/格 实为 **19.7**(不是 8)、中途 0 词条=读失败、**主属性百分比变体**的网格缺失(整只被跳过)、面板重读只在 dirty 时回顶、每格日志。
 - **2026-11-19 会话**: 面板链闭环 —— 端点判据改「画面不变」· 修好 4 个"恒为真"的假判据(名字=固定表头/等动画/候选过滤/+0 无主属性)
   · COST 改「第 2 行反推为主、角标佐证」· 真机 **146 条 / `text` 86% / 0 完全重复**，42 只面板件全中且离线逐只一致
   —— 见 `docs/SESSION_2026-11-19.md`; 更早那轮(遍历 54→155)见 `docs/SESSION_2026-11-18.md`
-- **下一棒**: 真机复跑(验收 回顶失败 0 / `text`≥85% / 缺 COST 0 / 无 `持有数量` 主属性; 条数预期 **144**)
+- **下一棒**: 真机再跑一轮确认 160 条稳定(`--expect 160`; 11-20 report6 八项全绿, 见 `docs/SESSION_2026-11-20.md` §0)
   / 强化 `run()` 推进 / 组合穷举页走查 / calculator 对账
 
 ## 待办(与 README TODO 同步)
@@ -555,6 +556,9 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
   用 `[!]` / `OK` / `[x]` / `与` —— 否则 `UnicodeEncodeError` 会把命令**打断**(stderr 只留一条 "--- Logging error ---"),
   典型现场: `offline_eval_report.py` 的 `✓` 曾让 B2 写完报告却非 0 退出。**Qt 日志与报告 HTML 不受此限**
   (`ui/run_tab._append_log` 里的 `⚠` 刻意保留 —— 它还是 WARNING 级别的判据)。
+  **2026-11-20 补**: `verify_eval_run.py` 打印报告里的声骸名(`·`/`・`)也曾让**八项全 PASS 却退出码 1** ——
+  已在该脚本入口 `stdout/stderr.reconfigure(errors="replace")` 兜底(不可编码就替换, 绝不让验收死在打印上);
+  其它 CLI 仍按上面的规则写字面量。
 - **受限沙箱里 `QSettings` 写不进注册表**(写后读回 None): 主题/窗口几何/上次页面这些"记忆"在那种环境下不生效
   —— 这会让 `tools/ui_shot.py --dark` 静默出浅色图(已在工具里兜底: `show()` 后再 `apply_theme(..., remember=False)`);
   真机(正常权限)不受影响
