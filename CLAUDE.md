@@ -309,7 +309,9 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 `src/echo_icon_match.py`: 详情面板图标区 → 灰度 28x28 → 与 `assets/echo_icons/{套装名}.png`(**37 张, 全部来自客户端官方贴图**)做 **ZNCC**:
 ①模板 76px 缩到 29px(尺度 1.05)中心裁 28, 两端同分辨率 1:1 比 ②**±2px 平移搜索**(消 bbox 抖动; 不搜索时 s1 从 0.9 掉到 0.23) ③圆形 mask(r≤12)排除外发光与面板背景 ④置信线 `MIN_SCORE=0.60` + 与次优间隔 `MIN_MARGIN=0.05`, 不达线返回 None 交调用方回退名字候选。
 **颜色/环色特征不可用**: 37 个模板同构(彩色圆环 + 白底 + 深色图案), 缩到 28px 后轮廓主导 → 环色 top1 命中仅 28/183; 灰度 ZNCC 才是有效判据。
-`EnhanceEchoTask.resolve_set_name(名)` 的实际定序(2026-11-19)：合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**覆盖率反查(`effect`) → 面板图标(`icon`, 旧 UI) → 卡片徽章环色(`hue`) → 名字候选(`name`) → config(`default`)。来源一路写进报告 JSON 的 `set_src`（`read_set_by_effect` 把 `match_set_text` 的 how 一起传出来 —— **别再把 text 折回 effect**，否则验收条与报告悬停都说不清"读到名字"还是"猜的效果原文"）。
+`EnhanceEchoTask.resolve_set_name(名)` 的实际定序(2026-11-19；2026-11-20 起**效果原文反查已停用**)：
+合鸣效果区**套装名明文**(`text`) → 面板图标(`icon`, 旧 UI, 评估链默认关) → 卡片徽章环色(`hue`) → 名字候选(`name`) → config(`default`)。
+`resolve_set_name` 的 `effect_set` 参数保留给离线重放/旧报告, 评估链不再传。来源一路写进报告 JSON 的 `set_src`（`read_set_by_effect` 把 `match_set_text` 的 how 一起传出来 —— **别再把 text 折回 effect**，否则验收条与报告悬停都说不清"读到名字"还是"猜的效果原文"）。
 离线回归: `python tools/eval_icon_match.py [debug目录]`(用 `logs/eval_debug/<时间戳>/` 全屏图, 无需开游戏)。
 **⚠ 3.x 新 UI 起详情面板没有套装图标**(`ICON_BOX` 落到 `+25` 旁绿色「+」按钮, 实测 155 条命中 0 次) → 评估链已默认关图标,
 定序见上条 `resolve_set_name`; 环色 `filter_by_set_hue` 在 158 个多义名里覆盖 85%。
@@ -416,9 +418,12 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   中止并出部分报告。**别把"失败"混进"重复"**: 重复 = 内容与已记录的一致(滚动重叠), 失败 = 根本没读到 ——
   两者一起计数就看不出"这屏是重叠对了还是坏了"(2026-11-19 用户口径)。名字 OCR 抖动(无常凶驾/无常冈驾/无常区鹭)会绕过 `dedup_key`, 另用**属性行签名**
   (`seen_stat_sigs`, 不含名字) 防重复记录。
-- **评估按详情面板的套装信息映射套装**(2026-11-19): `resolve_set_name` → 合鸣效果区**套装名明文**(`text`) → 合鸣**效果原文**反查(`effect`) → 卡片徽章环色(`hue`) → `get_sets_by_echo` 候选(prefer=config 套装) → 回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底。
+- **评估按详情面板的套装信息映射套装**(2026-11-19): `resolve_set_name` → 合鸣效果区**套装名明文**(`text`) → 卡片徽章环色(`hue`) → `get_sets_by_echo` 候选(prefer=config 套装) → 回退"通用"; 声骸↔套装索引来自**生成物**(官方配置表 229 个显示名), 模板 `_echoes` 仅在生成物缺失时兜底。
+  **效果原文反查已停用**(2026-11-20 用户口径"宁缺毋滥"): 它是长文本覆盖率匹配, 会把技能描述里的"热熔伤害"当成套装效果(report5 的 6 次 effect 里 4 次是绿熔蜥误判); 名字读不到就交环色/名字候选, 不再猜效果。
   **什么时候才滚面板**: 只有「名字有 ≥2 个候选 / 没认出来」才滚; **只属于一套的件直接用名字, 不 OCR 面板**(用户口径);
-  同名多只走 `panel_set_cache`(名→(套装,来源)), 全场只滚一次。**面板图标在评估链里默认关**(`use_icon=False`)。
+  **多候选的名字必须逐只读面板** —— 同名不同件可以属于不同套装（格洛犸图 → 长路启航之星/雪落无声之愿），
+  2026-11-20 report4 曾按名字缓存套装，把第一只读到的套装套给全部同名件（#21/#23/#24 判错）；环色也不能当缓存键
+  （实测大量名字的环色落在候选之外）。**面板图标在评估链里默认关**(`use_icon=False`)。
 - **⚠ 面板三块布局 / OCR 单位 / 回顶判据 / 数据集**(2026-11-19 真机, 一次踩齐):
   ①**布局**: 面板裁剪(482x783@1440x900)顶部 ~30% 是**固定表头**(名字/+25/COST 不随滚动)、中间 30~80%
   才是滚动内容(词条/技能/合鸣效果)、底部是 HUD(培养按钮) → **端点判据一律"画面不变"**(用户口径, 不看步数):
@@ -430,8 +435,9 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   ③**长图**只拼**会动的行**(`echo_panel_shot._moving_band` + 多候选带估位移), 否则底部 HUD 会被重复追加。
   ④**数据集** `SAVE_PANEL_DATASET`(默认开, 只对要滚面板的件, 目录懒创建): 每步裁剪 + `panel_ocr.jsonl` +
   `_long.png`(长图) + `_top.png`(回顶证明, `restore_ok=False` 计入 JSON 的 `panel_restore_fail`);
-  **离线重放** `tools/analysis/replay_panel_scroll.py` 用**同一份** `match_set_text`/`match_set_effect`/
-  `has_heading`/`name_own_line`(后两个已提到 `echo_set_templates`) —— 一次真机跑就能反复调判定。
+  **离线重放** `tools/analysis/replay_panel_scroll.py` 用**同一份** `match_set_text`/
+  `has_heading`/`name_own_line`(后两个已提到 `echo_set_templates`) —— 一次真机跑就能反复调判定；
+  **效果原文反查两处都已停用**(2026-11-20 宁缺毋滥)。
   **落盘走 `echo_panel_shot.imwrite_unicode`**: `cv2.imwrite` 在中文路径上会写坏文件名。
 - **面板 COST 与主属性**(L2): `read_detail` 用 `parse_cost` 读 COST 角标(合框 `COST 4` 或"标签 + 同行右侧数字框"), 前 2 行主属性与 COST 一起交给 `evaluate_one` → 报告「COST/主属性」列 + 官方管理方案判定。
   **COST 主口径 = "第 2 行反推"**(2026-11-19, 用户口径: 角标 OCR 和套装图标一样, 分辨率/字体一变就失效):
@@ -509,7 +515,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**335 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**339 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
   + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check`
