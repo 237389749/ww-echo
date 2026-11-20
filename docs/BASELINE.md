@@ -85,6 +85,8 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `probe_scroll_capture.py` | 连续抓帧 + 模板匹配真值：滚动动画多久停、px/格 到底多少 | stdout + `%TEMP%/scroll_seq/*.png` | `docs/SESSION_2026-11-18.md` §2.1 |
 | `audit_sets.py <评估json>` | 一条命令核对：条数/重复/`set_src` 分布/多义但没定下来的清单 | stdout | `docs/SESSION_2026-11-18.md` §3 |
 | `energy_weight_impact.py [评估json]` | **共效口径影响面**：`DEFAULT_WEIGHTS` 0.5 / 模板 0.6 / 听唤 0.5 / 隐世 1.2 各改一边会动哪些判定与 B 线（每个场景重跑 `evaluate_one`） | stdout + `logs/analysis/energy_weight_impact.md` | `docs/SESSION_2026-11-20.md` §11-2、CHANGELOG 补记 69 |
+| `icon_accuracy_report.py [评估json] [--panels 目录]` | **面板图标回归**：139 张 `_top.png` 的 top-1 / 置信闸覆盖与精度 / 名字候选约束 / 环色 / 二值形状 / 按等级 / 面板下滑时间账（真值 = 报告里的 `text` 套装） | stdout + `logs/analysis/icon_accuracy_report6.md` | `docs/SESSION_2026-11-20.md` §3、CHANGELOG 补记 71 |
+| `panel_scroll_time.py [--log] [--panels]` | **面板下滑的时间账**：用日志 `[评估#N]` 时间差拟合"每条固定开销 + 每步耗时"，算出下滑占整轮多少 | stdout + `logs/analysis/panel_scroll_time.md` | 同上 |
 | `verify_eval_run.py <评估json> [--log]` | **真机验收一条命令**（2026-11-20 口径）：条数 **160±2**（`--expect` 必须显式给，缺省不判条数）/ 完全重复 0 / `set_src=text` **≥85%** / `effect` 0 / **面板回顶失败 0** / **缺 COST 0** / **词条缺失 0** / **无 `持有数量` 假主属性**，外加每屏重叠与滚动健康（无重叠守卫、受阻、过滚）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项降级 SKIP） | stdout | `docs/SESSION_2026-11-20.md` §0、`docs/BASELINE.md` §2 |
 | `replay_panel_scroll.py [目录]` | 评估时存的 `logs/panel_debug/<ts>/` → 逐只重放「找套装」：线上结论 vs 离线（第几步命中）、回顶是否成功、长图尺寸；`--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读/回顶失败退出码 1 | stdout（`logs/panel_debug/` 是输入，只读） | CHANGELOG 补记 48；`CLAUDE.md` 评估遍历·面板数据集 |
 | `check_set_panel.py <面板截图…>` | **不玩游戏**，拿截图跑真 OCR，验证 `match_set_text`/`match_set_effect` | stdout | `docs/SESSION_2026-11-18.md` §3 |
