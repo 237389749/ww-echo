@@ -86,6 +86,15 @@ def latest_eval_json() -> str:
     return best
 
 
+def _debug_dir_usable(path: str) -> bool:
+    """素材目录能不能导: 有 `image_report.md`, 或至少有评估 JSON。
+
+    半成品目录(跑一半中断 / 只存了 png)不能挡住更旧但完整的评估 JSON。
+    """
+    return (os.path.exists(os.path.join(path, "image_report.md"))
+            or bool(glob.glob(os.path.join(path, "*.json"))))
+
+
 def latest_inventory_path() -> str:
     """「最新素材」= 最新的评估 JSON 或 `logs/eval_debug/<ts>/`, 按 mtime 取新。
 
@@ -93,7 +102,8 @@ def latest_inventory_path() -> str:
     评估产物改由「保存报告」写在报告同目录的 `<报告名>.json` —— 只认 eval_debug 会永远
     "找不到素材"(2026-11-20 用户实测: 组合穷举页「导入最新素材」直接报错)。
     """
-    cands = [p for p in (latest_eval_json(), latest_debug_dir()) if p]
+    cands = [p for p in (latest_eval_json(), latest_debug_dir())
+             if p and (not os.path.isdir(p) or _debug_dir_usable(p))]
     return max(cands, key=os.path.getmtime) if cands else ""
 
 

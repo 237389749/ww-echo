@@ -2721,9 +2721,10 @@ B(满级) 另用 `_legacy_threshold` 单独取前后值。
   挡掉 `char_profiles.json` 之类）+ `latest_inventory_path()`（与 `logs/eval_debug` 最新目录**按 mtime 取新**）；
   `load_inventory("")` 与 `tools/echo_plan.py --list` 都走它。`latest_debug_dir()` 只收目录；
   目录内的 JSON 也改成按 mtime 取最新（原来按文件名字典序，会拿到旧的）。
+  **半成品素材目录不参与比新**（跑一半中断、只有 png 没有 `image_report.md`）—— 否则它会挡住更旧但完整的 JSON。
 - UI：`PlanTab._import("")` 先解析来源再导入，InfoBar 显示"来源: <文件名>"、标签 tooltip 给完整路径；
   找不到时提示"工作区没有评估产物 JSON…请用「选择…」"。
 - 实测：工作区 `load_inventory("")` → **160 只**（`eval_report6.json`）；`echo_plan.py --list` → 160 / 49 名 /
   COST `{1:66,3:77,4:17}`；离屏 `PlanTab()._import("")` 同样 160 只。
 
-单测 350 → **353**（新增 `TestLatestInventorySource` 3 例）。
+单测 350 → **354**（新增 `TestLatestInventorySource` 4 例：最新 JSON / debug 目录比新 / 半成品目录不挡 JSON / 无源报错）。

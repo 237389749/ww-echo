@@ -251,6 +251,17 @@ class TestLatestInventorySource(unittest.TestCase):
         os.utime(d, (2000, 2000))
         self.assertEqual(os.path.basename(latest_inventory_path()), "20260101_000000")
 
+    def test_unusable_debug_dir_falls_back_to_json(self):
+        """跑一半中断的素材目录(只有 png、没有 image_report.md)不能挡住完整的评估 JSON。"""
+        self._write("eval_report.json", {"set": "通用", "results": [self._rec("旧件")]}, 1000)
+        d = os.path.join("logs", "eval_debug", "20260101_999999")
+        os.makedirs(d)
+        with open(os.path.join(d, "001_full.png"), "wb") as f:
+            f.write(b"")
+        os.utime(d, (2000, 2000))
+        self.assertEqual(os.path.basename(latest_inventory_path()), "eval_report.json")
+        self.assertEqual([i.name for i in load_inventory("")], ["旧件"])
+
     def test_no_source_raises_helpfully(self):
         self.assertEqual(latest_inventory_path(), "")
         with self.assertRaises(FileNotFoundError) as ctx:
