@@ -18,7 +18,7 @@ from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_text,
                                     get_set_core_first, get_set_low_first, has_heading, name_own_line,
                                     get_sets_by_echo, echo_set_counts, normalize_echo_name, load_gamedata)
-from src.echo_icon_match import (match_icon, MIN_MARGIN, MIN_SCORE,
+from src.echo_icon_match import (match_icon, icon_box_at_level, MIN_MARGIN, MIN_SCORE,
                                  badge_hue, filter_by_set_hue, hue_group)
 from src.task.BaseEchoTask import BaseEchoTask
 
@@ -274,12 +274,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return True
 
     @staticmethod
-    def parse_level(texts) -> int | None:
-        """从详情面板的 OCR 框里取等级(`+25`/`+10`/`+5`/`+0`) → int; 认不出 None。
+    def level_box(texts):
+        """从详情面板的 OCR 框里取等级 `+NN` 的那个框(y 最小、conf ≥ 0.6); 认不出 None。
 
-        等级是**固定表头**, 与名字/COST 一起恒在面板顶部 → 不受滚动影响, 是比"数词条"硬得多的信号。
-        实测(2026-11-19 的 174 个面板读取): 126 个读出 `+NN`, 全部 conf ≥ 0.90, y 恒定在 144~149。
-        取 **y 最小**的那个(名字右侧); OCR 有时会多吐一个孤立的 `+`(conf≈0.74), 它不匹配数字所以被忽略。
+        **为什么需要框而不只是数字**: 面板上的**套装图标**跟在等级文字右侧, 图标位置随文字宽度变
+        (`+5` 比 `+25` 窄, 图标左移约 10px) → 图标裁剪必须锚定这个框(见 `icon_box_at_level`)。
         """
         best = None
         for b in texts or []:
@@ -297,8 +296,20 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             except (TypeError, ValueError):
                 y = 0.0
             if best is None or y < best[0]:
-                best = (y, int(m.group(1)))
+                best = (y, b)
         return best[1] if best else None
+
+    @staticmethod
+    def parse_level(texts) -> int | None:
+        """从详情面板的 OCR 框里取等级(`+25`/`+10`/`+5`/`+0`) → int; 认不出 None。
+
+        等级是**固定表头**, 与名字/COST 一起恒在面板顶部 → 不受滚动影响, 是比"数词条"硬得多的信号。
+        实测(2026-11-19 的 174 个面板读取): 126 个读出 `+NN`, 全部 conf ≥ 0.90, y 恒定在 144~149。
+        取 **y 最小**的那个(名字右侧); OCR 有时会多吐一个孤立的 `+`(conf≈0.74), 它不匹配数字所以被忽略。
+        """
+        b = EnhanceEchoTask.level_box(texts)
+        m = LEVEL_RE.match(str(getattr(b, 'name', '') or '')) if b is not None else None
+        return int(m.group(1)) if m else None
 
 
     def __init__(self, *args, **kwargs):
@@ -415,19 +426,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.log_info(f'复位背包: 按 {presses} 次 B 重新打开(声骸列表应回到顶部)')
 
     def resolve_set_name(self, echo_name: str, badge=None, effect_set=None,
-                         effect_src: str = '', use_icon: bool = False) -> tuple[str, str]:
+                         effect_src: str = '', use_icon: bool = False,
+                         icon_box=None) -> tuple[str, str]:
         """评估用: 声骸名 + 套装硬信号 → (套装名, 来源)。
 
-        信号优先级(2026-11-19 现状；2026-11-20 起**评估链不再传 effect_set**，效果原文兜底已停用):
-        ① **详情面板「合鸣效果」区**(`effect_set` + `effect_src`): 先在效果区读到**套装名明文**
-           (`text`, 最稳), 读不到再用**效果原文**的字符覆盖率反查(`effect`; 参数保留给离线重放/旧报告);
-        ② **卡片徽章环色**(`badge=(hue|None, ok)`): 名字多个候选时用环色过滤(85% 可唯一定位);
-        ③ **名字候选**(config 套装在候选内则优先) → ④ config(评估=通用)。
-        来源 'text'/'effect'/'hue'/'name'/'default' 记入报告, 便于离线核对。
-
-        **`use_icon` 默认关**(2026-11-19): 3.x 详情面板没有套装图标, 那个裁剪区落在绿色「+」按钮上;
-        11-14 那批 155 条 icon 命中 0 次, 2026-11-19 却**误命中**一次(`雪落无声之愿`), 会把套装判错。
-        保留 `match_icon` 只给旧 UI 截图/离线回归用(`tools/eval_icon_match.py`), 评估链不再信它。
+        信号优先级(2026-11-20 现状):
+        ① **详情面板「合鸣效果」区套装名明文**(`effect_set` + `effect_src='text'`): 最稳, 调用方逐只读;
+           参数名沿用 effect_set(effect 原文兜底已停用, 只有旧报告/离线重放还会传 `effect`);
+        ② **详情面板套装图标**(`use_icon=True` + `icon_box`): 等级文字右侧的小圆图标, 灰度 ZNCC
+           与 37 套模板比对; **必须用 `icon_box_at_level` 的动态框**(固定框只对 +25 成立);
+        ③ **卡片徽章环色**(`badge=(hue|None, ok)`): 名字多个候选时用环色过滤(85% 可唯一定位);
+        ④ **名字候选**(config 套装在候选内则优先) → ⑤ config(评估=通用)。
+        来源 'text'/'icon'/'hue'/'name'/'default' 记入报告, 便于离线核对。
         """
         cfg_set = self.config.get('当前套装', '通用')
         cands = get_sets_by_echo(echo_name)
@@ -441,7 +451,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return effect_set, src
         icon_set, score, margin = (None, 0.0, 0.0)
         if use_icon:
-            icon_set, score, margin = match_icon(self.frame)
+            icon_set, score, margin = match_icon(self.frame, icon_box)
         if icon_set:
             corrected = f' — 名字候选 {cands} 由图标纠正' if cands and icon_set not in cands else ''
             self.log_debug(f'[套装图标] {echo_name} → {icon_set}'
@@ -1313,11 +1323,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     p.name = m.group()
             values = self.find_boxes(texts, match=number_pattern)
             level = self.parse_level(texts)
+            level_box = self.level_box(texts)      # 图标锚点(套装图标跟在等级文字右侧)
             if not properties:
-                return echo_name, [], '', cost, level
+                return echo_name, [], '', cost, level, level_box
             paired_all = self._pair_props(properties, values)
             detail_sig = f'{echo_name}|' + '|'.join(f'{n}={v}' for n, v in paired_all)
-            return echo_name, paired_all, detail_sig, cost, level
+            return echo_name, paired_all, detail_sig, cost, level, level_box
 
         try:
             # 键数硬拒: 套装有效词条 <5 不允许评估(通用跳过)
@@ -1359,7 +1370,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             # 与任何已记录条都对不上)。基线只留作日志证据, `last_sig` 置空 → 首格无论点击
             # 是否真的生效, 面板里的就是这一格。
             try:
-                base_name, _, _, _, base_level = read_detail()
+                base_name, _, _, _, base_level, _ = read_detail()
                 self.log_debug(f'开局基线(复位后默认选中的第一只): {base_name or "(无名)"} '
                                f'+{base_level if base_level is not None else "?"}')
             except Exception as e:
@@ -1425,11 +1436,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     alt_ratio = 0.08 if dy_ratio < 0 else -0.30
                     delta = (alt_ratio - dy_ratio) * pitch_px / fh if pitch_px > 1 else -0.035
                     click_points = (clamp_click(nx, ny), clamp_click(nx, ny + delta))
-                    echo_name, paired_all, sig, cost, level = '', [], '', None, None
+                    echo_name, paired_all, sig, cost, level, level_box = '', [], '', None, None, None
                     for attempt, (cx, cy) in enumerate(click_points):
                         self.click(cx, cy, after_sleep=0.8)
                         dbg_shot(f'click_{cx:.2f}_{cy:.2f}')
-                        echo_name, paired_all, sig, cost, level = read_detail()
+                        echo_name, paired_all, sig, cost, level, level_box = read_detail()
                         if paired_all and sig != last_sig:
                             break
                         # 面板可能还停在上一次"找套装"的滚动位置(滚动条共用) → 先回顶再读一次。
@@ -1437,7 +1448,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         if panel_dirty and (not paired_all or not _has_stat_rows(paired_all)):
                             if restore_panel_top():
                                 panel_dirty = False
-                            echo_name, paired_all, sig, cost, level = read_detail()
+                            echo_name, paired_all, sig, cost, level, level_box = read_detail()
                             if paired_all and sig != last_sig:
                                 break
                         if attempt == 0:
@@ -1493,11 +1504,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                         if panel_dirty and restore_panel_top():
                             panel_dirty = False
                         self.sleep(0.3)
-                        name2, paired2, sig2, cost2, level2 = read_detail()
+                        name2, paired2, sig2, cost2, level2, level_box2 = read_detail()
                         stats2 = _parse_stats(paired2)
                         if stats2:
                             echo_name, paired_all, sig = name2, paired2, sig2
                             cost, level = cost2 or cost, level2 if level2 is not None else level
+                            level_box = level_box2 or level_box
                             stats = stats2
                             self.log_info(f'[格 {rc}] 面板重读成功({len(stats)} 条词条): {echo_name}')
                         else:
@@ -1508,6 +1520,16 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     if stats:
                         badge = badge_hue_at(nx, ny)
                         cand_list = get_sets_by_echo(echo_name) if echo_name else []
+                        # 套装图标锚点: 图标跟在等级文字右侧, 位置随 `+5`/`+25` 的宽度变 →
+                        # 用等级框算(icon_box_at_level), 不用固定区(固定区只对 +25 成立)。
+                        icon_box = None
+                        if level_box is not None:
+                            try:
+                                fw = float(getattr(self.executor.method, 'width', 0) or 1920.0)
+                                icon_box = icon_box_at_level(level_box.x, level_box.y,
+                                                             level_box.width, level_box.height, fw)
+                            except Exception as e:      # noqa: BLE001 - 图标只是备选
+                                self.log_debug(f'图标锚点计算失败(忽略): {e}')
                         if len(cand_list) == 1:
                             # **只属于一套** → 名字就是答案，不滚面板、不做 OCR(用户口径)
                             set_name, set_src = self.resolve_set_name(echo_name, badge)
@@ -1520,7 +1542,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             # 熔山裂谷 h7 / 轻云出月 ach), 只有面板明文是逐只可靠的。
                             effect_set, _s1, _s2, effect_src = read_set_by_effect(cand_list, echo_name)
                             set_name, set_src = self.resolve_set_name(echo_name, badge,
-                                                                      effect_set, effect_src)
+                                                                      effect_set, effect_src,
+                                                                      use_icon=True, icon_box=icon_box)
                         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与离线重放共用同一份实现)
                         # L2: 前 2 行主属性与 COST 角标一并交给它(报告据此标"官方管理方案"是否认可该主属性)
                         # level: 面板固定表头的 `+NN` —— 判"满级/未满级"的硬信号(见 _tier_from_level)

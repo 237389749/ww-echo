@@ -26,8 +26,10 @@ from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-# 详情面板套装图标区(整帧归一化)。1920x1200 实测 (1402,199)-(1430,227), 与视觉模型在同一批
+# 详情面板套装图标区(整帧归一化, **旧固定区**)。1920x1200 实测 (1402,199)-(1430,227), 与视觉模型在同一批
 #   debug 图上核对的 detail.png 坐标 (135,79)-(163,107) 一致; 图标直径约 28px(含 2px 外发光)
+# ⚠ **只对 `+25` 面板成立**: 图标跟在等级文字右侧, `+5` 时左移约 10px → 评估链用 `icon_box_at_level`
+#   按等级 OCR 框动态锚定; 这个常量只留给没有等级框的旧调用/离线工具。
 ICON_BOX = (0.7302, 0.1658, 0.7448, 0.1892)
 # 统一比较尺寸(px): 模板与游戏内图标都归一到该尺寸后 1:1 比
 ICON_SIZE = 28
@@ -121,13 +123,40 @@ def _bank():
     return _bank_cache
 
 
-def crop_icon(frame):
-    """整帧 → 图标区灰度 28x28(按帧尺寸换算归一化区, 分辨率无关); 无效帧返回 None。"""
+# 图标锚定参数(2026-11-20 实测 1440x900): 图标中心 = 等级 `+NN` 框右缘 + 15px, 半径 11px。
+# **必须按等级框锚定**: 图标是跟在等级文字后面的, `+5` 比 `+25` 窄 → 图标整体左移约 10px;
+# 旧的固定 ICON_BOX 只对 `+25` 成立(2026-11-14 那批低等级面板因此 0 命中, 误判成"没有图标")。
+ICON_GAP_RATIO = 15 / 1440.0        # 等级框右缘 → 图标中心(×帧宽)
+ICON_RADIUS_RATIO = 11 / 1440.0     # 图标半径(×帧宽)
+
+
+def icon_box_at_level(level_x, level_y, level_w, level_h, frame_w):
+    """等级 `+NN` 的 OCR 框(像素) → 套装图标裁剪框(像素) `(x0,y0,x1,y1)`。
+
+    图标在等级文字右侧、与文字垂直居中; gap/半径按帧宽缩放, 与分辨率无关。
+    """
+    gap = ICON_GAP_RATIO * float(frame_w)
+    r = ICON_RADIUS_RATIO * float(frame_w)
+    cx = float(level_x) + float(level_w) + gap
+    cy = float(level_y) + float(level_h) / 2.0
+    return (cx - r, cy - r, cx + r, cy + r)
+
+
+def crop_icon(frame, box=None):
+    """整帧 → 图标区灰度 28x28。`box` = 像素 `(x0,y0,x1,y1)`; 不给则用旧固定区 `ICON_BOX`(归一化)。
+
+    **推荐传 box**(`icon_box_at_level` 算出的动态框): 固定框只对 `+25` 面板成立。
+    """
     if frame is None or getattr(frame, 'size', 0) == 0:
         return None
     h, w = frame.shape[:2]
-    x1, y1 = int(ICON_BOX[0] * w), int(ICON_BOX[1] * h)
-    x2, y2 = int(ICON_BOX[2] * w), int(ICON_BOX[3] * h)
+    if box is None:
+        x1, y1 = int(ICON_BOX[0] * w), int(ICON_BOX[1] * h)
+        x2, y2 = int(ICON_BOX[2] * w), int(ICON_BOX[3] * h)
+    else:
+        x1, y1, x2, y2 = (int(round(v)) for v in box)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
     if x2 - x1 < 8 or y2 - y1 < 8:
         return None
     sub = frame[y1:y2, x1:x2]
@@ -135,18 +164,17 @@ def crop_icon(frame):
     return cv2.resize(gray, (ICON_SIZE, ICON_SIZE), interpolation=cv2.INTER_AREA).astype(np.float32)
 
 
-def match_icon(frame):
+def match_icon(frame, box=None):
     """详情面板套装图标 → (套装名 | None, 最佳 ZNCC, 与次优的间隔)。
 
     置信不足(ZNCC < MIN_SCORE 或与次优间隔 < MIN_MARGIN)返回 (None, …) ——
     例如详情面板没有套装图标时, 由调用方回退"声骸名 → 套装候选"。
 
-    ⚠ **2026-11-14: 新版 UI(3.x) 详情面板不再有套装图标** —— ICON_BOX 落到了等级旁那个
-    绿色「+」按钮上(实测 155 条评估记录 icon 命中 0 次)。本函数保留给旧 UI/其它面板,
-    新 UI 下套装消歧走下面的**网格卡片徽章环色**(`badge_hue` / `filter_by_set_hue`)。
+    `box` 是**像素**裁剪框(推荐 `icon_box_at_level(...)`); 不给时退回旧固定区 `ICON_BOX`
+    —— 固定区只对 `+25` 面板成立, `+5` 会切偏(2026-11-20 实测)。
     """
     names, matrix, norms, sel = _bank()
-    gray = crop_icon(frame)
+    gray = crop_icon(frame, box)
     if gray is None or not names:
         return None, 0.0, 0.0
     padded = np.pad(gray, SHIFT, mode='edge')   # 平移取窗, 避免 np.roll 的边界卷绕

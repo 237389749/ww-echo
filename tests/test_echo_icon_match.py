@@ -187,5 +187,40 @@ class TestMatchIconClosedLoop(unittest.TestCase):
             M._bank_cache = saved
 
 
+class TestDynamicIconBox(unittest.TestCase):
+    """图标锚定到等级 `+NN` 框 —— 图标跟在等级文字右侧, `+5` 比 `+25` 窄, 固定框会切偏。
+
+    2026-11-20: 旧 `ICON_BOX` 只对 +25 成立, +5 面板图标左移约 10px → 0 命中, 被误判成"面板没有图标"。
+    """
+
+    def test_icon_box_geometry(self):
+        box = M.icon_box_at_level(1000, 148, 45, 23, 1440)
+        self.assertAlmostEqual((box[0] + box[2]) / 2, 1060, delta=1)   # 右缘 1045 + gap 15
+        self.assertAlmostEqual((box[1] + box[3]) / 2, 159.5, delta=1)  # 等级框垂直中心
+        self.assertAlmostEqual(box[2] - box[0], 22, delta=1)           # 半径 11
+        # 分辨率无关: 1920 宽时 gap/半径按 1920/1440 放大
+        big = M.icon_box_at_level(1000 * 1920 / 1440, 148 * 1200 / 900, 45 * 1920 / 1440,
+                                  23 * 1200 / 900, 1920)
+        self.assertAlmostEqual(big[2] - big[0], 22 * 1920 / 1440, delta=2)
+
+    def test_match_icon_with_dynamic_box(self):
+        paths = template_paths()
+        if not paths:
+            self.skipTest('assets/echo_icons 缺失')
+        tpl = os.path.join(M.icons_dir(), '长路启航之星.png')
+        if not os.path.exists(tpl):
+            self.skipTest('长路启航之星.png 缺失')
+        w, h = 1440, 900
+        frame = np.zeros((h, w, 3), np.uint8)
+        box = M.icon_box_at_level(1000, 148, 45, 23, w)
+        x1, y1, x2, y2 = (int(round(v)) for v in box)
+        patch = cv2.resize(M._template_gray(tpl), (x2 - x1, y2 - y1), interpolation=cv2.INTER_AREA)
+        frame[y1:y2, x1:x2] = cv2.cvtColor(patch, cv2.COLOR_GRAY2BGR)
+        name, score, margin = M.match_icon(frame, box)
+        self.assertEqual(name, '长路启航之星')
+        self.assertGreaterEqual(score, M.MIN_SCORE)
+        self.assertGreaterEqual(margin, M.MIN_MARGIN)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

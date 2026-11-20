@@ -75,6 +75,17 @@ class TestEvalTraverseEnd(unittest.TestCase):
         src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
         self.assertIn('if cand and seen_heading is not None:', src)
 
+    def test_icon_fallback_is_wired(self):
+        """套装图标必须锚定到等级 `+NN` 框(动态), 并作为明文之后的备选接进评估链。
+
+        2026-11-20: 用户指出图标就在等级右侧; 旧固定 ICON_BOX 只对 +25 成立(图标随文字宽度左移),
+        低等级面板 0 命中 → 被误判成"没有图标"。动态锚定后离线回归 87.9%(report5 的 140 张面板)。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('def level_box(', src)
+        self.assertIn('icon_box_at_level(', src)
+        self.assertIn('use_icon=True, icon_box=icon_box', src)
+
     def test_preflight_checks_input_permission(self):
         """开跑前必须先确认能把游戏拉到前台 —— 否则"没管理员"会伪装成"检测不到网格"。
 
