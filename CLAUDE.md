@@ -116,6 +116,13 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   写权限时 `QSettings` 写不进去(读回 None) → **静默出浅色图**。现在 `show()` 后再显式 `apply_theme("DARK", remember=False)`
   兜一次(不落盘), 因此抓图前必须逐页 `update()`。
 - **`ComboBox` 没有 `setEditable`**: 需要可输入的组合框用 `EditableComboBox`(「组合穷举」页的补正来源用它)。
+- **窄窗口不横向滚动(2026-11-20)**: `SettingCard` 是固定高 70、控件横排在右侧、描述不换行的 —— 940 宽窗口下
+  「组合穷举」页内容最小宽 **1012**、「套装配置」797，只能横向裁切(角色预设那排控件被切)。现在统一用
+  `ui.widgets.WrapSettingCard`(描述 `setWordWrap(True)`、控件放进 `FlowLayout`、`resizeEvent` 里按当前宽度
+  重算卡高) + `FlowLayout`(Qt 官方流式布局精简版)；组合穷举的 8 张卡、套装配置的 3 张卡已替换，卡内成排控件
+  (`补正/条件补正/专伤/结果工具条`)用 `PlanTab._flow_row` 包成流式行。**新卡片别往 `SettingCard.hBoxLayout`
+  里堆一排控件** —— 用 `WrapSettingCard.add_controls` 或 `_flow_row`。复测：940 窗口下两页内容最小宽 493/227，
+  横向滚动条 0；`python tools/ui_shot.py --size 940x620` 可直接看效果。
 - **已知待办**: 传统模式选项那一块仍是紧凑控件(仅在「传统」策略下出现); 套装配置的表单校验只有 JSON 解析级。
 
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
