@@ -843,6 +843,10 @@ Lv5 / Lv10 为结构判定：<b>只看首条</b>——首条在「首核」内�
 只出 3 条有效的件上限天然约 72%。它同时反映"有效条数"与"档位高低"，是看"离毕业多远"的主指标。<br>
 （早期版本还展示过「击败 X%」= 按官方概率模拟"随机满级声骸"分布后本只的分位；它<b>主要反映"抽到几条有效词条"</b>、
 而档位高低只影响 ±40%，"5 条全最低档"就已击败 97% —— 与玩家"离毕业多远"的比较习惯不符，已<b>不再展示</b>。）</p>
+<p><b>再下方的「通用评分」</b>：同一批词条按 <b>13 词条通用权重</b>再算一遍 ——
+暴击 1.0 / 暴击伤害 0.7 / 攻击%·生命%·防御% 0.5 / 共鸣效率 0.5 / 普攻·重击·共鸣技能·共鸣解放伤害加成 0.4 /
+攻击·生命·防御(固定) 0.25。同名同套装的重复件往往只能当散件或狗粮，这个数衡量它们"换到别的配队"的价值；
+它<b>通常高于专用分</b>(通用表覆盖 13 个词条、套装表只认 5~9 个)，<b>只作参考，不参与判定</b>。</p>
 <p><b>建议强化</b>（未满级）：总分 ≥ B(满级)（已达保留线, 稳了）；或「继续开到满级达 B(满级) 的概率 ≥ 60%」<b>且</b>
 现有条分 ≥ A(现有) —— 后者是"现有几条自己站得住"，只看前瞻会放过"权重低但档位好"的件。<br>
 <b>不建议强化</b>（未满级）：两者都不满足 —— 强化材料有限, 没前途的件及时止损。<br>
@@ -912,6 +916,15 @@ def _build_eval_html(data):
         from src.echo_score_sim import completeness
         comp = completeness(r.get("set"), r["score"])
         comp_html = (f'<br><b style="font-size:12px">完成度 {comp:g}%</b>' if comp is not None else '')
+        # 通用评分(散件口径): 同一批词条按 13 词条通用权重再算一遍 —— 同名同套装的重复件往往只能当
+        # 散件/狗粮, 这个数才是它们"换到别的配队"的价值; **不参与判定**(判定看专用分)。
+        gs = r.get("score_generic")
+        gen_html = (f'<br><span style="color:#777;font-size:11px;cursor:help" '
+                    f'title="通用评分: 同一批词条按 13 词条通用权重再算一遍(暴击1.0 爆伤0.7 '
+                    f'三系%0.5 共效0.5 专伤0.4 三系固定0.25)。同名同套装的重复件常只能当散件/狗粮, '
+                    f'这个数衡量那部分价值; 不参与判定(判定仍看专用分)">'
+                    f'通用评分 {gs:g}</span>'
+                    if isinstance(gs, (int, float)) else '')
         # 词条漏读(等级 +NN 说应有更多条): 分数只是下界 → 判定统一压成「保留(词条缺失)」, 这里标出来
         sm = r.get("stats_missing") or 0
         sm_html = ''
@@ -968,7 +981,7 @@ def _build_eval_html(data):
             f'<td{name_title}>{name}</td>'
             f'<td title="{set_src}">{set_name}</td>'
             f'<td><b>{cost_txt}</b>{plan_html}{val_html}{mp_html}</td>'
-            f'<td>{r["score"]}{comp_html}{sm_html}</td>'
+            f'<td>{r["score"]}{comp_html}{gen_html}{sm_html}</td>'
             f'<td style="color:{color};font-weight:bold">{vcn}{pr_html}{rf_html}</td>'
             f'<td>{stats_html}</td></tr>')
 

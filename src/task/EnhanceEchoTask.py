@@ -2172,6 +2172,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         missing = tier - len(stats)
         # compute_weighted_score 内部会 parse_number(value_str), 需传字符串; 显式传套装名让其用映射套装权重
         score, details = self.compute_weighted_score([(n, str(v)) for n, v in stats], set_name=set_name)
+        # **通用评分(散件口径)**: 同一批词条按 13 词条通用权重再算一遍 —— 同名同套装的重复件往往
+        # 只能当散件/狗粮, 这个分数衡量它们"换到别的配队里"的价值。**不参与判定**(判定仍用专用分)。
+        generic_score, _generic_details = self.compute_weighted_score(
+            [(n, str(v)) for n, v in stats], set_name='通用')
         if missing > 0:
             # 读数不全(等级说还有词条没读到): 这份分数只是**下界**, 任何"丢/练"的判断都不可靠 ——
             #   ① 不能判"不合格": 漏读的那条可能正好让它达标(实测那只少了一条暴击 7.5 → 17.29 不合格,
@@ -2190,7 +2194,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             # name 用容错匹配到的**规范名**(如 `冠顶械集` → `冠顶械隼`), 拿不准时沿用 OCR 原文;
             # name_raw 保留 OCR 原文供追溯(报告里作 title)
             "name": normalize_echo_name(echo_name) or echo_name, "name_raw": echo_name,
-            "tier": tier, "score": round(score, 2),
+            "tier": tier, "score": round(score, 2), "score_generic": round(generic_score, 2),
             "threshold": threshold, "verdict": verdict, "verdict_cn": verdict_cn,
             "set": set_name, "set_src": set_src,
             "prospect": prospect, "reforge": reforge,

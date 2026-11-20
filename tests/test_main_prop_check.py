@@ -194,6 +194,14 @@ class TestEvaluateOneIsAdditive(unittest.TestCase):
         self.assertEqual(rec['plan_check']['state'], 'ok')
         self.assertEqual(rec['plan_check']['plan'], {'lock': [8, 9], 'discard': []})
 
+    def test_generic_score_added(self):
+        """通用评分 = 同一批词条按 13 词条通用权重再算一遍; 只展示, 不参与判定。"""
+        from src.echo_scoring import compute_weighted_score
+        rec = _task().evaluate_one('测试声骸', self.STATS, '凝夜白霜', 'icon')
+        want, _ = compute_weighted_score([(n, str(v)) for n, v in self.STATS], set_name='通用')
+        self.assertAlmostEqual(rec['score_generic'], round(want, 2), places=2)
+        self.assertEqual(rec['verdict'], _task().evaluate_one('测试声骸', self.STATS, '凝夜白霜', 'icon')['verdict'])
+
     def test_cost_inferred_with_level(self):
         # 2026-11-20 report3 #145(等级 +5): 主属性 暴击 7.9% + 攻击 54.0 —— 只按 tier 窗口会与
         # 3C 在 +11 的 55.0 撞车(容差 1.0) → 缺 COST/plan_check; 传 level 后按 +5 取网格唯一。
