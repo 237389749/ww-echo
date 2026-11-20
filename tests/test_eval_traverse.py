@@ -25,6 +25,16 @@ class TestEvalTraverseEnd(unittest.TestCase):
         for token in ('read_count(', 'count_box', 'total_limit', 'anchor_ok'):
             self.assertNotIn(token, src, msg=f'评估不应再依赖声骸数量: 发现 {token}')
 
+    def test_zero_level_stops_immediately(self):
+        """读到 +0（或只剩两条固定行）就直接收工 —— 列表按等级排序，0 级只在尾部。
+
+        2026-11-20 用户口径: "按等级识别到 0 级 / 只有两个固定词条就可以停"；旧的
+        "整屏全 0 连续 3 屏"只保留为兜底（信号认不出时）。
+        """
+        src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))
+        self.assertIn('到达0级尾部(格', src)
+        self.assertIn('level == 0 or (level is None and len(paired_all) <= 2)', src)
+
     def test_zero_tail_stop_is_per_screen(self):
         """0 级尾部必须按**整屏**判, 不能按"连续 N 格" —— 后者会中途截断(2026-11-19 只有 43 条)。"""
         src = _read(os.path.join('src', 'task', 'EnhanceEchoTask.py'))

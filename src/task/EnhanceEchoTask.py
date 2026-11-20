@@ -1572,10 +1572,20 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                             if _register_fail(nx, ny, why, rc=rc):
                                 break
                             continue
-                        # 真 0 级: 无评估价值 —— 跳过不记录、不终止(整屏全 0 才计入尾部判定)
+                        # 真 0 级: 列表按等级排序 → **这就是尾部**, 直接收工(用户口径 2026-11-20:
+                        # "按等级识别到 0 级 / 只有两个固定词条就可以停")。硬信号:
+                        #   ① 等级读到 +0; ② 等级没读到但面板只剩两条固定行(没有词条区)。
+                        # 读失败(等级 ≥+5 或主属性像)上面已走失败分支, 不会到这里。
+                        # 旧的"整屏全 0 连续 3 屏"保留为兜底(0 级信号认不出时仍能收工)。
                         processed_any = True
                         seen_sigs.add(key)
                         zero_cells += 1
+                        if level == 0 or (level is None and len(paired_all) <= 2):
+                            stop_reason = f'到达0级尾部(格 {rc} 读到 +0)'
+                            self.log_info(f'[格 {rc}] ({nx:.3f},{ny:.3f}) 0级(无词条) → '
+                                          f'列表已到 0 级段, 评估结束', notify=True)
+                            stop_all = True
+                            break
                         self.log_info(f'[格 {rc}] ({nx:.3f},{ny:.3f}) 0级(无词条) 跳过 | {panel_desc}')
                         continue
 
