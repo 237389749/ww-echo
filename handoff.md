@@ -26,7 +26,7 @@
 | **三十一** | `09bf8b3`（`engine/vendor`） | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 10.2k 物理行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁。**未合并 main**，等 P4 真机验收 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **354 项**（`OK (skipped=2)`；需 Python **3.10+**；
+- `python -m unittest discover -s tests` → **360 项**（`OK (skipped=2)`；需 Python **3.10+**；
   3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
 - `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）；**P2 后 `import ww_engine` ≈0.21 s**
   （根包惰性导入，裸 import 不拉 cv2/qfluentwidgets/PIL/rotypes/pynput/外壳 —— 守卫在 `tests/test_engine_lazy.py`）
@@ -279,6 +279,10 @@ python tools/echo_plan.py --mode 3+2 --set-a 息界同调之律 --set-b 听唤�
 - **真机状态（2026-11-20 更新）**: 评估已真机跑到 **report6：160 条、八项验收全绿**（`verify_eval_run.py`；
   text 139/160=87%、effect 0、重复 0、回顶 0、缺 COST 0、失败 0、20.2 分钟、`+0` 收尾）。**仍未验证**：
   强化 `run()` 的"切下一只"推进、「组合穷举」页数据填充走查、与 wuwa-calculator 的对账。
+- **2026-11-20 晚：评估改成「图标优先」**（见 CHANGELOG 补记 72）：多候选名字先读固定表头的图标/环色，
+  不滚面板；「精确模式」勾选 = 总是下滑读合鸣效果明文。依据 report6 139 张面板回归（top-1 99.3%、闸内 100%）
+  + 下滑占整轮 46%。**需要再真机跑一轮拿新耗时基线**（预期 ≈12 分钟，`set_src` 以 `icon` 为主，
+  验收闸已改为 `text+icon ≥85%`）。
 - **⚠ 待决策（用户拍板后我再动手）：达标不拦"有效词条太少"**（2026-10-09，CHANGELOG 补记 13 /
   `eval_rules.md` §7）：达标只看 `A ≥ B` 且 `score ≥ A`，而 A 只统计"出现的那几条" —— 5 词条的件**只有 3 条有用**
   也可能达标（实测 #1 虚造神型 k=3 / A=21.0 / B=18.5 / score 22.51）。新报告满级 117 只里 **k < tier−1 有 61 只**，
