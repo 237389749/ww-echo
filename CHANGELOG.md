@@ -2591,7 +2591,21 @@ Exception: 未在背包界面检测到声骸网格(角标/结构线), 请确认�
 
 单测 338 → **339**。
 
-**效果原文兜底已停用（2026-11-20 用户口径"宁缺毋滥"）**：评估链只保留
+**补记 62（2026-11-20 下午：面板套装图标其实一直在 —— 固定框只对 +25 成立）**
+
+用户指出详情面板 `+25` 右侧有套装图标（截图 `辛吉勒姆` 橙环白心 = `长路启航之星` 资产）。之前"3.x 没有图标"
+的结论是**固定 `ICON_BOX` 只对 +25 成立**造成的：图标跟在等级文字右侧，`+5` 比 `+25` 窄、图标左移约 10px，
+低等级面板切偏/切空 → 旧批次 0 命中。
+
+- 修法：`echo_icon_match.icon_box_at_level(level_x,y,w,h,frame_w)` 按等级框右缘锚定（gap 15px / 半径 11px
+  @1440，按帧宽缩放）；`crop_icon`/`match_icon` 接受像素 box；`EnhanceEchoTask.level_box()` 把 `+NN` 框
+  从 `read_detail` 一路带出来，评估链 `use_icon=True` 作**明文之后的备选**。
+- 离线回归（report5 的 140 张 `_top.png`，真值=面板明文/环色）：**123/140 = 87.9%**；4 个"错"全是绿熔蜥
+  —— 图标读作 `轻云出月`（0.72~0.76），正好证明效果兜底判成 `熔山裂谷` 是错的。低等级（+5）面板分数
+  0.34~0.47 低于 0.6 门槛，top-1 仍正确，交环色/名字兜底。
+- 单测：`test_echo_icon_match.TestDynamicIconBox`（几何 + 合成帧闭环）、`test_eval_traverse.test_icon_fallback_is_wired`。
+
+单测 339 → **342**。
 **套装名明文**（含 text-lcs / 放开到 37 套）→ **环色** → **名字候选**；`match_set_effect` 只留给离线诊断
 （`check_set_panel.py`），线上 `read_set_by_effect` 与 `replay_panel_scroll.replay` 里的调用都**注释掉**了
 （保留代码备查）。理由：report5 的 6 次 effect 里 4 次是绿熔蜥误判；效果原文是长文本覆盖率，会把技能描述
