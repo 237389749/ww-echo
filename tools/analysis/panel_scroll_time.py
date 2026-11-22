@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 r"""面板下滑到底有多贵：用真机日志拟合"每条声骸的固定开销 + 每滚一步的开销"。
 
 输入:

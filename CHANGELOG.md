@@ -3040,3 +3040,57 @@ B1 之后的 8 项结构与易用修复。**单测 378 → 384**（`test_ui_guar
 
 **没做（下一批）**：`docs/BACKEND_REVIEW_2026-11-22.md` §3 的 13 个 🟡 与 §4 的 16 个 🟢 ——
 优先 B4/B5/B6/B7（验收类，决定"以后改判定还敢不敢信测试"）与 B3/B10（错误处理一致性）。
+
+---
+
+**补记 79（2026-11-22：后端审查 B 批 —— 13 个「静默失效」）**
+
+接补记 78（A 批 4 个 🔴）。B 批处理审查文档 §3 的 13 个 🟡：**单测 423 → 455**（+32，7 个测试文件）。
+共同主题是"**验收/契约在撒谎**"——工具读不存在的字段、守卫跳过解析失败的文件、测试断言自己抄的公式、
+UI 把异步当同步。
+
+**验收类（B4~B7）**
+- B4 `verify_eval_run` 读的是 `main_prop_check`/`status`（**不存在**），真实字段是 `main_values_check` 的 `ok`。
+  于是"主属性数值可疑"恒为 0、永远不报警。改成 `any(m.get("ok") is False ...)` 并打出 `[主属性数值]` 行。
+- B5 docstring 承诺 `effect = 0` 是验收项，代码里**没有闸门**；而 139 text + 6 effect 的报告会 PASS 且一句不提。
+  现在 `effect > 0` 一律打印 + WARN（**不判失败**：旧报告兼容），docstring 同步成"停用后新报告应为 0"。
+- B6 全仓"已清 BOM"不成立：`tests/test_set_fast_path.py`、`tools/analysis/panel_scroll_time.py` 仍带 BOM，
+  而 `test_gbk_output` 的 `except SyntaxError: continue` 把这两份**静默排除**在守卫之外。剥 BOM + 守卫改
+  读 `utf-8-sig`、BOM 直接报错、解析失败改成 fail、`SKIP_DIRS` 补 `.scratch`/`.venv`。
+  **改完立刻抓到我自己新写的 `⚠`**（`-- 报告里有 ⚠ 数值可疑`）—— 守卫真的在工作。
+- B7 `test_set_lines` 断言的是测试里**自己抄的** `_b_line`，把 `_legacy_threshold` 换成常数也全绿（已验证）。
+  改成断言实现本身；`_b_line` 保留为独立口径的交叉校验。
+
+**错误处理一致性（B3、B10）**
+- B3 模板校验名不副实：`{"暴击":"高"}` → `float()` 抛 ValueError → 一路冒到 `EnhanceEchoTask.__init__`，
+  整个程序起不来且不说哪个套装。现在非数字权重/非列表 `_core_first` 一律告警跳过。
+- B10 CLI 一半友好一半裸 traceback：`--set-b` 缺失、两套相同、套装名打错、`--derive 共鸣效率:abc:2:50`
+  全甩堆栈。统一成一行 `SystemExit`（套装名带 difflib 建议），`plan()` 的 ValueError 也转成友好退出；
+  素材模式的 `--out` 以前**静默无效**（写死 `eval_report.html`），现在生效。
+
+**数据/渲染（B8、B11）**
+- B8 报告 HTML 直接拼 OCR 文本：`data-name="{name}"`、`title="{set_src}"`、`<option value="{n}">` 都没转义 ——
+  一个 `"` 截断属性、一个 `<` 吃掉半行。统一 `_esc()`（`html.escape(quote=True)`）。
+- B11 `gen_echo_data` 违背自己的"解析不出退 2"：`_props` 用 `tm.get()` + `if name:` **静默丢属性名**，
+  `_echoes` 回落成 `Monster_Name_123` 当声骸名。两者改走 `self.zh()`（进 `unresolved`）。
+
+**生命周期（B1、B2）**
+- B1 保存报告的旧顺序是"拷截图 → 读 json → 渲染 → 最后写 json"，任何一步失败 → `finally` 删临时目录 →
+  **12 分钟的评估结果全丢**。改成"先写数据 → 再拷截图（失败只告警）→ 最后 HTML"。
+- B2 「开始强化」后日志立刻打「══ 结束 ══」、开始按钮马上可再点 —— 因为 `start()` 只是 `handler.post(...)`。
+  给 `StartController.start(on_done=ok)` 加完成回调；`TaskExecutor` 的**三条结束路径**（正常/用户停止/异常）
+  统一发 `communicate.task_done`，运行页改为"提交后就等引擎通知"。
+
+**引擎（B12、B13）**
+- B12 `Config.verify_config` 见到 `"True"`（字符串）就**静默换成默认 False 并覆写文件** → 设置"保存成功、重启没了"。
+  加 `_coerce`（`"True"`/"3"/3.0 都能转，转不了才回默认并告警）；坏文件先备份成 `.bad` 再重置；
+  `write_json_file` 改 `tmp + os.replace` 原子写（原来先截断，崩在中间就是空文件 → 全量重置）。
+- B13 `BitBltCaptureMethod` 没有 `close()`（基类是 `pass`）→ 切 capture 时 window DC/DIB 只增不减；
+  `prevent_sleeping(True)` 后没有 `finally` → 任务抛异常后进程活着期间系统不自动睡眠。都补上。
+
+**验收**：`python -m unittest discover -s tests` → `Ran 455 tests / OK (skipped=2)`（exit 0）；
+`tools/ui_probe.py --strict` **5/5**；`offline_eval_report --from-json` 160 条**分数变化 0.000**；
+`verify_eval_run --check --expect 160` → `[ok]`；`echo_plan --list` 仍 `160 只 / 49 名字`。
+
+**没做**：🟢 C1~C17；以及 engine-review 里"要真机才能验"的三条（D3D `create_device()` 覆盖前不 Release、
+`overlay.ui_dict` 从没写入、`handler.post(skip_if_running)` 丢请求）。

@@ -212,6 +212,28 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   评估侧 `evaluate_only` 捕 `BaseException` 再 `raise`, 否则那轮的临时目录(可达数百 MB)永久留在 `%TEMP%`。
   **别顺手把 `sys.exit(0)` 换成 `FinishedException`**: 它是 `Exception`, 沿途十几处 `except Exception` 会把它吞掉。
 
+### 后端 B 批修复(2026-11-22, 补记 79) — 勿回退
+
+13 个 🟡 的共同主题是"**验收/契约在撒谎**"。详细现象/根因见 CHANGELOG 补记 79 与
+`docs/BACKEND_REVIEW_2026-11-22.md` §3、§7.5:
+
+- **验收工具读的字段名必须跟写入侧一致**: `verify_eval_run` 读 `main_values_check` 的 `ok is False`
+  (旧代码读不存在的 `main_prop_check`/`status` → 恒 0, 主属性数值可疑永远不报警); `effect > 0` 一律 WARN
+  (不判失败 —— 旧报告兼容, 但**必须说出来**)。
+- **GBK 守卫不许静默跳过文件**: 它改读 `utf-8-sig`、BOM 直接报错、`except SyntaxError` 改成 fail,
+  `SKIP_DIRS` 含 `.scratch`/`.venv`。**别给入库文件加 BOM**(`ast` 类工具会直接失效, 守卫也就失明了)。
+- **文档数字要断言实现, 不是断言自己**: `test_set_lines` 必须调 `_legacy_threshold`; 抄一份公式当断言 = 没断言。
+- **坏输入只能"过滤 + 指路", 不能崩**: 模板非数字权重/非列表 `_core_first` 告警跳过;
+  CLI 的 `--set-b` 缺失、两套相同、套装名打错(带 difflib 建议)、`--derive` 非数字 → 一行 `SystemExit`。
+- **报告里所有 OCR 文本过 `_esc()`**: 名字/词条/主属性/套装进属性或正文前一律 `html.escape(quote=True)`。
+- **生成器不许把文本键当数据**: `gen_echo_data` 的属性名/声骸名走 `self.zh()`(进 `unresolved` → 退 2),
+  不许回落成 `Monster_Name_123`。
+- **评估保存顺序 = 数据 → 截图 → HTML**: 截图失败只告警, 不能因为拷图失败把 12 分钟的评估数据丢掉。
+- **`start()` 是异步的**: 用 `StartController.start(on_done=ok)` + `communicate.task_done`
+  (正常/停止/异常三条路都发)驱动运行页状态; **别在提交后直接打「结束」**。
+- **引擎配置与资源**: `Config.verify_config` 对 `"True"`/`"3"` 做 coerce(转不了才回默认+告警), 坏文件先存 `.bad`;
+  `write_json_file` 是 `tmp + os.replace`; `BitBltCaptureMethod.close()` 真释放 GDI; `prevent_sleeping` 有 `finally`。
+
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
 
 **分层**(与阶段二十四"判定唯一收口"同一条纪律): `src/echo_panel.py`(计算) → `src/echo_combos.py`(穷举) →
@@ -620,7 +642,7 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**423 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**455 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_probe.py --strict`(界面 5 项缺陷探针, 应 **5/5**)
   + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材) + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`

@@ -126,6 +126,12 @@ class MainGateTest(unittest.TestCase):
             code = ver.main()
         return code, buf.getvalue()
 
+    def _set_log(self, n):
+        """把日志换成"这一轮共 n 个声骸"（条数一致性检查要求日志与报告一致）。"""
+        lines = [_line('10:00:00,000', '评估遍历: 不识别声骸数量, 直到「连续两行 0 词条 / 网格为空」结束'),
+                 _line('10:00:49,000', f'评估完成, 共{n}个声骸')]
+        self.log.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
     def test_text_majority_passes(self):
         code, out = self._run(_report([_row(1, '先锋幼岩', '隐世回光', 'text'),
                                        _row(2, '无归的谬误', '隐世回光', 'text')]), ['--check'])
@@ -164,6 +170,43 @@ class MainGateTest(unittest.TestCase):
         code, out = self._run(_report([row, dict(row)]), ['--check'])
         self.assertEqual(code, 1, out)
         self.assertIn('完全重复 1 组', out)
+
+    def test_effect_is_surfaced_even_when_text_majority(self):
+        """B5：effect 不计入硬门槛（旧报告兼容），但**只要出现就要说出来**。
+
+        旧行为：139 text + 6 effect → hard_pct 96% → PASS，effect 一句都不提 → 弱信号回潮没人发现。
+        """
+        self._set_log(4)                            # 日志条数必须与报告一致（否则先挂在条数不一致上）
+        rows = [_row(i, f'声骸{i}', '隐世回光', 'text') for i in range(1, 4)]
+        rows.append(_row(4, '绿熔蜥', '熔山裂谷', 'effect'))
+        code, out = self._run(_report(rows), ['--check'])
+        self.assertEqual(code, 0, out)             # 仍是 PASS（4 条里 1 条 effect 不影响硬门槛）
+        self.assertIn('已停用', out)
+        self.assertIn('1 条套装的来源', out)
+
+    def test_main_values_check_bad_is_read(self):
+        """B4：读真实字段名 `main_values_check` 的 `ok is False`。
+
+        旧代码读 `main_prop_check`/`status`（不存在）→ 这项恒为 0，主属性数值可疑永远不报警。
+        """
+        rows = [_row(1, '先锋幼岩', '隐世回光', 'text',
+                     main_values_check=[{'name': '暴击', 'value': 150.0, 'ok': False,
+                                         'expect': 22.0, 'tol': 0.11}]),
+                _row(2, '无归的谬误', '隐世回光', 'text',
+                     main_values_check=[{'name': '攻击', 'value': 150.0, 'ok': True,
+                                         'expect': 150.0, 'tol': 1.0}])]
+        code, out = self._run(_report(rows), ['--check'])
+        self.assertEqual(code, 0, out)             # 可疑只标 WARN，不动退出码
+        self.assertIn('主属性数值可疑 1 条', out)
+        self.assertIn('[主属性数值] 1 条', out)
+
+    def test_main_values_check_ok_does_not_warn(self):
+        rows = [_row(i, f'声骸{i}', '隐世回光', 'text',
+                     main_values_check=[{'name': '攻击', 'value': 150.0, 'ok': True,
+                                         'expect': 150.0, 'tol': 1.0}]) for i in (1, 2)]
+        code, out = self._run(_report(rows), ['--check'])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('主属性数值可疑', out)
 
 
 class RollingHealthGateTest(unittest.TestCase):

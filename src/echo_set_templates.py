@@ -111,6 +111,12 @@ def _validate_and_filter(sets: dict) -> dict[str, dict]:
         echoes = {k: [] for k in _COST_KEYS}
         for stat_name, weight in stats.items():
             if stat_name == _CORE_FIRST:
+                # 非列表(误写成数字/字符串)不能让它冒到调用方 —— 那会让 `EnhanceEchoTask.__init__`
+                # 直接崩、"串"的操作系统级报错, 用户根本看不出是哪个套装写坏了(2026-11-22 审查 B3)。
+                if isinstance(weight, str) or not isinstance(weight, (list, tuple)):
+                    logger.warning(f"[模板校验] 套装 '{set_name}' 的 _core_first 必须是词条名列表: "
+                                   f"{weight!r}, 已忽略")
+                    continue
                 core_first = [s for s in weight if s in VALID_STAT_NAMES]
                 continue
             if stat_name == _LOW_FIRST:
@@ -147,7 +153,14 @@ def _validate_and_filter(sets: dict) -> dict[str, dict]:
                 logger.warning(
                     f"[模板校验] 套装 '{set_name}' 中的 '{stat_name}' 重复, 保留后者"
                 )
-            valid_stats[stat_name] = float(weight)
+            try:
+                valid_stats[stat_name] = float(weight)
+            except (TypeError, ValueError):
+                # `null` / `"高"` 这类手写错误: 本函数的名字就叫"校验并过滤", 不该抛出去把整个程序
+                # 拖崩(2026-11-22 审查 B3 —— 实测 `{"暴击": "高"}` 会让 load_templates 抛 ValueError)。
+                logger.warning(f"[模板校验] 套装 '{set_name}' 的 '{stat_name}' 权重不是数字: "
+                               f"{weight!r}, 已过滤")
+                total_dropped += 1
 
         cleaned[set_name] = {'weights': valid_stats, 'core_first': core_first,
                              'low_first': low_first, 'echoes': echoes, 'icon': icon}

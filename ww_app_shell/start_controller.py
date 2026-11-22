@@ -45,8 +45,27 @@ class StartController(QObject):
         if task.paused:
             task.unpause()
 
-    def start(self, task=None, exit_after=False):
-        self.handler.post(lambda: self.do_start(task, exit_after))
+    def start(self, task=None, exit_after=False, on_done=None):
+        """异步启动（投递到 handler 线程）。
+
+        `on_done(ok: bool)` 在**handler 线程**上被调用 —— UI 侧要转成 Qt 信号再碰控件。
+        为什么要这个回调：`start()` 只是 `handler.post(...)` 就返回，把返回值当"跑完了"会让调用方
+        在任务刚提交时就去复位状态（2026-11-22 后端审查 B2）。
+        """
+
+        def _run():
+            try:
+                ok = self.do_start(task, exit_after)
+            except Exception as e:                     # noqa: BLE001 - 回调链不能因为启动异常断掉
+                logger.error(f'do_start exception: {e}', e)
+                ok = False
+            if on_done is not None:
+                try:
+                    on_done(bool(ok))
+                except Exception as e:                 # noqa: BLE001
+                    logger.error(f'start on_done callback failed: {e}', e)
+
+        self.handler.post(_run)
 
     def do_start(self, task=None, exit_after=False):
         self._auto_bring_to_front = task is not None

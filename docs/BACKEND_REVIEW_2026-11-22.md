@@ -9,9 +9,9 @@
 > （每条 🔴🟡 都给了命令与输出）。引擎层与工具层各有一路并行审查，本文只收**主审复核过**的条目。
 >
 > 基线：审查时 `python -m unittest discover -s tests` → `Ran 411 tests / OK (skipped=2)`，退出码 0；
-> **A 批落地后 423 项**（+12，见 §7.4）。审查期间**未改动仓库任何文件**（探针产物只写 `%TEMP%`）。
+> **A 批落地后 423 项**（+12，见 §7.4）、**B 批落地后 455 项**（+32，见 §7.5）。审查期间**未改动仓库任何文件**（探针产物只写 `%TEMP%`）。
 >
-> **进度**：🔴 A1~A4 **已修**（`8` 个文件 + 2 个测试文件，补记 78）；🟡/🟢 未动，按 §7 分批。
+> **进度**：🔴 A1~A4 **已修**（补记 78）；🟡 B1~B13 **已修**（补记 79，单测 423 → **455**）；🟢 C1~C17 未动，按 §7 分批。
 >
 > **修复入口见 §7**：A 批（4 个 🔴）→ B 批（13 个 🟡）→ C 批（16 个 🟢）。改测试后记得同步文档里的项数。
 
@@ -329,6 +329,27 @@ finally:
 
 **A 批顺带发现（记在这里，没改）**：`tools/analysis/probe_*.py` 3 个探针仍用裸 `cv2.imwrite`（一次性脚本，已进白名单）；
 `ui/debug_tab` 的截图路径来自 `os.getcwd()`，与 `screenshots_folder` 配置没打通（原本如此，未动）。
+
+### 7.5 B 批落地记录（2026-11-22，补记 79）
+
+| 项 | 实际改动 | 守卫 |
+|---|---|---|
+| B4 | `verify_eval_run` 读真实字段 `main_values_check` 的 `ok is False`（旧名 `main_prop_check` 恒 0） | `test_verify_eval_run` +3 |
+| B5 | `effect > 0` 一律打印并 WARN（不判失败，旧报告兼容）；docstring 与代码对齐 | 同上（含"text 多数 + 1 条 effect 也要说出来"） |
+| B6 | 去掉 2 个入库文件的 BOM；守卫改读 `utf-8-sig`、BOM 直接报错、`except SyntaxError` 改成 fail；`SKIP_DIRS` 加 `.scratch`/`.venv` | `test_gbk_output`（**改完立刻抓到我自己新写的 `⚠`**） |
+| B7 | `test_set_lines` 改成断言 `_legacy_threshold` 本身，`_b_line` 降级为交叉校验 | 把实现换成常数 → 测试必须红（已实测） |
+| B3 | `_validate_and_filter` 对非数字权重/非列表 `_core_first` 告警跳过 | `test_echo_set_templates` +3 |
+| B10 | `--set-b` 缺失/两套相同/套装名打错（带 difflib 建议）/`--derive` 非数字 → 友好 `SystemExit`；`plan()` 的 ValueError 转 SystemExit；素材模式认 `--out` | `test_plan_cli` +8 |
+| B8 | 报告里名字/词条/主属性/套装/选项全部过 `_esc()`（`html.escape(quote=True)`） | `test_report_layout` +2 |
+| B11 | `gen_echo_data` 的属性名/声骸名改走 `self.zh()`（解析不出 → `unresolved` → 退 2），不再回落成文本键 | `test_gen_echo_data` +3 |
+| B1 | 评估保存改"先数据 → 再截图（失败只告警）→ 最后 HTML" | 代码审查（路径要真机弹框，未做 UI 自动化） |
+| B2 | `StartController.start(on_done=ok)` + `communicate.task_done`（正常/停止/异常三条路都发）驱动运行页状态 | `test_start_controller` +4 |
+| B12 | `Config.verify_config` 对 `"True"`/`"3"` 做 coerce（不再静默回默认），坏文件先存 `.bad`；`write_json_file` 原子写 | `test_engine_config` +8 |
+| B13 | `BitBltCaptureMethod.close()` 真释放 GDI；`prevent_sleeping` 加 `finally` | `test_backend_guards` +1（句柄计数要真机） |
+
+**刻意没做**：`_coerce` 只覆盖标量（`bool/int/float/str`），嵌套 dict 仍按"类型匹配就用"——深合并语义没有需求，
+改它会把"用户删掉的子键"又补回来。B13 的 D3D `create_device()` 覆盖前不 Release、`overlay.ui_dict` 从没写入
+（engine-review 的第 11/15 条）留给下一轮：它们要真机才能验证"修完真的不漏/真的画得出"。
 
 ## 8. 未验证 / 下一棒
 

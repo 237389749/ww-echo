@@ -156,5 +156,27 @@ class TestLifecycleGuard(unittest.TestCase):
         self.assertTrue(dummy.destroyed, "SystemExit 穿透后 destroy() 没跑 —— A4 回来了")
 
 
+class TestCaptureClose(unittest.TestCase):
+    """B13：BitBlt 在切换 capture 时要能真正释放 GDI（`close()` 以前继承基类的 `pass`）。
+
+    真机上的效果是 window DC / memory DC / DIB 只增不减；这里只能守"这个方法真的存在且能跑" ——
+    句柄计数需要真机（见 `docs/BACKEND_REVIEW_2026-11-22.md` §8）。
+    """
+
+    def test_close_on_empty_method_is_safe(self):
+        import threading
+
+        from ww_engine.device.capture_methods.bitblt import BitBltCaptureMethod
+
+        method = object.__new__(BitBltCaptureMethod)
+        method.lock = threading.Lock()
+        method.contexts = {}
+        method.dc_object = method.compatible_dc = method.window_dc = method.bitmap = None
+        method.last_hwnd = method.last_width = method.last_height = 0
+        method.close()                       # 不抛即通过（真机在这里 ReleaseDC/DeleteObject）
+        self.assertEqual(method.contexts, {})
+        self.assertIsNone(method.bitmap)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

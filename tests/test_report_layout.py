@@ -186,5 +186,31 @@ class TestRulesText(unittest.TestCase):
         self.assertIn('id="setmode"', self.html)
 
 
+class TestHtmlEscaping(unittest.TestCase):
+    """B8(2026-11-22 后端审查)：报告里的 OCR 文本必须转义。
+
+    名字/词条名/主属性名都来自 OCR —— 一个 `"` 就能截断属性、一个 `<` 就吃掉半行，
+    而筛选下拉与 JS 的 `dataset` 读到的值也会跟着错位。
+    """
+
+    def test_ocr_name_stats_and_main_prop_are_escaped(self):
+        nasty = '双极"<b>·渊陨重锋'
+        rows = [_record(1, "pass", "达标", name=nasty, name_raw=nasty,
+                        stats=[_stat('暴击"><img src=x>', 6.3, 1.05)],
+                        main_props=[{"name": '攻击"<i>', "value": 100}])]
+        html = _build_eval_html({"total": 1, "evaluated_at": "t", "results": rows})
+        self.assertNotIn("<b>·渊陨重锋", html)            # 名字没被当成标签
+        self.assertNotIn("<img src=x>", html)             # 词条名里的伪标签
+        self.assertNotIn('攻击"<i>', html)                 # 主属性名
+        self.assertIn("&lt;b&gt;", html)
+        self.assertIn("&quot;", html)
+
+    def test_set_name_and_filter_options_are_escaped(self):
+        rows = [_record(1, "pass", "达标", set='凝夜"<i>白霜')]
+        html = _build_eval_html({"total": 1, "evaluated_at": "t", "results": rows})
+        self.assertNotIn('凝夜"<i>', html)
+        self.assertIn("&lt;i&gt;", html)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

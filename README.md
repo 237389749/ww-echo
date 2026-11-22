@@ -291,7 +291,7 @@ ww-echo/
   **数值框终于能看见数字**(qfluentwidgets + Qt 6.12 的 `lineEdit` 被压成 1px) / 最小窗口可滚 / 运行页固定状态条+双栏(日志常驻) /
   导航展开 + 模式徽标 / 组合穷举动作条常驻 / 结果表重排(拆列/删 COST/右对齐) / 报告行折叠(56px 主行 + 点击展开) +
   判定 chip(色弱符号) + 筛选写 hash + 打印样式 / 关于页数据版本与诊断入口 / 深色画布层次。
-  **验收**：`tools/ui_probe.py --strict` **5/5**、单测 **423 项**、`tools/verify_report_js.py` **11 项**、7 页亮/暗离屏目检
+  **验收**：`tools/ui_probe.py --strict` **5/5**、单测 **455 项**、`tools/verify_report_js.py` **11 项**、7 页亮/暗离屏目检
   （流程与坑见 `docs/SESSION_2026-11-22.md`、CHANGELOG 补记 74~77）
 - [x] **组合穷举 + 伤害排名(阶段二十九)**: 独立页「组合穷举」+ `src/echo_panel.py`(面板聚合/伤害)、
   `src/echo_combos.py`(互异 + ΣCOST≤12 + 套装只数 + 4C 归属 + Top-K, 可取消)、`src/echo_inventory.py`

@@ -7,6 +7,7 @@ from ww_engine.device.capture_methods.base import BaseWindowsCaptureMethod
 from ww_engine.device.capture_methods.bitblt_utils import (
     capture_by_bitblt,
     capture_desktop_by_bitblt,
+    clean_up_bitblt,
     clean_up_desktop_bitblt,
     composite_hwnds,
     get_crop_point,
@@ -57,6 +58,19 @@ class BitBltCaptureMethod(BaseWindowsCaptureMethod):
 
     def get_name(self):
         return f'BitBlt_{render_full}'
+
+    def close(self):
+        """释放 BitBlt 的 GDI 对象（window DC / memory DC / DIB）。
+
+        `BaseCaptureMethod.close()` 是 `pass` —— 而 `clean_up_bitblt` 只在尺寸/hwnd 变化和异常时被调，
+        于是 BitBlt↔WGC 切换时这些句柄**只增不减**（2026-11-22 后端审查 B13）。切换路径
+        (`update_capture_method`) 本来就会调 `close()`, 所以补上这个方法就够了。
+        """
+        with self.lock:
+            for ctx in list(self.contexts.values()):
+                clean_up_bitblt(ctx)
+            self.contexts.clear()
+            clean_up_bitblt(self)
 
     def test_exclusive_full_screen(self):
         frame = self.do_get_frame()

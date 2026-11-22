@@ -143,6 +143,49 @@ class TestCoreFirstFallback(unittest.TestCase):
         self.assertIsNone(T.get_set_core_first("通用"))
 
 
+class TestTemplateValidation(unittest.TestCase):
+    """B3(2026-11-22 后端审查)：手写坏的模板必须**过滤 + 告警**，不能把异常抛给调用方。
+
+    `assets/echo_set_templates.json` 是文档让用户手写的策略文件。旧实现里 `float(weight)` 与
+    `_core_first` 的迭代都没有保护，`{"暴击": "高"}` 会让 `load_templates` 抛 ValueError 一路冒到
+    `EnhanceEchoTask.__init__` → 整个程序起不来，而且不说清是哪个套装。
+    """
+
+    def test_bad_values_are_filtered_not_raised(self):
+        cases = {
+            "权重字符串": {"S": {"暴击": "高", "攻击百分比": 0.5}},
+            "权重 null": {"S": {"暴击": None}},
+            "_core_first 数字": {"S": {"暴击": 1.0, "_core_first": 5}},
+            "_core_first 字符串": {"S": {"暴击": 1.0, "_core_first": "暴击"}},
+            "_low_first 非 dict": {"S": {"暴击": 1.0, "_low_first": "x"}},
+            "套装不是 dict": {"S": "oops"},
+        }
+        for title, raw in cases.items():
+            with self.subTest(title):
+                out = T._validate_and_filter(raw)          # ← 关键是"不抛"
+                self.assertIsInstance(out, dict)
+
+    def test_valid_entries_survive_neighbour_error(self):
+        out = T._validate_and_filter({"S": {"暴击": 1.0, "攻击百分比": "坏"}})
+        self.assertEqual(out["S"]["weights"], {"暴击": 1.0})   # 好的留下, 坏的那条被过滤
+
+    def test_load_templates_survives_bad_file(self):
+        """真文件里写坏一个权重 → `load_templates` 仍返回 dict(不再让程序起不来)。"""
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "tpl.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"version": 1, "sets": {"坏套装": {"暴击": "高"}}}, f, ensure_ascii=False)
+            old = (T._TEMPLATE_PATH, T._template_cache, T._cache_mtime, T._echo_index)
+            T._TEMPLATE_PATH, T._template_cache, T._cache_mtime = path, None, 0
+            try:
+                out = T.load_templates(force=True)     # ← 不抛
+                self.assertEqual(out["坏套装"]["weights"], {})
+            finally:
+                T._TEMPLATE_PATH, T._template_cache, T._cache_mtime, T._echo_index = old
+
+
 class TestLowFirst(unittest.TestCase):
     """低权重首条门槛 `_low_first`: **按套装可选** —— 只有轻云出月这类带 0.1 占位键的套装需要。"""
 

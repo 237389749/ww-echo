@@ -126,9 +126,11 @@ class Builder:
             if it.get("PhantomType") != 1:               # 1=畸形种(可获得); 2..5=幻象/召唤物
                 continue
             raw = it.get("MonsterName")
-            name = self.tm.get(raw, raw)
-            if not name or "/" in str(name) or str(name).startswith("MonsterInfo_"):
-                self.unresolved.append(f"PhantomItem.MonsterName={raw}")
+            # 不拿文本键当声骸名: 解析不出 → 记 `unresolved` 后跳过(宁失败不静默丢数据)。
+            # 旧写法 `self.tm.get(raw, raw)` 会把 `Monster_Name_123` 这种**键**收进 echoes 索引,
+            # 下游 `get_sets_by_echo` 从此多一个永远匹配不上的"声骸", 而生成仍 exit 0(B11)。
+            name = self.zh(raw, "PhantomItem.MonsterName")
+            if not name or "/" in str(name):
                 continue
             cost = cost_of_rare.get(it.get("Rarity"))
             if cost is None:
@@ -181,7 +183,11 @@ class Builder:
     def _props(self) -> dict[str, dict]:
         out: dict[str, dict] = {}
         for p in self.bd.table("PropertyIndex"):
-            name = self.tm.get(p.get("Name"))
+            # 必须走 `self.zh`: 解析不出要进 `unresolved` → main() 退 2 且不写文件。
+            # 旧写法 `self.tm.get(...)` + `if name:` 会**静默丢**属性名, 于是 `main_props` 少一个变体,
+            # `echo_main_prop.check_main_values` 的网格缺项 → 报告"数值可疑"误报/漏报
+            # (2026-11-22 后端审查 B11; 同文件 `_plan()` 是正确写法)。
+            name = self.zh(p.get("Name"), f"PropertyIndex[{p['Id']}].Name")
             if name:
                 out[str(p["Id"])] = {"name": name, "pct": bool(p.get("IsPercent"))}
         return dict(sorted(out.items(), key=lambda kv: int(kv[0])))

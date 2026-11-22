@@ -100,13 +100,20 @@ class TestBaselineLines(unittest.TestCase):
             self.assertAlmostEqual(_legacy_threshold("通用", tier), expect)
 
     def test_set_lines(self):
+        """套装 B 线必须**调实现**取数。
+
+        以前这里断言的是 `_b_line(...)` —— 测试自己抄的一份公式，把 `_legacy_threshold` 换成常数
+        也照样绿（2026-11-22 后端审查 B7 实测）。`_b_line` 留作**独立口径**的交叉校验。
+        """
         cases = {"凝夜白霜": (20.5, 7.5), "隐世回光": (19.0, 4.0), "轻云出月": (4.0, 2.0)}
         for name, (b5, b3) in cases.items():
             w = get_set_weights(name)
             if not w:
                 self.skipTest(f"无模板: {name}")
-            self.assertAlmostEqual(_b_line(w, 5), b5, msg=f"{name} B(5)")
-            self.assertAlmostEqual(_b_line(w, 3), b3, msg=f"{name} B(3)")
+            self.assertAlmostEqual(_legacy_threshold(name, 5), b5, msg=f"{name} B(5)")
+            self.assertAlmostEqual(_legacy_threshold(name, 3), b3, msg=f"{name} B(3)")
+            self.assertAlmostEqual(_b_line(w, 5), b5, msg=f"{name} 独立口径 B(5)")
+            self.assertAlmostEqual(_b_line(w, 3), b3, msg=f"{name} 独立口径 B(3)")
 
     def test_uncustomized_set_is_not_general_line(self):
         """文档旧错："未定制套装 B = 通用线 17.5" —— 凝夜白霜是未定制 5 键套，B(5)=20.5。"""

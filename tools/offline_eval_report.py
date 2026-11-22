@@ -114,7 +114,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('debug_dir', nargs='?', default='', help='logs/eval_debug/<时间戳>')
     ap.add_argument('--from-json', default='', help='用评估报告 JSON 重放(不需要 OCR/图标素材)')
-    ap.add_argument('--out', default='', help='输出报告名前缀(默认 eval_report_<时间戳>)')
+    ap.add_argument('--out', default='',
+                    help='输出报告名前缀（--from-json 默认 eval_report_<时间戳>；素材模式默认 eval_report）')
     args = ap.parse_args()
     if args.from_json:
         return replay_from_json(args.from_json, args.out)
@@ -194,7 +195,9 @@ def main() -> int:
         "evaluated_at": f'{time.strftime("%Y-%m-%d %H:%M:%S")} (离线重放 {os.path.basename(dbg)})',
         "results": results,
     }
-    html_path = os.path.join(ROOT, 'eval_report.html')
+    # 素材模式也要认 --out（以前写死 eval_report.html 且静默忽略该参数 → 脚本化调用会覆盖上一次报告）
+    base = args.out or 'eval_report'
+    html_path = os.path.join(ROOT, base + '.html')
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(_build_eval_html(data))
 

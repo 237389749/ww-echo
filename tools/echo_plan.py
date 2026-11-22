@@ -20,6 +20,7 @@
 """
 
 import argparse
+import difflib
 import os
 import sys
 
@@ -34,6 +35,7 @@ from src.echo_panel import (SPECIALTY_ALIASES, SPECIALTY_KEYS, DerivedBonus,    
                             GENERIC_BONUS_KEY, normalize_bonus_key)
 from src.echo_inventory import load_inventory, summarize                  # noqa: E402
 from src.echo_panel import Correction, defense_zone, resist_zone               # noqa: E402
+from src.echo_set_templates import get_all_set_names                       # noqa: E402
 
 
 def parse_pairs(values, what):
@@ -55,10 +57,33 @@ def parse_derive(text: str) -> DerivedBonus:
     parts = body.split(":")
     if len(parts) < 4:
         raise SystemExit(f"--derive 需要 属性:阈值:每点:上限[:目标键], 收到 {text!r}")
-    src, th, per, cap = parts[0], float(parts[1]), float(parts[2]), float(parts[3])
+    try:
+        th, per, cap = float(parts[1]), float(parts[2]), float(parts[3])
+    except ValueError:
+        # 旧版直接 float() → 裸 traceback(exit 1); 与 `--bare` 坏格式的友好 SystemExit 不一致
+        raise SystemExit(f"--derive 的阈值/每点/上限必须是数字, 收到 {text!r}"
+                         f"(格式 属性:阈值:每点:上限[:目标键][@标签])") from None
+    if th < 0 or per < 0 or cap < 0:
+        raise SystemExit(f"--derive 的数值不能为负: {text!r}")
+    src = parts[0]
     key = parts[4] if len(parts) > 4 and parts[4] else GENERIC_BONUS_KEY
     return DerivedBonus(source=src, threshold=th, per_point=per, cap=cap, key=key,
                         label=label or f"天赋: {src}>{th:g} 每点+{per:g}(上限{cap:g})")
+
+
+def check_set_names(req) -> None:
+    """套装名不在模板里 → 友好报错（否则表现为"候选 0 只 / 组合 0 组"，看不出是名字打错）。
+
+    "通用" 是合法目标（套装未映射的件就落在它下面），不参与校验。
+    """
+    known = get_all_set_names()
+    allowed = set(known) | {"通用"}
+    for flag, name in (("--set-a", req.set_a), ("--set-b", req.set_b if req.mode == "3+2" else "")):
+        if not name or name in allowed:
+            continue
+        near = difflib.get_close_matches(name, known, n=3)
+        raise SystemExit(f"{flag}「{name}」不在套装模板里(共 {len(known)} 套)"
+                         + (f"; 你指的是: {', '.join(near)}" if near else ""))
 
 
 def allowed_bonus_of(a) -> tuple[str, ...] | None:
@@ -87,8 +112,15 @@ def _given(a, flag: str) -> bool:
 
 def build_request(a, derived_extra=()) -> PlanRequest:
     mode, cost4 = a.mode, (getattr(a, "cost4", "") or "").upper()
-    if mode == "3+2" and cost4 not in ("A", "B"):
-        raise SystemExit("3+2 模式必须显式指定 --cost4 A|B(4C 那只属于哪套), 留空会漏掉另一套的合法组合")
+    if mode == "3+2":
+        if cost4 not in ("A", "B"):
+            raise SystemExit("3+2 模式必须显式指定 --cost4 A|B(4C 那只属于哪套), 留空会漏掉另一套的合法组合")
+        # 下面两条以前没校验 → `plan()` 里的 ValueError 甩成裸 traceback(exit 1),
+        # 与上面 cost4 的友好提示不一致(2026-11-22 后端审查 B10)。
+        if not getattr(a, "set_b", ""):
+            raise SystemExit("3+2 模式必须指定 --set-b(套装 2)")
+        if a.set_a and a.set_b == a.set_a:
+            raise SystemExit("3+2 模式的两套不能相同(那等价于 5 件套, 用 --mode 5)")
     return PlanRequest(scaling=a.scaling, mode=mode, set_a=a.set_a, set_b=a.set_b,
                        cost4_owner=cost4, top_k=a.top, crit_mode=a.crit,
                        max_level_only=not getattr(a, "all_levels", False),
@@ -323,8 +355,13 @@ def main() -> int:
     if not req.set_a:
         print("\n需要 --set-a(套装名); 候选套装见上面的库存概览")
         return 2
+    check_set_names(req)
 
-    res = plan(items, req, bare=bare, corrections=corrections)
+    try:
+        res = plan(items, req, bare=bare, corrections=corrections)
+    except ValueError as e:
+        # 数据/输入错误(同名声骸的套装或 COST 不一致等): 友好退出, 不甩 traceback
+        raise SystemExit(f"穷举输入有误: {e}") from None
     # 遗漏的键(不在键空间里)会进 unknown —— 提示一次, 不静默吞掉
     unknown = sorted({k for c in res.combos for k in c.panel.unknown})
     print_result(res, req, bare, corrections, a)

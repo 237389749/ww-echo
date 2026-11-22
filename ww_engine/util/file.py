@@ -21,9 +21,24 @@ def read_json_file(file_path) -> dict | None:
 
 
 def write_json_file(file_path, data):
+    """原子写 JSON：先写 `<path>.tmp` 再 `os.replace`。
+
+    旧实现是"打开就截断、再逐块写" —— 进程在中间挂掉/断电就留下空文件, 而 `read_json_file`
+    返回 None 会让 `Config` 走 `reset_to_default()` → **用户全部设置静默归零**
+    (2026-11-22 后端审查 B12)。`os.replace` 在同分区上是原子的, 崩在中间旧文件仍完好。
+    """
     ensure_dir_for_file(file_path)
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    tmp = f'{file_path}.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        os.replace(tmp, file_path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     return True
 
 

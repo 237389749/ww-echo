@@ -462,10 +462,14 @@ class TaskExecutor:
                         continue
                 else:
                     prevent_sleeping(True)
-                    logger.debug(f'start running onetime_task {task.name}')
-                    task.run()
-                    logger.debug(f'end running onetime_task {task.name}')
-                    prevent_sleeping(False)
+                    try:
+                        logger.debug(f'start running onetime_task {task.name}')
+                        task.run()
+                        logger.debug(f'end running onetime_task {task.name}')
+                    finally:
+                        # 没有 finally 的话: 任务抛异常(本工具里很常见)就会跳过复位, 该线程的
+                        # ES_CONTINUOUS 一直有效 → **进程活着的期间系统不自动睡眠**(审查 B13)。
+                        prevent_sleeping(False)
                     task.disable()
                     communicate.task_done.emit(task)
                     if task.exit_after_task or task.config.get('Exit After Task'):
@@ -486,6 +490,9 @@ class TaskExecutor:
                 self.current_task = None
                 if not is_trigger_task:
                     communicate.task.emit(task)
+                    # **`task_done` = "这个任务不在跑了"**（正常结束 / 用户停止 / 异常中止三条路都发）。
+                    # 只发"正常结束"的话, 界面在异常中止后会一直停在"运行中"（2026-11-22 审查 B2）。
+                    communicate.task_done.emit(task)
                 communicate.notification.emit('Stopped', task.name, False,
                                               True, "start", None)
                 continue
@@ -517,6 +524,9 @@ class TaskExecutor:
                     communicate.screenshot.emit(self.frame, name, True, None)
                 self.current_task = None
                 communicate.task.emit(None)
+                # 同 TaskDisabledException 分支：异常中止也是"不在跑了", 必须让界面复位
+                if not is_trigger_task:
+                    communicate.task_done.emit(task)
 
     def stop(self):
         logger.info('stop')

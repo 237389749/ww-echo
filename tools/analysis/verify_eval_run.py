@@ -12,9 +12,12 @@ r"""一次真机评估的验收：条数 / 去重 / 套装来源 / 回顶·COST�
   - `docs/SESSION_2026-11-20.md` §0 的八项（**当前口径**，report6 全绿）:
       条数 160（= 161 减去「梦魔/梦魇·咕咕河豚」同名同词条的重复记录）/ **`text+icon` ≥ 85%**
       （2026-11-20 晚起评估默认「图标优先」：图标在固定表头、不滚面板，report6 139 张回归 top-1 99.3%，
-      所以 icon 与 text 同为一等信号；`effect` 仍是已停用弱信号，只作旧报告兼容）
-      / `effect` = 0 / 面板回顶失败 = 0 / 缺 COST = 0 / 词条缺失 = 0 / 完全重复 0 / 报告里没有
-      `持有数量` 这类假主属性。`--expect` 缺省不再写死（旧默认 144 会误杀 160 的报告），
+      所以 icon 与 text 同为一等信号；`effect` 是**已停用**的弱信号，只作旧报告兼容）
+      / `effect` 出现即 **WARN**（不计入硬门槛：停用后新报告应为 0，>0 只提示不判失败 ——
+      旧报告兼容，见 2026-11-22 后端审查 B5）/ 面板回顶失败 = 0 / 缺 COST = 0 / 词条缺失 = 0 /
+      完全重复 0 / 报告里没有
+      `持有数量` 这类假主属性 / **主属性数值可疑 = 0**（读 `main_values_check` 的 `ok is False`；
+      2026-11-22 B4 修掉了写错的字段名 `main_prop_check`，那让这项检查恒为 0）。`--expect` 缺省不再写死（旧默认 144 会误杀 160 的报告），
       真机验收一律显式给 `--expect 160`（见 `docs/BASELINE.md` B7）
   - `docs/BASELINE.md` 的「真机评估」验收口径
 用法:
@@ -365,14 +368,24 @@ def main() -> int:
                    if (r.get('set_src') or 'default') not in ('text', 'icon')]
             for x in bad[:12]:
                 print(f'    #{x[0]:>3} {x[1]} -> {x[2]} ({x[3]})')
+        if n_effect:
+            # 效果原文反查 2026-11-20 起停用(宁缺毋滥)。它**不计入硬门槛**(旧报告兼容),
+            # 但必须能被看见: 以前只有 text/icon 不足时才会提到它 → 139 text + 6 effect 的报告
+            # 直接 PASS, 回潮了也没人发现(2026-11-22 后端审查 B5)。
+            warns.append(f'set_src=effect {n_effect} 条（该链 2026-11-20 起已停用；新报告应为 0）')
+            print(f'    [!] {n_effect} 条套装的来源是「效果原文反查」—— 该链已停用, 新报告出现即为回潮')
 
         v = collections.Counter(r.get('verdict') for r in rows)
         print('\n[判定分布] ' + ', '.join(f'{k}={v[k]}' for k in
                                      ('pass', 'hold', 'keep', 'pending', 'fail', 'zero') if v.get(k)))
-        mp_bad = sum(1 for r in rows if (r.get('main_prop_check') or {}).get('status') == 'bad'
-                     if isinstance(r.get('main_prop_check'), dict))
+        # **字段名是 `main_values_check`**, 元素是 `{name, value, ok, expect, tol}`(evaluate_one 写的),
+        # 没有 `status` 键。旧代码读的是不存在的 `main_prop_check`/`status` → 这项**恒为 0**,
+        # 于是"主属性数值可疑"永远不会报警(2026-11-22 后端审查 B4, 有复现)。
+        mp_bad = sum(1 for r in rows
+                     if any(m.get('ok') is False for m in (r.get('main_values_check') or [])))
         if mp_bad:
             warns.append(f'主属性数值可疑 {mp_bad} 条')
+            print(f'\n[主属性数值] {mp_bad} 条不在官方网格上  -> WARN（疑似 OCR 误读, 报告里标"数值可疑"）')
 
     # ── 2. 日志 ──────────────────────────────────────────────────────────
     if log_path.exists():

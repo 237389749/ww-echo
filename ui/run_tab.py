@@ -19,7 +19,7 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF,
                             SingleDirectionScrollArea, StrongBodyLabel, SubtitleLabel, SwitchButton,
                             ToolTipFilter)
 
-from ww_engine import og
+from ww_engine import og, communicate
 
 from src.echo_stats import DEFAULT_WEIGHTS
 from src.echo_set_templates import get_set_weights
@@ -33,6 +33,7 @@ class RunTab(QWidget):
     _eval_done_signal = Signal(str, str)  # json_path, ss_dir
     _eval_error_signal = Signal(str)
     _task_done_signal = Signal(str)  # message
+    _start_result_signal = Signal(bool)  # 引擎提交结果（handler 线程 → UI 线程）
 
     LOG_LEVELS = ("全部", "信息", "警告", "错误")     # 日志级别过滤下拉
     _LEVEL_COLOR = {"ERROR": "#c62828", "WARNING": "#b06000", "INFO": None}
@@ -60,6 +61,10 @@ class RunTab(QWidget):
         self._eval_done_signal.connect(self._on_eval_done_ui)
         self._eval_error_signal.connect(self._on_eval_error_ui)
         self._task_done_signal.connect(self._on_task_done_ui)
+        self._start_result_signal.connect(self._on_start_result_ui)
+        # 引擎跑完 onetime task 时会发 task_done（执行器线程）→ 转成我们的"结束"状态。
+        # **别在 `_run_task` 里直接打「结束」**：`start()` 只是投递，提交完就返回（B2）。
+        communicate.task_done.connect(self._on_engine_task_done)
 
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._refresh_status)
@@ -631,12 +636,29 @@ class RunTab(QWidget):
         self._append_log("══════════ 已停止 ══════════")
 
     def _run_task(self, task):
+        """把任务**提交**给引擎执行器（异步），真正"开始/结束"由引擎回调驱动。
+
+        旧实现把 `start()` 当同步用：它只是 `handler.post(...)` 就返回，于是提交完立刻打
+        「══ 结束 ══」、按钮恢复可用 —— 而任务还在跑（日志撒谎 + 可以重复点开始）。
+        见 2026-11-22 后端审查 B2。
+        """
+        self._task = task
         try:
-            og.app.start_controller.start(task)
+            og.app.start_controller.start(task, on_done=self._start_result_signal.emit)
         except Exception as e:
-            self._task_done_signal.emit(f"[ERROR] {e}")
-        else:
-            self._task_done_signal.emit("══════════ 结束 ══════════")
+            self._task_done_signal.emit(f"[ERROR] 启动失败: {e}")
+
+    def _on_start_result_ui(self, ok: bool):
+        """引擎的启动结果（设备就绪 / 连不上窗口）。失败才复位，成功继续等 task_done。"""
+        if ok:
+            self._append_log("已交给执行器, 运行中…")
+            return
+        self._task_done_signal.emit("[ERROR] 启动失败: 没找到游戏窗口或截图不可用 —— 看日志里的 device 提示")
+
+    def _on_engine_task_done(self, task):
+        """执行器发来 `task_done`：只认本页提交的那个任务。"""
+        if self._running and task is not None and task is getattr(self, "_task", None):
+            self._on_task_done_ui("══════════ 结束 ══════════")
 
     def _on_task_done_ui(self, msg):
         self._running = False
@@ -663,32 +685,43 @@ class RunTab(QWidget):
 
         try:
             dest_dir = os.path.dirname(save_path)
-            ss_dest = os.path.join(dest_dir, "eval_screenshots")
-            if os.path.exists(ss_dest):
-                shutil.rmtree(ss_dest)
-            if os.path.exists(ss_dir):
-                shutil.copytree(ss_dir, ss_dest)
-
             with open(json_path, "r", encoding="utf-8") as f:
                 data = _json.load(f)
 
-            self._update_eval_summary(data)
-            html = _build_eval_html(data)
-            with open(save_path, "w", encoding="utf-8") as f:
-                f.write(html)
-            # 顺手把评估数据(JSON)存到报告同目录 —— 临时目录随后会被删, 而「组合穷举」页/tools/echo_plan.py
-            # 需要这份 JSON 当**库存**(含 名字/套装/COST/主属性/词条)才能穷举; HTML 只供人看。
+            # ① **先落数据**: 这是整轮评估唯一不可重建的产物(12 分钟); HTML/截图都可能因为
+            #    路径/权限/渲染问题失败 —— 不能连带把数据一起丢(以前顺序反了, 失败时 finally 就把
+            #    临时目录删了。2026-11-22 后端审查 B1)。
             json_dest = os.path.join(dest_dir, os.path.splitext(os.path.basename(save_path))[0] + ".json")
             with open(json_dest, "w", encoding="utf-8") as f:
                 _json.dump(data, f, ensure_ascii=False, indent=2)
             self._append_log(f"评估数据已存: {json_dest}(「组合穷举」页可直接导入它当库存)")
+
+            # ② 再拷截图: 失败只告警 —— 图缺了报告还能看, 数据已经安全
+            ss_dest = os.path.join(dest_dir, "eval_screenshots")
+            try:
+                if os.path.exists(ss_dest):
+                    shutil.rmtree(ss_dest)
+                if os.path.exists(ss_dir):
+                    shutil.copytree(ss_dir, ss_dest)
+                n_ss = len(os.listdir(ss_dest)) if os.path.isdir(ss_dest) else 0
+                if n_ss == 0:
+                    self._append_log("[!] 没有复制到任何截图 —— 检查上一段日志里有没有『截图落盘失败』")
+            except Exception as e:                 # noqa: BLE001 - 截图失败不该让数据/报告也失败
+                self._append_log(f"[!] 截图复制失败(报告里的图会缺): {e}")
+
+            # ③ 最后渲染 HTML(失败也只影响报告本体, 数据与截图都已落盘)
+            self._update_eval_summary(data)
+            html = _build_eval_html(data)
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(html)
 
             if QMessageBox.question(None, "完成",
                                     f"报告已保存:\n{save_path}\n数据已保存:\n{json_dest}\n\n打开查看?"
                                     ) == QMessageBox.Yes:
                 os.startfile(save_path)
         except Exception as e:
-            self._append_log(f"[ERROR] 保存失败: {e}")
+            self._append_log(f"[ERROR] 保存失败: {e}"
+                             f"{'（评估数据已写出，见上面『评估数据已存』那行）' if 'json_dest' in locals() else ''}")
         finally:
             shutil.rmtree(os.path.dirname(json_path), ignore_errors=True)
             self._running = False
@@ -1043,6 +1076,16 @@ Lv5 / Lv10 为结构判定：<b>只看首条</b>——首条在「首核」内�
 </details>'''
 
 
+def _esc(value) -> str:
+    """HTML 转义（属性与正文都用 `quote=True`）。
+
+    报告里的名字/词条/主属性名来自 **OCR**：一个 `"` 就能截断属性、一个 `<` 就吃掉半行，
+    筛选下拉与 JS `dataset` 读到的值也会跟着对不上（2026-11-22 后端审查 B8）。
+    判定码/套装来源这类枚举值也一起转义 —— 便宜且免得以后加字段时漏掉。
+    """
+    return html.escape(str(value), quote=True)
+
+
 def _build_eval_html(data):
     """生成评估报告 HTML。"""
     total = data.get("total", 0)
@@ -1077,26 +1120,28 @@ def _build_eval_html(data):
         for st in good_stats:
             ratio = st["ratio"]
             pct = max(0.0, min(1.0, (ratio - 0.65) / 0.7)) * 100
-            tip = (st.get("detail") or "").replace('"', "&quot;")
+            tip = _esc(st.get("detail") or "")
             stat_rows.append(
                 f'<div class="srow" title="{tip}">'
-                f'<span class="sname">{st.get("name", "")}</span>'
-                f'<span class="sval">{st.get("value", "")}</span>'
+                f'<span class="sname">{_esc(st.get("name", ""))}</span>'
+                f'<span class="sval">{_esc(st.get("value", ""))}</span>'
                 f'<span class="sbar"><i style="width:{pct:.0f}%;background:{_ratio_color(ratio)}"></i></span>'
                 f'</div>')
         if bad_stats:
-            names = "、".join(f'{st.get("name", "")} {st.get("value", "")}' for st in bad_stats)
+            names = "、".join(_esc(f'{st.get("name", "")} {st.get("value", "")}') for st in bad_stats)
             stat_rows.append(f'<div class="srow invalid"><span class="sname">无效/不计</span>'
                              f'<span style="flex:1" title="该套装不认这条词条(权重 0)或没有档位数据">'
                              f'{names}</span></div>')
         stats_html = "".join(stat_rows) or '<div class="srow invalid">未强化/无词条</div>'
         name = r.get("name", "")
+        name_esc = _esc(name)
         # OCR 原文与规范名不同(错字已被容错匹配纠正)时, 把原文放进 title 供追溯
         name_raw = r.get("name_raw") or name
-        name_title = f' title="OCR 识别为: {name_raw}"' if name_raw != name else ''
+        name_title = f' title="OCR 识别为: {_esc(name_raw)}"' if name_raw != name else ''
         # 套装来源(resolve_set_name): text=合鸣效果区的套装名明文 / effect=合鸣效果原文反查 /
         # icon=详情面板图标 / hue=卡片徽章环色 / name=声骸名候选兜底 / default=通用; 旧报告无字段 → "—"
         set_name = r.get("set") or "—"
+        set_name_esc = _esc(set_name)
         set_src = {"text": "合鸣效果区套装名", "effect": "合鸣效果原文反查",
                    "icon": "套装图标判定", "hue": "卡片徽章环色判定", "name": "声骸名兜底",
                    "default": "默认(通用)"}.get(r.get("set_src"), "")
@@ -1144,7 +1189,7 @@ def _build_eval_html(data):
         # COST + 主属性 + 官方管理方案(PhantomManagePlanV2)判定: L2 起由 evaluate_one 提供;
         # 旧报告没有这些字段 → 整格显示 "—"(不报错)
         mp_html = "".join(
-            f'<div class="stat">{m.get("name")} {m.get("value"):g}</div>'
+            f'<div class="stat">{_esc(m.get("name"))} {m.get("value"):g}</div>'
             for m in (r.get("main_props") or [])) or '<span style="color:#bbb">—</span>'
         pc = r.get("plan_check") or {}
         plan_mark = {"ok": ("✔", "#2e7d32", "官方方案认可该主属性"),
@@ -1167,19 +1212,20 @@ def _build_eval_html(data):
         cost_txt = f'{r["cost"]}C' if r.get("cost") else "—"
         # 主行只放"一眼要判断的": 缩略图/名称/套装/COST+首条主属性/得分+完成度/判定 chip(U-11)
         mp_first = (r.get("main_props") or [{}])[0]
-        mp_brief = (f'<span class="mprop">{mp_first.get("name", "")} {mp_first.get("value"):g}</span>'
+        mp_brief = (f'<span class="mprop">{_esc(mp_first.get("name", ""))} {mp_first.get("value"):g}</span>'
                     if mp_first.get("name") else "")
         chip = (f'<span class="vchip" style="background:{VERDICT_CHIP_BG.get(vcn, "#F2F2F2")};color:{color}">'
-                f'<span class="mark">{VERDICT_MARK.get(vcn, "·")}</span>{vcn}</span>')
+                f'<span class="mark">{VERDICT_MARK.get(vcn, "·")}</span>{_esc(vcn)}</span>')
         notes_html = "".join(x for x in (sm_html, gen_html, pr_html, rf_html, plan_html, val_html) if x)
         rows.append(
-            f'<tr class="main" data-score="{r["score"]}" data-verdict="{v}" data-vcn="{vcn}" data-name="{name}"'
-            f' data-set="{set_name}" data-cost="{r.get("cost") or ""}" data-plan="{pc.get("state") or ""}"'
+            f'<tr class="main" data-score="{r["score"]}" data-verdict="{_esc(v)}" data-vcn="{_esc(vcn)}"'
+            f' data-name="{name_esc}"'
+            f' data-set="{set_name_esc}" data-cost="{r.get("cost") or ""}" data-plan="{pc.get("state") or ""}"'
             f' data-mpval="{"bad" if mvc else ""}" data-comp="{comp if comp is not None else -1}">'
             f'<td class="idx">{r["index"]}</td>'
-            f'<td class="thumb"><img class="thumb" src="eval_screenshots/{r["screenshot"]}" alt=""></td>'
-            f'<td{name_title}>{name}</td>'
-            f'<td title="{set_src}">{set_name}</td>'
+            f'<td class="thumb"><img class="thumb" src="eval_screenshots/{_esc(r["screenshot"])}" alt=""></td>'
+            f'<td{name_title}>{name_esc}</td>'
+            f'<td title="{_esc(set_src)}">{set_name_esc}</td>'
             f'<td><b>{cost_txt}</b>{mp_brief}</td>'
             f'<td class="score">{r["score"]}'
             + (f'<span class="comp">完成度 {comp:g}%</span>' if comp is not None else '')
@@ -1187,19 +1233,19 @@ def _build_eval_html(data):
             f'<td>{chip}</td></tr>'
             # 配对详情行: 点击主行展开。**筛选/排序只认 tr.main**(见 _EVAL_JS)
             f'<tr class="detail" hidden><td colspan="7"><div class="detail-box">'
-            f'<img class="full" src="eval_screenshots/{r["screenshot"]}" alt="">'
+            f'<img class="full" src="eval_screenshots/{_esc(r["screenshot"])}" alt="">'
             f'<div class="detail-side"><div class="srows">{stats_html}</div>'
             f'<div class="notes">{notes_html}</div>'
             f'</div></div></td></tr>')
 
     names = sorted({r.get("name", "") for r in results if r.get("name")})
-    datalist = "".join(f'<option value="{n}">' for n in names)
+    datalist = "".join(f'<option value="{_esc(n)}">' for n in names)
     set_counts = {}
     for r in results:
         name = r.get("set") or "通用"
         set_counts[name] = set_counts.get(name, 0) + 1
     set_options = '<option value="">全部套装</option>' + "".join(
-        f'<option value="{n}">{n}（{c}）</option>'
+        f'<option value="{_esc(n)}">{_esc(n)}（{c}）</option>'
         for n, c in sorted(set_counts.items(), key=lambda kv: -kv[1]))
     rules_html = _build_rules_html(results)
     # 六档摘要 chips: 与行内判定文字**同一套色**(U-11 —— 以前这里是另一套 #2e7d32/#e65100…,

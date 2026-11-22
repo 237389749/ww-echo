@@ -16,7 +16,9 @@ import os
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SKIP_DIRS = {".git", "__pycache__", "logs", ".venv314", "build", "dist"}
+# `.scratch` / `.venv`: 本地临时脚本与虚拟环境（都不入库）；`logs`: 运行时产物。
+# 少了 `.scratch` 会让本机的一堆一次性脚本把守卫拖红，也让"哪份代码是产品"说不清。
+SKIP_DIRS = {".git", "__pycache__", "logs", ".scratch", ".venv", ".venv314", "build", "dist"}
 
 # 这些函数名把字符串送到 stdout / ok 的 Logger（控制台 handler 用 cp936）
 TARGET_CALLS = {"print", "log_info", "log_warning", "log_error", "_log"}
@@ -54,11 +56,23 @@ def _call_name(node: ast.Call) -> str:
 class TestGbkSafeOutput(unittest.TestCase):
     def test_cli_and_logger_strings_are_gbk_encodable(self):
         problems = []
+        unparsable = []
         for path in _iter_py_files():
+            rel = os.path.relpath(path, ROOT).replace("\\", "/")
             try:
-                with open(path, encoding="utf-8") as f:
-                    tree = ast.parse(f.read())
-            except (SyntaxError, UnicodeDecodeError):
+                with open(path, "rb") as f:
+                    raw = f.read()
+            except OSError as e:                      # 读不了就报出来, 别静默跳过
+                unparsable.append(f"{rel}: 读不出来({e})")
+                continue
+            if raw.startswith(b"\xef\xbb\xbf"):
+                # BOM 会让 `ast.parse` 直接抛 SyntaxError —— 旧版这里的 `except SyntaxError: continue`
+                # 于是把整份文件**静默排除**在守卫之外(2026-11-22 后端审查 B6 实测: 2 个入库文件中招)。
+                problems.append(f"{rel}: 文件带 UTF-8 BOM(会让本守卫与 ast 类工具失效, 请存成无 BOM)")
+            try:
+                tree = ast.parse(raw.decode("utf-8-sig"))
+            except (SyntaxError, UnicodeDecodeError) as e:
+                unparsable.append(f"{rel}: 解析失败({e.__class__.__name__}: {e})")
                 continue
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call) or _call_name(node) not in TARGET_CALLS:
@@ -69,8 +83,10 @@ class TestGbkSafeOutput(unittest.TestCase):
                             continue
                         bad = _gbk_bad(sub.value)
                         if bad:
-                            rel = os.path.relpath(path, ROOT).replace("\\", "/")
                             problems.append(f"{rel}:{sub.lineno} {bad!r} | {sub.value[:60]!r}")
+        self.assertEqual(unparsable, [], msg=(
+            "以下文件**没能被本守卫检查**(解析失败/读不出来) —— 不允许静默跳过, 否则守卫形同虚设:\n  "
+            + "\n  ".join(unparsable)))
         self.assertEqual(problems, [], msg=(
             "以下 print/logger 字符串含 GBK 编不出的字符（控制台会 UnicodeEncodeError）:\n  "
             + "\n  ".join(problems)))
