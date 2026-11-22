@@ -464,8 +464,12 @@ python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024 --out logs/
 | `ui/widgets.py` | `WrapSettingCard` / `FlowLayout` / `make_scroll_transparent`（新增 NumberSpin 放这里） |
 | `src/task/EnhanceEchoTask.py` | 评估/强化任务；`info_set` 计数在评估链 |
 | `tools/ui_shot.py` | 7 页离屏截图（已修 800×800 问题） |
-| `tools/ui_probe.py` | 本文 5 项缺陷探针（交接验收） |
+| `tools/ui_page_shot.py` | 按页面内容区尺寸抓单页（最小窗口验收；`--bottom` 滚到底） |
+| `tools/ui_probe.py` | 本文 5 项缺陷探针（交接验收，`--strict` 应 5/5） |
+| `tools/verify_report_js.py` | 报告交互端到端验收（QtWebEngine 真跑点击/筛选/排序/hash，11 项） |
 | `tools/shot_report.py` | 报告 HTML 离屏截图 |
+| `tests/test_ui_guards.py` | 界面回归守卫 29 项（B1~B4 的长期守卫） |
+| `tests/test_report_layout.py` | 报告结构守卫 22 项（行折叠/打印/hash/chip/文案） |
 
 ### 9.4 探针当前输出（起点）
 
