@@ -51,6 +51,7 @@ tools/ui_page_shot.py     按页面内容区尺寸抓单页(940x620 这类最小
 tools/ui_probe.py         界面缺陷探针 C1~C5(`--strict` 应 5/5, 交接验收)
 tools/verify_report_js.py 报告交互端到端验收(QtWebEngine 真跑点击/筛选/排序/hash, 11 项)
 tools/shot_report.py      报告 HTML 离屏截图(1440/1024)
+tools/plan_page_shot.py   组合穷举页**填充态**抓图(真库存跑一次穷举; 空表看不出列宽截断)
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
 tools/analysis/           复现脚本入库区(约定: 文件头写"输入→输出→支撑哪条结论"; B2 分布/换权重重放在此)
 ```
@@ -162,7 +163,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **结果表列宽不能按 `widget.fontMetrics()` 算**: qfluentwidgets 的 `TableItemDelegate` 把每格字体强制成
   `getFont(13)`(`table_view.py::initStyleOption`), `QTableView::item` 的 QSS 还有左右各 16px 内边距 →
   **可用文本宽 ≈ 列宽 − 44px**。按 9pt 算会把 70px 的列装不下 `551.2`, 整表变 `125...`。
-  改结果表后**必须跑一次填充页渲染**(`.scratch/plan_filled_shot.py`) —— 空表看不出截断。
+  改结果表后**必须跑一次填充页渲染**：`python tools/plan_page_shot.py`（真库存跑一次穷举再抓图）—— 空表看不出截断。
 - **组合穷举的动作条在滚动区外**(`_build_action_bar`), 方案摘要随输入实时刷新; 跑完自动滚到结果。
 
 ### 界面 B3 修复(2026-11-22, 补记 76) — 报告
@@ -275,8 +276,8 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   结果表悬停里给出主属性方向, 就是为了让这种偏差一眼可查。
 - **排名表的列宽按 1120 默认窗口实测的"文本需要宽度"定**(视口 1001: 评分和/有效分 158、共效 84、排序分 88…);
   加列前先量一下(`.scratch/measure_table2.py`), 否则会挤成 `1...` 这种截断。
-  **改结果表后必须跑一次"填充页渲染"**(`.scratch/plan_page_shot.py` / `.scratch/sigelika_page.py`) ——
-  `tools/ui_shot.py` 只渲染空页面, `_render` 里的错误它抓不到(实测漏过一个 `NameError`)。
+  **改结果表后必须跑一次"填充页渲染"**(`python tools/plan_page_shot.py`) ——
+  `tools/ui_shot.py` / `ui_page_shot.py` 只渲染**空页面**, `_render` 里的错误它们抓不到(实测漏过一个 `NameError`)。
 - **推导补正(天赋)**: `DerivedBonus(source, threshold, per_point, cap, key, label)` —— "共效 > 125 后每多 1%
   得 2% 增伤(上限 50)"这类**逐组合不同**的补正(静态 `Correction` 表达不了, 因为每套组合的共效被副词条改变)。
   在面板聚合**完成后**按**最终**值算 `min(cap, max(0, per_point×(值−阈值)))`, 加进 `key` 并记入 `Panel.derived`

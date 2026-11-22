@@ -97,6 +97,17 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `replay_panel_scroll.py [目录]` | 评估时存的 `logs/panel_debug/<ts>/` → 逐只重放「找套装」：线上结论 vs 离线（第几步命中）、回顶是否成功、长图尺寸；`--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读/回顶失败退出码 1 | stdout（`logs/panel_debug/` 是输入，只读） | CHANGELOG 补记 48；`CLAUDE.md` 评估遍历·面板数据集 |
 | `check_set_panel.py <面板截图…>` | **不玩游戏**，拿截图跑真 OCR，验证 `match_set_text`/`match_set_effect` | stdout | `docs/SESSION_2026-11-18.md` §3 |
 
+**界面自检工具（`tools/`，都不需要游戏）**：
+
+| 脚本 | 回答什么问题 | 产物 | 文档出处 |
+|---|---|---|---|
+| `ui_probe.py [--strict]` | 5 个可量测缺陷（数值框渲染 / 页面可滚 / 评估计数 / 六档汇总 / 判定色对比度）；`--strict` 有 FAIL 退出码 1 | stdout | 本表 B1b、`docs/UI_FIX_HANDOFF.md` |
+| `verify_report_js.py <报告.html>` | 报告交互端到端：点击展开 / 筛选只认主行 / 排序配对 / `#hash` 还原 / 筛掉已展开的行 | stdout（11 项 PASS/FAIL） | 本表 B1c、`docs/SESSION_2026-11-22.md` §3 |
+| `ui_page_shot.py <page> <WxH> <out.png> [--bottom]` | 按**页面内容区**尺寸抓单页（`ui_shot` 走 MainWindow，离屏屏幕 800×800 会把 940×620 夹成 640×480） | PNG | `docs/UI_FIX_HANDOFF.md` §1 |
+| `plan_page_shot.py [--set 套装] [--inventory json]` | 组合穷举页的**填充态**（真库存跑一次穷举再抓图）——空表看不出列宽截断，也跑不到 `_render()` 里的错误 | PNG + 行数/列宽 | `CLAUDE.md` 组合穷举·排名表列宽 |
+| `ui_shot.py [--dark] [--eval] [--size WxH]` | 7 页离屏渲染（桩件替代引擎） | PNG | 本表 B4 |
+| `shot_report.py <报告.html> --widths 1440 1024` | 报告 HTML 离屏截图 | PNG | `docs/UI_REVIEW_2026-11-22.md` |
+
 历史脚本原本都在工作区根 `.scratch/`（**不在版本库**，见 §3），它们支撑了文档里的这些结论：
 
 | 脚本 | 回答什么问题 | 产物 | 文档出处 |
@@ -109,7 +120,7 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `score_vs_damage.py` | 同上另一版（指定专伤后的口径） | `score_vs_damage.txt` | 同上（注意：第 1122 名是这一版） |
 | `why_pass.py` | "只有 3 条有效词条为什么也能达标" | `why_pass.txt` | `eval_rules.md` §7 / CHANGELOG 补记 13 |
 | `margins`/`measure_table2.py` | 结果表列宽实测 | — | `CLAUDE.md` 排名表列宽 |
-| `plan_page_shot.py` / `sigelika_page.py` | "已导入+已排名"的页面走查图 | `plan_page_*.png` | `CLAUDE.md` 改表后必跑 |
+| ~~`plan_page_shot.py`~~ / `sigelika_page.py` | "已导入+已排名"的页面走查图 | `plan_page_*.png` | **已转正为 `tools/plan_page_shot.py`**（2026-11-22） |
 | `scan_icons.py` / `extract_icons.py` / `swap_icons.py` | 从客户端 pak 抽套装图标（C# 程序已入库到 `tools/icon_export/`） | `assets/echo_icons/` | `CLAUDE.md` 官方静态数据层 |
 
 > 迁移约定：**新写的复现脚本放 `tools/analysis/`**（入库），文件头写"输入 → 输出 → 支撑哪条结论"。

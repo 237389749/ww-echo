@@ -11,6 +11,7 @@
 > **2026-11-20 会话总结**：`docs/SESSION_2026-11-20.md`（上半场 43→146 的三层根因：滚动 px/格 8→19.7、中途 0 词条=读失败、主属性百分比变体被整只跳过；**下半场 report3→report6**：逐只读套装 / 停用效果原文 / 图标锚定等级框 / +0 收工 / 主属性族通用分 / 报告筛选 / 窄窗口流式卡片。**report6 八项验收全绿（160 条，text 87%，0 失败，20.2 分钟）**，单测 349）。
 > **2026-11-22 界面评审**：`docs/UI_REVIEW_2026-11-22.md`（证据 + 设计方向）+
 > **`docs/UI_FIX_HANDOFF.md`（可执行工单，按 B1~B4 分批；含每项改法/验收/坑）**。
+> **本轮会话总结**: `docs/SESSION_2026-11-22.md`（四批的现象/根因/改动、探针自身的 bug、深色白底浅字的坑）。
 > **B1~B4 全部落地（补记 74/75/76/77）**：`tools/ui_probe.py --strict` **5/5**、单测 **411**、
 > `tools/verify_report_js.py` **11 项全 PASS**；7 页亮/暗离屏渲染已逐页目检。
 > 四个批次的"现象→根因→改法→验收"都在 `docs/UI_FIX_HANDOFF.md` §3~§6。
@@ -45,6 +46,7 @@
 - `python tools/eval_icon_match.py` → 217/219（99.1%）
 - `python tools/ui_probe.py --strict` → 界面缺陷探针 **5/5**（退出码 0；C1~C5 见 `docs/UI_FIX_HANDOFF.md`）
 - `python tools/verify_report_js.py <报告.html>` → 报告交互 **11 项全 PASS**（点击展开/筛选/排序/hash）
+- `python tools/plan_page_shot.py` → 组合穷举页填充态（真库存跑一次穷举再抓图；空表看不出列宽截断）
 - `python tools/ui_shot.py [--dark]` → 离屏渲染 **7 页**（改 UI 后必跑；深色兜底见下）；
   **最小窗口**（940×620 内容区）用 `python tools/ui_page_shot.py <page> 892x570 out.png [--bottom]`（`ui_shot` 会被离屏屏幕夹成 640×480）
 - `python tools/echo_plan.py --list` → 库存概览（109 只 / 47 个名字 / COST `{1:55, 3:35, 4:19}`）
