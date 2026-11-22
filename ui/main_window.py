@@ -12,8 +12,8 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QTextEdit, QWidget
 
-from qfluentwidgets import (FluentWindow, FluentIcon as FIF, NavigationItemPosition, Theme,
-                            setTheme, setThemeColor)
+from qfluentwidgets import (FluentWindow, FluentIcon as FIF, NavigationDisplayMode,
+                            NavigationItemPosition, Theme, setTheme, setThemeColor)
 
 from ww_engine import communicate
 
@@ -30,11 +30,16 @@ from ui.widgets import LogView
 LOG_QSS = "QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px; }"
 
 
-def new_log_view() -> QTextEdit:
-    """一份独立日志视图。**一个 QWidget 只能属于一个父布局**, 所以每页各要一份, 不能共享。"""
+def new_log_view(placeholder: str = "") -> QTextEdit:
+    """一份独立日志视图。**一个 QWidget 只能属于一个父布局**, 所以每页各要一份, 不能共享。
+
+    `placeholder` 是空态文案(U-13): 启动时日志区是一块空白, 看着像坏了。
+    """
     view = LogView()                   # sizeHint 压小, 见 ui/widgets.LogView
     view.setReadOnly(True)
     view.setStyleSheet(LOG_QSS)
+    if placeholder:
+        view.setPlaceholderText(placeholder)
     return view
 
 
@@ -50,6 +55,7 @@ class MainWindow(FluentWindow):
         self._init_navigation()
         self._init_shortcuts()
         self._init_geometry()
+        self._restore_navigation_state()      # 必须在几何定下来之后(见该方法说明)
 
     # ── 初始化 ──
     def _init_theme(self):
@@ -57,8 +63,8 @@ class MainWindow(FluentWindow):
         self.apply_theme(name, remember=False)
 
     def _init_log_views(self, log_bridge):
-        self.run_log = new_log_view()
-        self.debug_log = new_log_view()
+        self.run_log = new_log_view("等待开始 · Ctrl+Enter 开始/停止任务，日志会显示在这里")
+        self.debug_log = new_log_view("这里显示与「运行」页同一条日志流（便于开着调试页看长任务）")
         # 运行页自己连 log_bridge(见 RunTab.__init__); 调试页这份在这里接同一条日志流
         log_bridge.log_signal.connect(self.debug_log.append)
 
@@ -89,10 +95,37 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.about_tab, FIF.INFO, "关于", NavigationItemPosition.BOTTOM)
 
         self.navigationInterface.setExpandWidth(190)
+        # **展开阈值必须 ≤ 最小窗口宽**(U-06): 库默认 `minimumExpandWidth=1008`, 而本窗口最小 940 ——
+        # 于是 940 宽时 `expand()` 会被 resizeEvent 立刻收回去(用户看到的是"设了也没用")。
+        self.navigationInterface.setMinimumExpandWidth(900)
+        self.navigationInterface.displayModeChanged.connect(self._on_nav_mode_changed)
         # 恢复上次停留的页面(默认"运行"); 找不到(改名/首次运行)就回运行页
         last = str(self._settings.value("page", "page_运行"))
         page = next((p for p, _, _ in pages if p.objectName() == last), self.run_page)
         self.switchTo(page)
+
+    def _restore_navigation_state(self):
+        """启动即展开导航（U-06）。
+
+        默认纯图标时，用户看不出这 7 个入口分别是什么（尤其"组合穷举""套装配置"这种非常规命名）。
+        **必须在 `_init_geometry()` 之后调**：`expand()` 会按当前窗口宽度决定"真展开"还是"弹出浮层菜单"，
+        构造期窗口还没定尺寸，早调会退化成浮层。
+        """
+        if str(self._settings.value("nav_expanded", "true")) != "true":
+            return
+        try:
+            self.navigationInterface.expand(useAni=False)
+        except Exception:
+            pass
+
+    def _on_nav_mode_changed(self, mode):
+        """记住用户手动收起/展开的状态（下次启动沿用）。"""
+        try:
+            self._settings.setValue(
+                "nav_expanded",
+                "true" if mode == NavigationDisplayMode.EXPAND else "false")
+        except Exception:
+            pass
 
     def _init_shortcuts(self):
         """全局快捷键: Ctrl+Enter 开始/停止, Ctrl+L 清日志, F1 打开关于。"""

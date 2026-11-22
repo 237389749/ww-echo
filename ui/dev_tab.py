@@ -1,7 +1,7 @@
 """
-开发者工具 — Run Code(已禁用) / 模板信息(Fluent 分栏卡片, 主题统一)。
+开发者工具 — 代码片段(只读) / 模板信息(Fluent 分栏卡片, 主题统一)。
 
-说明: 自建 UI 出于安全**禁用了 exec**, 所以 Run Code 只作为"占位 + 说明"存在; 这里把它呈现清楚,
+说明: 自建 UI 出于安全禁用了 exec, 所以「运行代码」只作为"占位 + 说明"存在; 这里把它呈现清楚,
 而不是留一个可编辑却执行不了的深色框。模板页展示 coco_annotations.json 的特征清单。
 """
 import json
@@ -44,7 +44,7 @@ class DevTab(QWidget):
 
         self.segmented = SegmentedWidget()
         self.stack = QStackedWidget()
-        pages = (("code", "Run Code", self._page_code()),
+        pages = (("code", "代码片段", self._page_code()),
                  ("templates", "模板特征", self._page_templates()))
         self._routes = [k for k, _, _ in pages]
         for key, text, page in pages:
@@ -56,7 +56,7 @@ class DevTab(QWidget):
         layout.addWidget(self.segmented)
         layout.addWidget(self.stack, 1)
 
-    # ══════════════════ Run Code ══════════════════
+    # ══════════════════ 代码片段 ══════════════════
     def _page_code(self) -> QWidget:
         page = QWidget()
         v = QVBoxLayout(page)
@@ -64,7 +64,7 @@ class DevTab(QWidget):
         v.setSpacing(12)
 
         card = HeaderCardWidget()
-        card.setTitle("Run Code")
+        card.setTitle("代码片段（只读）")
         body = _card_body(card)
         hint = CaptionLabel()
         hint.setText(RUN_CODE_HINT)
@@ -80,7 +80,7 @@ class DevTab(QWidget):
         body.addWidget(self.code_edit, 1)
 
         row = QWidget()
-        btn = PushButton(FIF.PLAY, "Run(已禁用)")
+        btn = PushButton(FIF.PLAY, "运行（已禁用）")
         btn.clicked.connect(self._run_code)
         clear = PushButton(FIF.DELETE, "清空")
         clear.clicked.connect(lambda: self.output_area.clear())
@@ -102,7 +102,7 @@ class DevTab(QWidget):
 
     def _run_code(self):
         self.output_area.setPlainText(
-            "Run Code 已禁用 (安全原因)。\n请直接修改源码后重启。\n")
+            "「运行代码」已禁用（安全原因）。\n请直接修改源码后重启。\n")
         InfoBar.warning("已禁用", "自建 UI 不执行任意代码; 详见本页说明", duration=3000,
                         position=InfoBarPosition.TOP_RIGHT, parent=self)
 

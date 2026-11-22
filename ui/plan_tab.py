@@ -14,7 +14,7 @@ import os
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QFileDialog, QHeaderView, QTableWidgetItem,
+from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QHeaderView, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, EditableComboBox,
@@ -26,7 +26,7 @@ from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, EditableComboBox,
 # 用本项目修好的子类(别名导入, 调用面不变)。见 ui/widgets._SpinLineEditFix。
 from ui.widgets import NumberDoubleSpinBox as DoubleSpinBox
 from ui.widgets import NumberSpin as SpinBox
-from ui.widgets import FlowLayout, WrapSettingCard
+from ui.widgets import WrapSettingCard, flow_row
 
 from src.echo_combos import (PlanRequest, candidate_pool, energy_is_damage, instance_tag,
                              is_max_level, plan, set_bonus_keys)
@@ -96,6 +96,9 @@ class PlanTab(QWidget):
         self._load_sets()
         self._refresh_panel()
         self._refresh_profiles()
+        self._connect_summary()
+        self._update_summary()
+        self.table_hint.setText("导入库存 → 选套装 → 点上方「开始穷举」；结果按 E 排序，双击一行看词条明细")
 
     # ══════════════════ UI ══════════════════
     def _setup_ui(self):
@@ -110,6 +113,10 @@ class PlanTab(QWidget):
         outer.addWidget(title)
         outer.addWidget(sub)
 
+        # U-08: 动作条(开始/取消/导出/进度 + 方案摘要)**常驻**在标题下方 —— 以前它在结果卡里,
+        # 是第 10 个区块, 760 高的首屏根本看不到"开始穷举"。
+        outer.addWidget(self._build_action_bar())
+
         self.view = QWidget()
         vbox = QVBoxLayout(self.view)
         vbox.setContentsMargins(24, 12, 24, 24)
@@ -123,16 +130,67 @@ class PlanTab(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.view)
         outer.addWidget(scroll, 1)
+        self.scroll = scroll
+
+    def _build_action_bar(self) -> QWidget:
+        """常驻动作条: 方案摘要 + 开始/取消/导出 + 进度(U-08)。"""
+        bar = QWidget()
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(10)
+        self.run_btn = PushButton(FIF.PLAY, "开始穷举")
+        self.run_btn.clicked.connect(self._start)
+        self.cancel_btn = PushButton(FIF.CANCEL, "取消")
+        self.cancel_btn.clicked.connect(self._cancel)
+        self.cancel_btn.setVisible(False)
+        self.csv_btn = PushButton(FIF.SAVE, "导出 CSV")
+        self.csv_btn.clicked.connect(self._export_csv)
+        self.progress = IndeterminateProgressBar(self)
+        self.progress.setVisible(False)
+        self.summary_label = CaptionLabel()
+        self.summary_label.setWordWrap(True)
+        row.addWidget(self.run_btn)
+        row.addWidget(self.cancel_btn)
+        row.addWidget(self.csv_btn)
+        row.addWidget(self.progress)
+        row.addSpacing(8)
+        row.addWidget(self.summary_label, 1)
+        self._summary_widgets = bar
+        return bar
+
+    def _update_summary(self, *_):
+        """方案摘要: 当前输入装配的一句话(改参数时实时更新, 免得来回滚)。"""
+        try:
+            mode = self.mode_combo.currentText()
+            sets = self.set_a_combo.currentText()
+            if mode == "3+2":
+                owner = self.cost4_combo.currentText()
+                sets += f" + {self.set_b_combo.currentText()}"
+                sets += f"（4C 归 {owner}）" if owner in ("A", "B") else "（4C 未指定）"
+            parts = [f"{mode} 件套 · {sets}", self.scaling_combo.currentText(),
+                     "满级件" if self.max_level_check.isChecked() else "含未满级",
+                     f"共效 {self.energy_min_spin.value():g}% / 暴击 {self.crit_target_spin.value():g}%"]
+            if self._items:
+                parts.insert(0, f"库存 {len(self._items)} 只")
+            self.summary_label.setText(" · ".join(parts))
+        except Exception:
+            pass
+
+    def _connect_summary(self):
+        """改这些输入时刷新方案摘要。"""
+        for combo in (self.mode_combo, self.set_a_combo, self.set_b_combo,
+                      self.cost4_combo, self.scaling_combo):
+            combo.currentTextChanged.connect(self._update_summary)
+        for box in (self.max_level_check, self.all_bonus_check):
+            box.stateChanged.connect(self._update_summary)
+        for spin in (self.energy_min_spin, self.crit_target_spin):
+            spin.valueChanged.connect(self._update_summary)
 
     # ── 角色与目标 ──
     @staticmethod
     def _flow_row(widgets, hspacing=10, vspacing=8) -> QWidget:
-        """把一排控件装进可换行的 FlowLayout(窄窗口下自动换行, 不再横向裁切)。"""
-        row = QWidget()
-        flow = FlowLayout(row, hspacing=hspacing, vspacing=vspacing)
-        for w in widgets:
-            flow.addWidget(w)
-        return row
+        """把一排控件装进可换行的 FlowLayout（实现在 `ui.widgets.flow_row`，运行页共用）。"""
+        return flow_row(widgets, hspacing=hspacing, vspacing=vspacing)
 
     def _group_goal(self) -> SettingCardGroup:
         g = SettingCardGroup("角色与目标", self.view)
@@ -171,7 +229,7 @@ class PlanTab(QWidget):
         self.set_b_combo.setMinimumWidth(170)
         self.set_a_combo.setToolTip("套装 A(3+2 时是 3 件那套)")
         self.set_b_combo.setToolTip("套装 B(3+2 时 2 件那套; 与 A 不能相同)")
-        self.cost4_combo.setToolTip("4C(COST 4)那只声骸属于 A 还是 B —— 3+2 时**必选**")
+        self.cost4_combo.setToolTip("4C(COST 4)那只声骸属于 A 还是 B —— 3+2 时必选")
         self.mode_combo.addItems(["5", "3+2"])
         self.cost4_combo.addItems(["请选择", "A", "B"])
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)   # 控件都建好后再接信号
@@ -388,7 +446,7 @@ class PlanTab(QWidget):
         sp_widgets = [CaptionLabel("计进加成区的专伤")]
         for key in SPECIALTY_KEYS:
             cb = CheckBox(key.replace("伤害加成", ""))
-            cb.setToolTip("勾选后**只算勾选的专伤**; 全不勾 = 按套装模板的有效专伤并集"
+            cb.setToolTip("勾选后只算勾选的专伤; 全不勾 = 按套装模板的有效专伤并集"
                           "(通用套会把 普攻/重击/共技/共解 都带上)")
             self.specialty_checks.append((key, cb))
             sp_widgets.append(cb)
@@ -414,50 +472,53 @@ class PlanTab(QWidget):
     def _card_result(self) -> HeaderCardWidget:
         card = HeaderCardWidget("结果排名", self.view)
         vb = _card_body(card)
-        self.run_btn = PushButton(FIF.PLAY, "开始穷举")
-        self.run_btn.clicked.connect(self._start)
-        self.cancel_btn = PushButton(FIF.CANCEL, "取消")
-        self.cancel_btn.clicked.connect(self._cancel)
-        self.cancel_btn.setVisible(False)
-        self.csv_btn = PushButton(FIF.SAVE, "导出 CSV")
-        self.csv_btn.clicked.connect(self._export_csv)
-        self.progress = IndeterminateProgressBar(self)
-        self.progress.setVisible(False)
         self.status = CaptionLabel("未导入库存: 先点上方「导入最新素材」或「选择…」")
         self.status.setWordWrap(True)
-        vb.addWidget(self._flow_row([self.run_btn, self.cancel_btn, self.csv_btn, self.progress]))
         vb.addWidget(self.status)
+        # 表上方一行提示: 空态给"怎么开始", 有结果后给"怎么读"(U-09)
+        self.table_hint = CaptionLabel()
+        self.table_hint.setWordWrap(True)
+        vb.addWidget(self.table_hint)
 
         self.result_table = TableWidget()
+        # U-09 重排: 拆开「评分和/有效分」、删恒为 12 的 COST 列、排序键 E 提到前面
         self.result_table.setColumnCount(9)
         self.result_table.setHorizontalHeaderLabels(
-            ["名次", "5 只声骸(名#实例·COST)", "COST", "评分和/有效分", "暴击/爆伤",
-             "加成区", "共效", "排序分E", "伤害"])
+            ["#", "5 只声骸（名#实例·COST）", "E（排序）", "伤害", "评分", "有效分",
+             "暴击/爆伤", "加成 属/专/通", "共效%"])
         hh = self.result_table.horizontalHeader()
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         for col in (0, 2, 3, 4, 5, 6, 7, 8):
             hh.setSectionResizeMode(col, QHeaderView.Fixed)
-        # 列宽按 1120 默认窗口(视口≈1001)实测的"文本需要宽度"定: 评分和/有效分 156 / 共效 72 / 排序分 84
-        for col, width in ((0, 38), (2, 56), (3, 158), (4, 92), (5, 92), (6, 84), (7, 88), (8, 92)):
+        # 列宽必须按**实际绘制字体 + 内边距**留: qfluentwidgets 的 `TableItemDelegate` 会把字体强制成
+        # `getFont(13)`(见 table_view.py::initStyleOption), 而 `QTableView::item` 的 QSS 还有左右各 16px
+        # 内边距 + 样式自身的文字边距 —— 实测**可用文本宽 ≈ 列宽 − 44px**。
+        # 只按 `widget.fontMetrics()`(9pt) 算会全部裁成 `125...`(踩过: 70px 的列装不下 "551.2")。
+        # 下面按"最长样例 + 44 + 余量"定: "1253.9"=42 / "551.2"=35 / "60+45+0"=62 / "65.5%"=35。
+        for col, width in ((0, 46), (2, 96), (3, 90), (4, 96), (5, 96), (6, 86), (7, 110), (8, 76)):
             self.result_table.setColumnWidth(col, width)
+        self.result_table.horizontalHeader().setMinimumSectionSize(60)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.setBorderVisible(True)
         self.result_table.setBorderRadius(8)
         self.result_table.setMinimumHeight(240)
+        # 5 只声骸允许折成 2 行(名字太长时), 行高按 2 行给; 数字列一律右对齐(见 _render)
+        self.result_table.setWordWrap(True)
+        self.result_table.verticalHeader().setDefaultSectionSize(46)
         self.result_table.setToolTip("双击一行看该组合 5 只声骸的词条明细")
         self.result_table.cellDoubleClicked.connect(self._show_combo)
         vb.addWidget(self.result_table, 1)
 
         note = CaptionLabel()
         note.setWordWrap(True)
-        note.setText("排序分 E = 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区); "
-                     "加成区 = 属伤 + 专伤合计 + 通用增伤, 共效不计; "
-                     "**声骸副词条只计「该套装有效词条」里的专伤**(雪落无声之愿只认共鸣解放, "
-                     "普攻/重击副词条不计 —— 标 `(忽略N)`; 要全算就勾「专伤不过滤」); "
-                     "暴击率按 100% 封顶(溢出部分 0 收益, 表里标 →100%); "
-                     "**共效/暴击都按线性缺口扣系数**(低于门槛才扣, 见表内悬停), "
-                     "两者都以门槛为 1.0(不抬高 E, 可与未乘值直接比); "
-                     "技能倍率/加深/防御/抗性在方案内是常数(排序不受影响), 「伤害」列只把防御区×抗性区折进去。")
+        note.setText("E（排序）= 缩放属性总值 × (1+暴击率×暴击伤害) × (1+加成区)；"
+                     "加成区 = 属伤 + 专伤合计 + 通用增伤，共效不计。"
+                     "声骸副词条只计「该套装有效词条」里的专伤（雪落无声之愿只认共鸣解放，"
+                     "普攻/重击副词条不计 —— 标「忽略N」；要全算就勾「专伤不过滤」）。"
+                     "暴击率按 100% 封顶（溢出部分 0 收益，表里标 →100）。"
+                     "共效/暴击都按线性缺口扣系数（低于门槛才扣，见表内悬停），两者都以门槛为 1.0"
+                     "（不抬高 E，可与未乘值直接比）。技能倍率/加深/防御/抗性在方案内是常数"
+                     "（排序不受影响），「伤害」列只把防御区×抗性区折进去。")
         vb.addWidget(note)
         return card
 
@@ -513,6 +574,7 @@ class PlanTab(QWidget):
                                        + f"\n来源: {os.path.basename(source)}")
         self.status.setText(f"库存 {s['total']} 只(已按 5★ 处理); 选好套装后点「开始穷举」"
                             + (f" —— 注意 {no_cost} 只缺 COST 未入池" if no_cost else ""))
+        self._update_summary()
 
     def _collect_inputs(self):
         bare = {k: spin.value() for k, spin in self._bare_spins.items() if spin.value()}
@@ -757,6 +819,10 @@ class PlanTab(QWidget):
         tail = "(已取消, 结果为部分)" if res.cancelled else ""
         self.status.setText(f"候选 {res.candidates} 只 / {res.names} 个名字 | 评估 {res.evaluated} 组 | "
                             f"耗时 {res.elapsed:.3f}s{tail}")
+        try:
+            self.scroll.ensureWidgetVisible(self.result_table)     # U-08: 跑完自动滚到结果
+        except Exception:
+            pass
         if not res.combos:
             self._info(False, "没有合法组合",
                        f"候选 {res.candidates} 只: 检查「{self._build_request().set_a}」里是否有足够的"
@@ -775,57 +841,73 @@ class PlanTab(QWidget):
         energy_damage = energy_is_damage(self._build_request())
         for row, c in enumerate(res.combos):
             zone = c.panel.bonus_split()
-            sets = " + ".join(f"{k}×{v}" for k, v in sorted(c.set_counts.items()))
-            combo_text = " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items)
             ign = sum(c.panel.ignored_bonus.values())
             s_sum, s_missing = c.score_sum()
             s_dmg, _sd = c.score_sum_dmg()
-            cells = (str(row + 1), combo_text, str(c.total_cost),
-                     f"{s_sum:.2f}/" + ("—" if energy_damage else f"{s_dmg:.2f}")
-                     + ("*" if s_missing else ""),
-                     f"{c.panel.crit_rate:.1f}%{'→100%' if c.panel.crit_wasted() else ''} / "
+            # U-09 列序: # | 5 只声骸 | E(排序) | 伤害 | 评分 | 有效分 | 暴击/爆伤 | 加成 属/专/通 | 共效
+            cells = (str(row + 1),
+                     " ".join(f"{i.name}{instance_tag(i)}·{i.cost}C" for i in c.items),
+                     f"{c.score:.1f}",
+                     f"{c.score * zb * rb:.1f}",
+                     f"{s_sum:.2f}" + ("*" if s_missing else ""),
+                     "—" if energy_damage else f"{s_dmg:.2f}",
+                     f"{c.panel.crit_rate:.1f}%{'→100%' if c.panel.crit_wasted() else ''}\n"
                      f"{c.panel.crit_dmg:.1f}%",
                      f"{zone['属伤']:.0f}+{zone['专伤']:.0f}+{zone['通用']:.0f}"
-                     + (f"(忽略{ign:.0f})" if ign else ""),
-                     f"{c.panel.energy:.1f}%" + ("⚠" if c.penalized else ""),
-                     f"{c.score:.1f}",
-                     f"{c.score * zb * rb:.1f}")
+                     + (f"\n(忽略{ign:.0f})" if ign else ""),
+                     f"{c.panel.energy:.1f}")
             for col, text in enumerate(cells):
                 cell = QTableWidgetItem(text)
                 cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                if col != 1:                     # 数字列右对齐, 千分位/小数位对得齐
+                    cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if col == 1:
-                    # 主属性方向是"评分和"看不到、却最影响伤害的一块(评分只算副词条) → 必须可见
+                    # 主属性方向是"评分"看不到、却最影响伤害的一块(评分只算副词条) → 必须可见
                     main_dir = []
                     for it in c.items:
                         if it.cost in (3, 4) and it.main:
                             main_dir.append(f"{it.cost}C主={it.main[0][0]}{it.main[0][1]:g}")
                     tip = (f"{self._scaling()}总值 {c.panel.scaling_total(self._scaling()):.1f}"
                            f" | 套装 {' + '.join(f'{k}×{v}' for k, v in sorted(c.set_counts.items()))}"
+                           f" | ΣCOST {c.total_cost} · {len(c.items)} 件"
                            f" | 双爆区 {c.panel.crit_zone():.3f}")
                     if main_dir:
-                        tip += "\n主属性: " + " ".join(main_dir) + "(评分和只算副词条, 看不到这块)"
+                        tip += "\n主属性: " + " ".join(main_dir) + "(评分只算副词条, 看不到这块)"
                     if c.panel.derived:
                         tip += "\n条件补正(天赋): " + ", ".join(
                             f"{k} +{v:g}" for k, v in c.panel.derived.items())
                     if row > 0:
                         tip += f"\n与第 1 名相差 −{(1 - c.score / top) * 100:.1f}%(排序分)"
                     cell.setToolTip(tip)
+                if col == 2:
+                    cell.setToolTip(f"E(未乘系数) {c.score_raw:.1f} × 循环 {c.energy_f:.4f} × "
+                                    f"稳定性 {c.crit_f:.4f} = {c.score:.1f}\n排序只看这一列")
                 if col == 3:
-                    cell.setToolTip("「评分和/有效分」= 5 只评估得分之和 / 扣掉共效后的分"
-                                    "(与报告同口径, 同套装内可比)"
+                    cell.setToolTip(f"伤害 = E × 防御区 {zb:.4f} × 抗性区 {rb:.4f}"
+                                    f"\n(防御/抗性在方案内是常数, 不影响排序)")
+                if col == 4:
+                    cell.setToolTip("「评分」= 5 只评估得分之和(只含副词条, 与报告同口径, 同套装内可比)"
                                     + (f"; 有 {s_missing} 只没有分数" if s_missing else "")
                                     + ": " + " + ".join(
                                         f"{i.name} {i.score:.2f}" if i.score is not None else f"{i.name} —"
                                         for i in c.items))
-                if col == 4:
+                if col == 5:
+                    cell.setToolTip("「有效分」= 评分和 − 共效条分(共效不进伤害公式)"
+                                    + ("\n当前有共效驱动型天赋 → 该列失效, 显示 —" if energy_damage else ""))
+                if col == 6:
                     cell.setToolTip(f"暴击率 {c.panel.crit_rate:.1f}%(100% 封顶) / 爆伤 {c.panel.crit_dmg:.1f}%"
                                     f" → 双爆区 {c.panel.crit_zone():.3f}"
                                     f"\n暴击门槛系数 ×{c.crit_f:.4f}"
                                     f"(= max({self.crit_floor_spin.value():g}, 1 − {self.crit_slope_spin.value():g}×缺口比例))")
-                if col == 5 and ign:
-                    cell.setToolTip("已忽略的副词条专伤(不属于该套装有效词条): " +
-                                    ", ".join(f"{k} {v:g}%" for k, v in sorted(c.panel.ignored_bonus.items())))
-                if col == 6:
+                if col == 7:
+                    cell.setToolTip(f"加成区 = 属伤 {zone['属伤']:.0f} + 专伤 {zone['专伤']:.0f}"
+                                    f" + 通用 {zone['通用']:.0f}"
+                                    + (f"; 已忽略 {ign:.0f}(不属于该套装有效词条)"
+                                       if ign else ""))
+                    if ign:
+                        cell.setToolTip(cell.toolTip() + "\n已忽略的专伤: " +
+                                        ", ".join(f"{k} {v:g}%" for k, v in sorted(c.panel.ignored_bonus.items())))
+                if col == 8:
                     if c.penalized:
                         cell.setForeground(QColor("#d13438"))
                         cell.setToolTip(f"共效 {c.panel.energy:.1f}% < 下限 {self.energy_min_spin.value():g}%"
@@ -834,10 +916,14 @@ class PlanTab(QWidget):
                                         f"{self.energy_slope_spin.value():g}×缺口比例))")
                     else:
                         cell.setToolTip(f"共效 {c.panel.energy:.1f}%(≥ 下限 → 循环系数 1.0)")
-                if col == 7:
-                    cell.setToolTip(f"E(未乘系数) {c.score_raw:.1f} × 循环 {c.energy_f:.4f} × "
-                                    f"稳定性 {c.crit_f:.4f} = {c.score:.1f}")
                 self.result_table.setItem(row, col, cell)
+
+        # 空态/提示行(U-09/U-13)
+        if res.combos:
+            self.table_hint.setText(f"{len(res.combos)} 个组合 · 按 E 排序（评分只含副词条，主属性不进评分）"
+                                    f" · 双击一行看词条明细")
+        else:
+            self.table_hint.setText("没有合法组合：检查库存是否够 4C/3C/1C，以及 ΣCOST ≤ 12 与 4C 归属")
 
     def _scaling(self) -> str:
         return self.scaling_combo.currentText()

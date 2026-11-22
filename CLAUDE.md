@@ -147,6 +147,20 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **最小窗口布局验收别用 `ui_shot.py`**: 它走 MainWindow, 离屏屏幕 800×800 会把 `--size 940x620`
   夹成 640×480。用 `python tools/ui_page_shot.py <page> 892x570 out.png [--bottom]` 直接抓页面内容区。
 
+### 界面 B2 修复(2026-11-22, 补记 75) — 勿回退
+
+- **运行页 = 固定状态卡 + 左右两栏**(`QSplitter`: 左设置卡组可滚 320/360、右日志 stretch 3 最小高 300)。
+  **不要再把整页套成一个滚动容器**: 日志卡的 stretch 在滚动容器里只按 sizeHint 分高度, 会被挤成 70px。
+  左栏窄(~360px) → 卡片一律 `WrapSettingCard`; **日志工具条也必须走 `flow_row`** —— 横排时那一条
+  最小宽 586px, 会把整页撑到 942(940 窗口内容区只有 750)。守卫 `test_page_fits_min_window_width`。
+- **导航**: `minimumExpandWidth` 必须 ≤ 最小窗口宽(库默认 1008 > 940 → 展开会被 resize 立刻收回);
+  `expand()` 要在 `_init_geometry()` **之后**调(它按当前窗口宽度决定真展开还是弹浮层)。
+- **结果表列宽不能按 `widget.fontMetrics()` 算**: qfluentwidgets 的 `TableItemDelegate` 把每格字体强制成
+  `getFont(13)`(`table_view.py::initStyleOption`), `QTableView::item` 的 QSS 还有左右各 16px 内边距 →
+  **可用文本宽 ≈ 列宽 − 44px**。按 9pt 算会把 70px 的列装不下 `551.2`, 整表变 `125...`。
+  改结果表后**必须跑一次填充页渲染**(`.scratch/plan_filled_shot.py`) —— 空表看不出截断。
+- **组合穷举的动作条在滚动区外**(`_build_action_bar`), 方案摘要随输入实时刷新; 跑完自动滚到结果。
+
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
 
 **分层**(与阶段二十四"判定唯一收口"同一条纪律): `src/echo_panel.py`(计算) → `src/echo_combos.py`(穷举) →
@@ -555,7 +569,7 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**378 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**384 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_probe.py --strict`(界面 5 项缺陷探针, 应 **5/5**)
   + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材) + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`

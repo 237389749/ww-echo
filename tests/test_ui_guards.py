@@ -199,6 +199,93 @@ class TestDebugTabLayout(unittest.TestCase):
         self.assertGreater(self.tab.stack.height(), ocr_h, "切到「截图」页后子页没长高")
 
 
+class TestRunTabLayout(unittest.TestCase):
+    """U-05 / U-07: 运行页两栏布局 —— 日志卡必须常驻可见, 模式徽标要跟着任务走。
+
+    以前整页一个滚动容器, 日志卡的 stretch 在滚动容器里只按 sizeHint 分高度 →
+    1120×760 只露出约 70px, 940×620 整块在折叠之下。
+    """
+
+    def setUp(self):
+        self.app = _qapp()
+        from PySide6.QtCore import QObject, Signal
+        from PySide6.QtWidgets import QTextEdit
+        from ui.run_tab import RunTab
+
+        class _Bridge(QObject):
+            log_signal = Signal(str)
+
+        self._bridge = _Bridge()          # 保持引用, 否则信号对象被回收
+        self.log = QTextEdit()
+        self.tab = RunTab(ok_engine=None, log_bridge=self._bridge, log_area=self.log)
+        self.tab.resize(892, 570)
+        self.tab.show()
+        _pump(self.app)
+
+    def tearDown(self):
+        _drop(self.tab, self.app)
+
+    def test_log_card_visible_at_min_window(self):
+        card = self.tab.splitter.widget(1)
+        self.assertGreaterEqual(card.height(), 200, "日志卡太矮, 看不到几行")
+        self.assertLessEqual(card.geometry().bottom(), self.tab.height(),
+                             "日志卡被顶到视口外面（要滚才能看见）")
+
+    def test_page_fits_min_window_width(self):
+        """两栏 + 流式工具条后, 页面最小宽必须 < 940 窗口的内容区(约 750)。
+
+        实测踩过: 日志工具条横排时整页最小宽 942 → 940 窗口里横向裁切。
+        """
+        self.assertLessEqual(self.tab.minimumSizeHint().width(), 740)
+
+    def test_mode_badge_follows_task_and_precise(self):
+        self.tab.task_combo.setCurrentText("评估声骸")
+        _pump(self.app, 2)
+        self.assertTrue(self.tab.mode_badge.isVisibleTo(self.tab))
+        self.assertIn("图标优先", self.tab.mode_badge.text())
+        self.tab.opt_precise.setChecked(True)
+        _pump(self.app, 2)
+        self.assertIn("精确模式", self.tab.mode_badge.text())
+        self.tab.task_combo.setCurrentText("强化声骸")
+        _pump(self.app, 2)
+        self.assertFalse(self.tab.mode_badge.isVisibleTo(self.tab), "强化模式不该显示评估徽标")
+
+
+class TestPlanTabTable(unittest.TestCase):
+    """U-08 / U-09: 动作条常驻（不在滚动区里）+ 结果表列语义。"""
+
+    def setUp(self):
+        self.app = _qapp()
+        from ui.plan_tab import PlanTab
+        self.tab = PlanTab()
+        self.tab.resize(1120, 760)
+        self.tab.show()
+        _pump(self.app)
+
+    def tearDown(self):
+        _drop(self.tab, self.app)
+
+    def test_action_bar_is_outside_scroll_area(self):
+        """「开始穷举」必须常驻 —— 以前它在结果卡里(第 10 个区块), 760 高首屏看不到。"""
+        node = self.tab.run_btn
+        while node is not None and node is not self.tab.scroll.widget():
+            node = node.parentWidget()
+        self.assertIsNone(node, "动作条仍在滚动区内, 窄屏要滚才能点「开始穷举」")
+
+    def test_result_columns(self):
+        table = self.tab.result_table
+        self.assertEqual(table.columnCount(), 9)
+        headers = [table.horizontalHeaderItem(i).text() for i in range(9)]
+        self.assertEqual(headers[0], "#")
+        self.assertIn("E（排序）", headers)
+        self.assertIn("评分", headers)
+        self.assertIn("有效分", headers, "「评分和/有效分」要拆成两列")
+        self.assertFalse(any(h.strip() == "COST" for h in headers), "COST 恒为 12, 该列已删")
+
+    def test_table_hint_has_empty_state(self):
+        self.assertTrue(self.tab.table_hint.text().strip(), "结果表空态缺提示")
+
+
 class TestStatusTexts(unittest.TestCase):
     """U-03: 评估状态卡显示评估链的计数, 强化口径不能被改坏。"""
 

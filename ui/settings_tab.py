@@ -24,7 +24,7 @@ from qfluentwidgets import (CaptionLabel, ComboBox, FluentIcon as FIF, InfoBar, 
 from ww_engine import og, Logger, communicate, basic_options
 
 from src.run_modes import MODE_LOCAL, MODE_CLOUD
-from ui.widgets import make_scroll_transparent
+from ui.widgets import WrapSettingCard, make_scroll_transparent
 
 logger = Logger.get_logger(__name__)
 
@@ -41,6 +41,10 @@ class SettingsTab(QWidget):
         self._load_config()
         self._load_theme()
         self._refresh()
+        try:
+            self._update_lists()       # 截图/交互下拉在设备刷新前也有内容(U-13)
+        except Exception:
+            logger.debug("初始化截图/交互下拉失败", exc_info=True)
         communicate.adb_devices.connect(self._on_devices_updated)
 
     # ══════════════════ UI ══════════════════
@@ -89,17 +93,19 @@ class SettingsTab(QWidget):
 
     def _group_window(self) -> SettingCardGroup:
         g = SettingCardGroup("窗口与设备", self.view)
-        self.device_card = SettingCard(
+        # U-14: 控件宽(下拉 330 + 按钮) + 说明长 → 940 宽下说明被横向裁掉。
+        # 用 WrapSettingCard(说明换行 + 控件进 FlowLayout, 与「组合穷举」「套装配置」同款)。
+        self.device_card = WrapSettingCard(
             FIF.IOT, "目标窗口",
             "云游戏: 自动锁定标题含「鸣潮」的窗口(也可在此手动改选); 本地: 自动匹配 UnrealWindow", self.view)
         self.device_combo = ComboBox()
-        self.device_combo.setMinimumWidth(330)
+        self.device_combo.setMinimumWidth(280)
+        # 空态(U-13): 启动时还没刷新过设备列表 —— 以前这里是一块空白, 看着像坏了
+        self.device_combo.addItem("（尚未检测窗口 —— 点右侧「刷新列表」）")
         self.device_combo.currentIndexChanged.connect(self._on_device)
         self.refresh_btn = PushButton("刷新列表")
         self.refresh_btn.clicked.connect(self._refresh)
-        self._add_widget(self.device_card, self.device_combo)
-        self.device_card.hBoxLayout.addWidget(self.refresh_btn)
-        self.device_card.hBoxLayout.addSpacing(16)
+        self.device_card.add_controls([self.device_combo, self.refresh_btn])
         g.addSettingCard(self.device_card)
 
         self.device_status = CaptionLabel()
@@ -108,21 +114,21 @@ class SettingsTab(QWidget):
 
     def _group_capture(self) -> SettingCardGroup:
         g = SettingCardGroup("截图与交互", self.view)
-        self.capture_card = SettingCard(
+        self.capture_card = WrapSettingCard(
             FIF.CAMERA, "截图方式",
             "云游戏/被遮挡窗口用 BitBlt_RenderFull; WGC 抓浏览器窗口常黑屏", self.view)
         self.capture_combo = ComboBox()
-        self.capture_combo.setMinimumWidth(240)
+        self.capture_combo.setMinimumWidth(220)
         self.capture_combo.currentIndexChanged.connect(self._on_capture)
-        self._add_widget(self.capture_card, self.capture_combo)
+        self.capture_card.add_controls([self.capture_combo])
 
-        self.interaction_card = SettingCard(
+        self.interaction_card = WrapSettingCard(
             FIF.ROBOT, "交互方式",
             "PostMessage 可后台运行; Pynput 为前台真实键鼠(云游戏必须, 需管理员)", self.view)
         self.interaction_combo = ComboBox()
-        self.interaction_combo.setMinimumWidth(240)
+        self.interaction_combo.setMinimumWidth(220)
         self.interaction_combo.currentIndexChanged.connect(self._on_interaction)
-        self._add_widget(self.interaction_card, self.interaction_combo)
+        self.interaction_card.add_controls([self.interaction_combo])
 
         self.hotkey_card = SettingCard(
             FIF.GAME, "启动 / 停止热键", "由 ww_engine 全局控制(游戏内技能键不参与本工具)", self.view)
@@ -314,6 +320,11 @@ class SettingsTab(QWidget):
             combo.blockSignals(True)
             combo.clear()
             combo.addItems(items)
+            if not items:                       # 空态(U-13): 没连设备时这里会是空白下拉
+                combo.addItem("（未检测到可选方式）")
+                combo.setEnabled(False)
+            else:
+                combo.setEnabled(True)
             try:
                 cur = str(og.device_manager.config.get(key, ''))
                 if cur in items:

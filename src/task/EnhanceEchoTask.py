@@ -1736,6 +1736,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 "total": evaluated,
                 "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "click_fail": click_fail_total,
+                # U-07: 本次跑的是哪种套装判定模式(报告页脚/事后核对 set_src 分布用)
+                "set_mode": "precise" if self.config.get('套装精确模式') else "icon_first",
                 "panel_restore_fail": panel_dbg_restore_fail if panel_dbg_dir else None,
                 "set_src": dict(src_stat),
                 "results": results,

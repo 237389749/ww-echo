@@ -7,9 +7,15 @@
 >
 > ## ⚠ 进度（2026-11-22 更新）
 >
-> **B1 已完成**（CHANGELOG 补记 74，提交见 `git log`）：`python tools/ui_probe.py --strict` → **5/5**、
-> `python -m unittest discover -s tests` → **378 项 / OK (skipped=2)**、新增 `tests/test_ui_guards.py`（18 项）
-> 与 `tools/ui_page_shot.py`。**下一棒从 §4（B2）开始**。
+> **B1 已完成**（补记 74）、**B2 已完成**（补记 75）：`python tools/ui_probe.py --strict` → **5/5**、
+> `python -m unittest discover -s tests` → **384 项 / OK (skipped=2)**、新增 `tests/test_ui_guards.py`（24 项）
+> 与 `tools/ui_page_shot.py`。**下一棒从 §5（B3：报告）开始**。
+>
+> B2 实际做法（照原稿做会踩的点）：①运行页两栏后**日志工具条必须换行**（横排最小宽 586px → 整页 942 > 940 窗口
+> 内容区 750）；②左栏只有 ~360px，5 张任务卡都得换 `WrapSettingCard`；③导航 `minimumExpandWidth` 默认 1008 >
+> 本窗口最小 940，不改成 900 的话 `expand()` 会被 resize 立刻收回，且 `expand()` 必须在 `_init_geometry()` 之后调；
+> ④结果表列宽**不能按 `widget.fontMetrics()` 算** —— 库的 `TableItemDelegate` 把每格字体强制成 `getFont(13)`、
+> QSS 还有左右各 16px 内边距，**可用文本宽 ≈ 列宽 − 44px**（按 9pt 算会整表变 `125...`）。
 >
 > B1 实际做法与本文原稿的差异（照原文做会踩）：
 > 1. **U-01 的 5 行子类不够**：`RIGHT_RESERVED=74` 会让文字钻到按钮底下 6px；而且"编辑区 ≥20px"≠读得出数值 ——
@@ -38,7 +44,7 @@
 python tools/ui_probe.py --strict             # 现在应为 5/5、退出码 0
 
 # 回归基线
-python -m unittest discover -s tests          # Ran 378 tests / OK (skipped=2)
+python -m unittest discover -s tests          # Ran 384 tests / OK (skipped=2)
 ```
 
 ---
@@ -50,7 +56,7 @@ python -m unittest discover -s tests          # Ran 378 tests / OK (skipped=2)
 | 分支 | `engine/vendor`（不要合 main；沿用现有分支策略） |
 | 解释器 | 系统 Python 3.13.16；`pip install -r requirements.txt` 已装齐 |
 | UI 依赖 | **PySide6 6.12.0 + PySide6-Fluent-Widgets 1.11.3**（U-01 的根因组合） |
-| 单测 | `python -m unittest discover -s tests` → **378**（改测试后同步 `docs/BASELINE.md` B1 与 CLAUDE） |
+| 单测 | `python -m unittest discover -s tests` → **384**（改测试后同步 `docs/BASELINE.md` B1 与 CLAUDE） |
 | 页面截图 | `python tools/ui_shot.py --size 1120x760 [--dark] [--eval] --out logs/ui_fix/light` |
 | 单页/最小窗口截图 | `python tools/ui_page_shot.py <page> 892x570 out.png [--bottom]`（B1 新增；`--list` 看可选页） |
 | 报告截图 | `python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024` |
@@ -367,7 +373,7 @@ QVBoxLayout(self)
 ## 6. 陷阱与边界（请先看）
 
 1. **不要升级/降级依赖来解决 U-01**：升级 qfluentwidgets 要回归所有 Fluent 控件；降级 PySide6
-   要重跑 378 项单测 + 真机 OCR。子类方案已验证，风险最小。
+   要重跑 384 项单测 + 真机 OCR。子类方案已验证，风险最小。
 2. **不要改判定/评分/遍历逻辑**：本次只动呈现层；`set_src`、`text+icon` 验收闸、精确模式语义
    都是上一轮刚定的（CHANGELOG 补记 72）。
 3. **离屏截图不等于真机**：SpinBox 的"看不见"是真机也复现的 bug；但反过来，离屏也缺字体
@@ -377,7 +383,7 @@ QVBoxLayout(self)
 5. **QTableWidget 是 QAbstractScrollArea**：写"页面可滚"检查时别把它算进去。
 6. **InfoBar 是叠加层**：截图里会盖住标题；这是真实效果，改布局时给它留出顶部空间或改内联提示。
 7. **改报告 JS 时**：筛选、排序、计数共用 `tr` 集合；加详情行必须同步改三处（筛选/排序/显示计数）。
-8. **每加一个测试/改一个测试，文档里的 378 要同步**（BASELINE B1、CLAUDE 接力状态、handoff）。
+8. **每加一个测试/改一个测试，文档里的 384 要同步**（BASELINE B1、CLAUDE 接力状态、handoff）。
 
 ---
 
@@ -393,7 +399,8 @@ python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024 --out logs/
 ```
 
 - B1（**已完成**）：C1~C5 PASS；套装配置 1120 截图能看到权重；`--eval` 下状态卡文案正确。
-- B2：目检运行页日志可见、导航有文字、穷举首屏有开始按钮、表格数字右对齐、无 `**`。
+- B2（**已完成**）：目检运行页日志可见（892×570 下 11 行 / 1120×760 下 27 行）、导航有文字、
+  穷举首屏有开始按钮、表格数字右对齐且不截断、无 `**`。
 - B3：报告 1000px 高 ≥8 行、判定对比度 C5 PASS、1024 不折成 250px 行。
 
 真机（必须一次）：`python mainui.py` → 设备设置/套装配置/运行（评估）各看一遍，重点：

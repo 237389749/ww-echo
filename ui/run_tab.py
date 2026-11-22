@@ -11,11 +11,11 @@ import time
 
 from PySide6.QtCore import QTimer, QSettings, Signal, QObject, Qt
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF,
                             HeaderCardWidget, IndeterminateProgressBar, InfoBar, InfoBarPosition,
-                            PrimaryPushButton, PushButton, SettingCard, SettingCardGroup,
+                            PrimaryPushButton, PushButton, SettingCardGroup,
                             SingleDirectionScrollArea, StrongBodyLabel, SubtitleLabel, SwitchButton,
                             ToolTipFilter)
 
@@ -25,7 +25,7 @@ from src.echo_stats import DEFAULT_WEIGHTS
 from src.echo_set_templates import get_set_weights
 from ui.present import (VERDICT_CHIP_BG, VERDICT_CN, VERDICT_COLOR, VERDICT_ORDER,
                         count_verdicts, status_texts, summary_text, verdict_color)
-from ui.widgets import make_scroll_transparent
+from ui.widgets import WrapSettingCard, flow_row, make_scroll_transparent
 
 
 class RunTab(QWidget):
@@ -67,30 +67,48 @@ class RunTab(QWidget):
 
     # ══════════════════ 界面 ══════════════════
     def _setup_ui(self):
-        # **必须套滚动容器**(2026-11-20 用户: 拖动/最大化后界面"消失或变矮") —— 运行页内容比其它页多,
-        # 窗口高度不够时纯 QVBoxLayout 会被压到最小以下, 卡片直接被裁掉(620 高度就看不到日志/部分卡片)。
-        # 套上 `SingleDirectionScrollArea` 后, 内层 widget 保持 sizeHint(卡片是固定高度), 放不下就滚动。
+        # 布局(U-05): **状态卡固定在顶部** + 下面左右两栏(左=设置卡组可滚, 右=日志)。
+        # 以前整页一个滚动容器, 日志卡的 stretch 在滚动容器里只按 sizeHint 分高度 ——
+        # 1120×760 只露出日志卡的标题/工具栏(约 70px), 940×620 整块在折叠之下。
+        # 而日志正是评估/强化的**主监控面**(要看"本屏完成/滚动/失败"那些行), 必须常驻。
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        self.view = QWidget()
-        layout = QVBoxLayout(self.view)
-        layout.setContentsMargins(16, 12, 16, 16)
-        layout.setSpacing(12)
+        outer.setContentsMargins(16, 12, 16, 16)
+        outer.setSpacing(12)
+        outer.addWidget(self._build_status_card())
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        # 左栏: 任务卡组 + 规则说明 + 上次评估结果(内容比高度多 → 自己滚)
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(12)
         # 构建顺序有讲究: 「规则」框必须在「任务卡组」之前 —— 任务卡组末尾会调 _on_task_changed,
         # 那里要 setVisible(self.strategy_info); 而规则框的初始文案要读 strategy_combo,
         # 所以把"填文案"这一步延后到两者都建好之后。
-        layout.addWidget(self._build_status_card())
-        layout.addWidget(self._build_rules_box())
-        layout.addWidget(self._build_task_group())
-        layout.addWidget(self._build_eval_card())
-        layout.addWidget(self._build_log_card(), 1)
-        scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.view)
-        outer.addWidget(scroll, 1)
+        left_layout.addWidget(self._build_rules_box())
+        left_layout.addWidget(self._build_task_group())
+        left_layout.addWidget(self._build_eval_card())
+        left_layout.addStretch(1)
+        left_scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setWidget(left)
+        left_scroll.setMinimumWidth(320)
+        splitter.addWidget(left_scroll)
+
+        log_card = self._build_log_card()
+        log_card.setMinimumHeight(300)          # 约 12 行日志; 再矮就只剩标题了
+        splitter.addWidget(log_card)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)         # 多余宽度给日志(日志行很长)
+        splitter.setSizes([360, 700])
+        outer.addWidget(splitter, 1)
+        self.splitter = splitter
+        self.left_scroll = left_scroll
+
         self._update_strategy_info(self.strategy_combo.currentText())
         self._update_status_text()
+        self._update_mode_badge()
 
     @staticmethod
     def _cap(text: str) -> CaptionLabel:
@@ -99,14 +117,14 @@ class RunTab(QWidget):
         return lbl
 
     @staticmethod
-    def _add_card_widget(card: SettingCard, widget: QWidget):
-        # Gallery 的标准写法: 控件追加到 hBoxLayout 末尾(即右侧) + 补 16px 边距
-        card.hBoxLayout.addWidget(widget, 0, Qt.AlignRight)
-        card.hBoxLayout.addSpacing(16)
+    def _card_body(card: HeaderCardWidget, margins=None) -> QVBoxLayout:
+        """HeaderCardWidget 的 viewLayout 是**横向**的(库源码: QHBoxLayout(self.view)), 正文要自己套一层纵向。
 
-    @staticmethod
-    def _card_body(card: HeaderCardWidget) -> QVBoxLayout:
-        """HeaderCardWidget 的 viewLayout 是**横向**的(库源码: QHBoxLayout(self.view)), 正文要自己套一层纵向。"""
+        `margins` 给紧凑卡片用: 库默认 `24/24/24/24`, 状态卡与日志卡不需要那么大留白
+        (状态卡光"标题 48 + 分隔线 + 上下各 24"就吃掉 ~100px, 570 高的最小窗口里太贵)。
+        """
+        if margins is not None:
+            card.viewLayout.setContentsMargins(*margins)
         body = QWidget()
         vb = QVBoxLayout(body)
         vb.setContentsMargins(0, 0, 0, 0)
@@ -119,9 +137,16 @@ class RunTab(QWidget):
         card.setTitle("运行")
         self.status_task = SubtitleLabel()
         self.status_state = CaptionLabel()
-        body = self._card_body(card)
+        # 模式徽标(U-07): 评估的套装判定模式(图标优先 / 精确)以前只在启动日志里打印一行, 界面上看不出来
+        self.mode_badge = CaptionLabel()
+        body = self._card_body(card, (24, 8, 24, 14))
         body.addWidget(self.status_task)
-        body.addWidget(self.status_state)
+        state_row = QHBoxLayout()
+        state_row.addWidget(self.status_state)
+        state_row.addSpacing(12)
+        state_row.addWidget(self.mode_badge)
+        state_row.addStretch()
+        body.addLayout(state_row)
 
         row = QHBoxLayout()
         self.start_btn = PrimaryPushButton(FIF.PLAY, "开始")
@@ -159,24 +184,25 @@ class RunTab(QWidget):
     def _build_task_group(self) -> SettingCardGroup:
         g = SettingCardGroup("任务与策略", self)
 
-        self.task_card = SettingCard(
+        # 左栏只有 ~360px: 用 WrapSettingCard(说明换行 + 控件进 FlowLayout), 别往 hBoxLayout 里横排
+        self.task_card = WrapSettingCard(
             FIF.ROBOT, "模式", "强化: 强化到满级并按规则丢弃/上锁; 评估: 只读遍历, 打分并生成 HTML 报告", self)
         self.task_combo = ComboBox()
         self.task_combo.addItems(["强化声骸", "评估声骸"])
-        self._add_card_widget(self.task_card, self.task_combo)
+        self.task_card.add_controls([self.task_combo])
 
-        self.strategy_card = SettingCard(
+        self.strategy_card = WrapSettingCard(
             FIF.SPEED_HIGH, "策略", "渐进式: 每级单独评估, 不达标立即止损; 传统: 拉满后一次性判断", self)
         self.strategy_combo = ComboBox()
         self.strategy_combo.addItems(["渐进式", "传统"])
-        self._add_card_widget(self.strategy_card, self.strategy_combo)
+        self.strategy_card.add_controls([self.strategy_combo])
 
-        self.set_label = SettingCard(
+        self.set_label = WrapSettingCard(
             FIF.LIBRARY, "套装", "强化按该套装权重与 A/B 两条线判定; 评估忽略此项(按面板图标/声骸名自动映射)", self)
         self.set_combo = ComboBox()
         self.set_combo.setMinimumWidth(150)
         self._load_sets()
-        self._add_card_widget(self.set_label, self.set_combo)
+        self.set_label.add_controls([self.set_combo])
 
         # ── 传统模式选项(整块塞进卡片右侧; 仅「传统」策略可见) ──
         self.opt_score_enable = CheckBox("启用评分模式")
@@ -186,19 +212,16 @@ class RunTab(QWidget):
             self.opt_score_min.addItem(str(v))
         self.opt_score_min.setCurrentText("32")
 
-        self.traditional_opts = QWidget()
-        trad = QHBoxLayout(self.traditional_opts)
-        trad.setContentsMargins(0, 0, 0, 0)
-        trad.setSpacing(10)
+        trad = QHBoxLayout()          # 暂存; 下面包进 flow_row(左栏只有 ~360px, 必须能换行)
         self.opt_double_crit = CheckBox("必须有双爆")
         self.opt_double_crit.setChecked(True)
         self.opt_all_valid_before_crit = CheckBox("双爆前全有效")
         self.opt_all_valid_before_crit.setChecked(True)
         self.opt_first_must_valid = CheckBox("首条必须有效")
         self.opt_first_must_valid.setChecked(True)
-        for w in (self.opt_double_crit, self.opt_all_valid_before_crit, self.opt_first_must_valid):
-            trad.addWidget(w)
-        trad.addSpacing(6)
+        trad.addWidget(self.opt_double_crit)
+        trad.addWidget(self.opt_all_valid_before_crit)
+        trad.addWidget(self.opt_first_must_valid)
         trad.addWidget(self.opt_score_enable)
         trad.addWidget(self._cap("最低得分≥"))
         trad.addWidget(self.opt_score_min)
@@ -224,25 +247,26 @@ class RunTab(QWidget):
         self.opt_valid_count.setCurrentText("3")
         trad.addWidget(self._cap("有效词条≥"))
         trad.addWidget(self.opt_valid_count)
-        trad.addStretch()
+        # 那一排 10 个控件包成**流式行**(窄窗口自动换行); 逐个从暂存布局里取出来
+        self.traditional_opts = flow_row([trad.itemAt(i).widget() for i in range(trad.count())])
 
-        self.traditional_card = SettingCard(FIF.TILES, "传统模式选项", "仅在「传统」策略下生效", self)
-        self.traditional_card.hBoxLayout.addWidget(self.traditional_opts, 0, Qt.AlignRight)
-        self.traditional_card.hBoxLayout.addSpacing(16)
+        self.traditional_card = WrapSettingCard(FIF.TILES, "传统模式选项", "仅在「传统」策略下生效", self)
+        self.traditional_card.add_controls([self.traditional_opts])
         self.traditional_card.setVisible(False)
 
         # 评估: 默认「图标优先」(不滚面板, report6 回归 top-1 99.3%); 勾选后总是下滑读合鸣效果明文
-        self.precise_card = SettingCard(
+        self.precise_card = WrapSettingCard(
             FIF.ZOOM, "精确模式（评估）",
             "默认图标优先(不滚面板, 约省 8 分钟/轮); 勾选=总是下滑读合鸣效果明文(更慢, 复核用)", self)
         self.opt_precise = CheckBox("开启")
-        self._add_card_widget(self.precise_card, self.opt_precise)
+        self.opt_precise.stateChanged.connect(lambda *_: self._update_mode_badge())
+        self.precise_card.add_controls([self.opt_precise])
         self.precise_card.setVisible(False)
 
-        self.pause_card = SettingCard(FIF.PAUSE, "成功后暂停", "一轮任务结束后暂停, 便于查看结果与报告", self)
+        self.pause_card = WrapSettingCard(FIF.PAUSE, "成功后暂停", "一轮任务结束后暂停, 便于查看结果与报告", self)
         self.opt_pause = SwitchButton()
         self.opt_pause.setChecked(True)
-        self._add_card_widget(self.pause_card, self.opt_pause)
+        self.pause_card.add_controls([self.opt_pause])
 
         g.addSettingCards([self.task_card, self.strategy_card, self.set_label,
                            self.traditional_card, self.precise_card, self.pause_card])
@@ -320,30 +344,26 @@ class RunTab(QWidget):
     def _build_log_card(self) -> HeaderCardWidget:
         card = HeaderCardWidget()
         card.setTitle("运行日志")
-        bar = QHBoxLayout()
-        bar.addWidget(self._cap("级别"))
         self.log_level_combo = ComboBox()
         self.log_level_combo.addItems(list(self.LOG_LEVELS))
         self.log_level_combo.setMinimumWidth(90)
         self.log_level_combo.currentTextChanged.connect(self._on_log_filter)
-        bar.addWidget(self.log_level_combo)
-        bar.addSpacing(10)
         self.log_autoscroll = SwitchButton()
         self.log_autoscroll.setChecked(True)
         self.log_autoscroll.setOnText("自动滚动")
         self.log_autoscroll.setOffText("手动滚动")
-        bar.addWidget(self.log_autoscroll)
-        bar.addStretch()
+        # 工具条走**流式行**: 横排时这一条的最小宽是 ~586px, 两栏布局下会把整页撑到 942
+        # (940 窗口的内容区只有 750 → 横向裁切)。换行后最小宽 ≈ 单个控件。
+        bar_widgets = [self._cap("级别"), self.log_level_combo, self.log_autoscroll]
         for icon, text, slot in ((FIF.COPY, "复制", self._copy_log),
                                  (FIF.DELETE, "清空", self._clear_log),
                                  (FIF.SAVE, "导出", self._export_log)):
             btn = PushButton(icon, text)
             btn.clicked.connect(slot)
             btn.installEventFilter(ToolTipFilter(btn, 400))
-            bar.addWidget(btn)
-            bar.addSpacing(6)
-        body = self._card_body(card)
-        body.addLayout(bar)
+            bar_widgets.append(btn)
+        body = self._card_body(card, (16, 10, 16, 14))
+        body.addWidget(flow_row(bar_widgets))
         body.addWidget(self.log_area, 1)
         return card
 
@@ -355,6 +375,17 @@ class RunTab(QWidget):
         if not self._running:
             self.status_state.setText("空闲 — 选好模式与策略后点「开始」")
             self.elapsed_label.setText("耗时 —")
+
+    def _update_mode_badge(self):
+        """U-07: 评估的套装判定模式要**一直可见**（以前只在启动日志里打印一行）。"""
+        is_eval = "评估" in self.task_combo.currentText()
+        self.mode_badge.setVisible(is_eval)
+        if not is_eval:
+            self.mode_badge.setText("")
+            return
+        self.mode_badge.setText(
+            "套装判定: 精确模式（总是读合鸣效果明文）" if self.opt_precise.isChecked()
+            else "套装判定: 图标优先（低置信才读明文）")
 
     def _update_strategy_info(self, strategy):
         if strategy == "渐进式":
@@ -383,6 +414,7 @@ class RunTab(QWidget):
         self.set_label.setVisible(is_enhance)
         self.set_combo.setVisible(is_enhance)
         self.precise_card.setVisible(not is_enhance)
+        self._update_mode_badge()
         if not is_enhance:
             self.strategy_info_eval.setVisible(True)
         else:
@@ -891,6 +923,9 @@ def _build_eval_html(data):
     total = data.get("total", 0)
     results = data.get("results", [])
     ts = data.get("evaluated_at", "")
+    # U-07: 本次的套装判定模式(旧报告没有该字段 → "—")
+    set_mode = {"precise": "精确模式（总是读明文）",
+                "icon_first": "图标优先（低置信才读明文）"}.get(data.get("set_mode"), "—")
 
     # 判定计数走**共享**的 count_verdicts(与「上次评估结果」卡同一份口径, 见 U-04):
     # fail 一个码里装了两档(满级"不合格" / 未满级"不建议强化"), 必须按 verdict_cn 拆开。
@@ -1025,7 +1060,7 @@ def _build_eval_html(data):
 <body>
 <h1>声骸评估报告</h1>
 <div class="card">
-<p>评估时间: {ts} | 共 <b>{total}</b> 个</p>
+<p>评估时间: {ts} | 共 <b>{total}</b> 个 | 套装判定: <span id="setmode">{set_mode}</span></p>
 <div class="summary">
 {chips_html}
 </div>

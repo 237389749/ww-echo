@@ -153,6 +153,19 @@ class LogView(QTextEdit):
         return QSize(120, 60)
 
 
+def flow_row(widgets, hspacing: int = 10, vspacing: int = 8) -> QWidget:
+    """把一排控件装进可换行的 `FlowLayout`（窄窗口下自动换行，不再横向裁切）。
+
+    运行页「传统模式选项」那排 10 个控件与「组合穷举」的补正行共用这一份实现 ——
+    以前各页各写一遍（`PlanTab._flow_row`）。
+    """
+    row = QWidget()
+    flow = FlowLayout(row, hspacing=hspacing, vspacing=vspacing)
+    for w in widgets:
+        flow.addWidget(w)
+    return row
+
+
 class _SpinLineEditFix:
     """让 qfluentwidgets 的 SpinBox 真的把数值画出来（U-01）。
 
