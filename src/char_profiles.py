@@ -28,6 +28,9 @@ import json
 import os
 
 from src.echo_panel import Correction, DerivedBonus, normalize_bonus_key
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH = os.path.join(ROOT, "assets", "char_profiles.json")
@@ -37,40 +40,87 @@ ENERGY_DEFAULTS = {"min": 120.0, "slope": 0.30, "floor": 0.85}
 CRIT_DEFAULTS = {"target": 100.0, "slope": 0.40, "floor": 0.80}
 
 
+class ProfileFileError(Exception):
+    """预设文件**存在却读不出来**(BOM/半截写/手工改坏)。
+
+    写路径必须抛这个而不是"读成空": `upsert` 是"读全量 → 改一条 → 写全量", 把坏文件当成
+    空文件就会用 1 条覆盖掉用户其余全部角色(2026-11-22 后端审查 A2, 有复现)。
+    """
+
+
 def load_all(path: str = "") -> dict[str, dict]:
-    """读全部预设 → {角色名: 预设}; 文件不存在/坏掉 → 空(不抛, 预设丢了不该挡住计算)。"""
+    """读全部预设 → {角色名: 预设}; 文件不存在/坏掉 → 空(不抛, 预设丢了不该挡住计算)。
+
+    **只适合展示**: "坏掉"也返回空, 于是"坏文件 + 全量写回"会抹掉用户数据。写路径
+    (`upsert` / `delete`)一律走 `_read_for_write`。
+    """
     path = path or PATH
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        logger.warning(f"角色预设读取失败(展示按空处理, 写入会被拒绝): {path} — {e}")
         return {}
     chars = data.get("chars") if isinstance(data, dict) else None
     return chars if isinstance(chars, dict) else {}
 
 
+def _read_for_write(path: str) -> dict[str, dict]:
+    """写路径专用: 文件存在却读不出来 → 抛 `ProfileFileError`(宁可失败, 不要静默覆盖)。"""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        raise ProfileFileError(f"角色预设文件读不出来, 已拒绝覆盖(先修好或删掉它): {path} — {e}") from e
+    chars = data.get("chars") if isinstance(data, dict) else None
+    if not isinstance(chars, dict):
+        raise ProfileFileError(f"角色预设文件结构不对(缺 chars 字典), 已拒绝覆盖: {path}")
+    return chars
+
+
 def save_all(chars: dict[str, dict], path: str = "") -> str:
-    """写回全部预设(顺带保证目录存在), 返回落盘路径。"""
+    """写回全部预设(顺带保证目录存在), 返回落盘路径。
+
+    **原子写**: 先写 `<path>.tmp` 再 `os.replace` —— 崩在中间时旧文件完好, 不会留下半截
+    JSON(半截文件会被 `_read_for_write` 判为坏文件, 于是下一次保存全部失败)。
+    """
     path = path or PATH
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"version": 1, "chars": chars}, f, ensure_ascii=False, indent=2)
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    tmp = f"{path}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "chars": chars}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     return path
 
 
 def upsert(name: str, profile: dict, path: str = "") -> str:
-    """新增/覆盖一个角色预设, 返回落盘路径。"""
+    """新增/覆盖一个角色预设, 返回落盘路径。坏文件 → `ProfileFileError`(不静默覆盖全量)。"""
     name = (name or "").strip()
     if not name:
         raise ValueError("角色名不能为空")
-    chars = load_all(path)
+    path = path or PATH
+    chars = _read_for_write(path)
     chars[name] = profile
     return save_all(chars, path)
 
 
 def delete(name: str, path: str = "") -> bool:
-    """删除一个角色预设; 返回是否真的删掉了。"""
-    chars = load_all(path)
+    """删除一个角色预设; 返回是否真的删掉了。坏文件 → `ProfileFileError`(不静默清空)。"""
+    path = path or PATH
+    chars = _read_for_write(path)
     if name not in chars:
         return False
     chars.pop(name)
@@ -81,7 +131,9 @@ def delete(name: str, path: str = "") -> bool:
 def to_request_kwargs(profile: dict) -> dict:
     """预设 → `PlanRequest` 的字段(只给该预设真的有的字段, 其余交调用方/默认值)。
 
-    这里把"存储用的短键"翻译成引擎/dataclass 的字段名, 是预设与引擎之间唯一的翻译层。
+    这里把"存储用的短键"翻译成引擎/dataclass 的字段名, 是预设与引擎之间**唯一**的翻译层 ——
+    CLI 与 UI 都应当只经由它(或 `apply_thresholds`)取字段, 不要再手写第二份映射:
+    2026-11-22 的 A3 就是"CLI 手写一份、漏了 energy/crit/max_level_only"造成的。
     """
     out: dict = {}
     if profile.get("specialty"):
@@ -103,6 +155,41 @@ def to_request_kwargs(profile: dict) -> dict:
     if profile.get("scaling"):
         out["scaling"] = str(profile["scaling"])
     return out
+
+
+# CLI 参数名(去掉 `--`)→ `PlanRequest` 字段。**只列"门槛 + 满级开关"**: 配装/专伤/裸面板
+# 在 CLI 里已经是另一条路径(bare/corrections/allowed_bonus), 不走这里。
+THRESHOLD_FIELDS: tuple[tuple[str, str], ...] = (
+    ("energy-min", "energy_min"), ("energy-slope", "energy_slope"),
+    ("energy-floor", "energy_floor"), ("crit-target", "crit_target"),
+    ("crit-slope", "crit_slope"), ("crit-floor", "crit_floor"),
+)
+
+
+def apply_thresholds(ns, profile: dict, given=None) -> list[str]:
+    """把预设里的**门槛 / 满级开关**写回 argparse 命名空间; 显式命令行优先。
+
+    为什么要有这个函数(A3, 2026-11-22 后端审查): CLI 原来只搬 bare/补正/专伤/配装,
+    门槛一律读 argparse 默认值 → `--save-profile` 存下来的门槛在 `--profile` 载入时被**静默丢弃**,
+    于是"复现同一个角色"其实算的是另一套数(排名/A/B 判定全变, 输出看起来却完全正常)。
+
+    `given(flag)` = 该参数是否被显式给出(CLI 传 `lambda f: _given(a, f)`); None 表示一律听预设。
+    返回实际生效的字段名(测试与日志都用它)。
+    """
+    kw = to_request_kwargs(profile or {})
+    applied: list[str] = []
+    for flag, attr in THRESHOLD_FIELDS:
+        if attr not in kw:
+            continue
+        if given is not None and given(flag):
+            continue
+        setattr(ns, attr, float(kw[attr]))
+        applied.append(attr)
+    if "max_level_only" in kw and not (given is not None and given("all-levels")):
+        # CLI 里是反向开关 `--all-levels`; 预设存的是 `max_level_only`
+        ns.all_levels = not bool(kw["max_level_only"])
+        applied.append("all_levels")
+    return applied
 
 
 def corrections_of(profile: dict) -> list[Correction]:

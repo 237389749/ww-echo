@@ -28,8 +28,8 @@ sys.path.insert(0, ROOT)
 
 from src.echo_combos import (PlanRequest, energy_is_damage, instance_tag, plan,   # noqa: E402
                              set_bonus_keys)
-from src.char_profiles import (build_profile, corrections_of, derived_of, load_all,   # noqa: E402
-                               upsert)
+from src.char_profiles import (apply_thresholds, build_profile, corrections_of,   # noqa: E402
+                               derived_of, load_all, upsert)
 from src.echo_panel import (SPECIALTY_ALIASES, SPECIALTY_KEYS, DerivedBonus,       # noqa: E402
                             GENERIC_BONUS_KEY, normalize_bonus_key)
 from src.echo_inventory import load_inventory, summarize                  # noqa: E402
@@ -301,9 +301,12 @@ def main() -> int:
                 setattr(a, attr, prof_plan[key])
         if not _given(a, "scaling") and profile.get("scaling"):
             a.scaling = profile["scaling"]
+        # 门槛 / 满级开关: 预设打底、显式命令行优先(A3 —— 以前这里整段漏了, 门槛永远取 argparse 默认)
+        applied = apply_thresholds(a, profile, given=lambda f: _given(a, f))
         print(f"角色预设: {a.profile}(裸面板 {len(profile.get('bare') or {})} 项 / "
               f"补正 {len(profile.get('corrections') or [])} 条 / "
-              f"专伤 {profile.get('specialty') or '按模板并集'})")
+              f"专伤 {profile.get('specialty') or '按模板并集'}"
+              + (f" / 载入门槛 {', '.join(applied)}" if applied else " / 门槛全默认") + ")")
     req = build_request(a, derived_extra=derived_of(profile) if profile else ())
     if getattr(a, "save_profile", ""):
         prof = build_profile(req.scaling, bare, corrections, list(req.derived),

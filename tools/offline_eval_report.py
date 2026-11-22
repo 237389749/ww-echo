@@ -31,13 +31,12 @@ import os
 import sys
 import time
 
-import cv2
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from src.echo_stats import is_stat_match                                            # noqa: E402
-from src.echo_inventory import parse_report, resolve_set, split_rows                # noqa: E402
+from src.echo_inventory import imread, parse_report, resolve_set, split_rows        # noqa: E402
+from src.echo_panel_shot import imwrite_unicode                                     # noqa: E402
 from src.task.EnhanceEchoTask import EnhanceEchoTask, parse_number                   # noqa: E402
 from ui.run_tab import _build_eval_html                                              # noqa: E402
 
@@ -163,7 +162,8 @@ def main() -> int:
             n_zero += 1
             continue
 
-        frame = cv2.imread(path)
+        # 读图也走回退: cv2.imread 对非 ASCII 路径返回 None(→ 下面 frame.shape 直接崩)
+        frame = imread(path)
         set_name, set_src, s1 = pick_set(name, frame)
         # 评分 / 判定 / 前瞻 / 重铸方案 + 词条明细 → evaluate_one(与 evaluate_only 共用同一份实现)
         # L2: 前 2 行主属性 + COST 角标一起传(报告据此标官方管理方案是否认可该主属性)
@@ -173,8 +173,10 @@ def main() -> int:
         idx = len(results) + 1
         ss_name = f'eval_{idx:03d}_{rec["verdict"]}_{rec["score"]:.1f}.png'
         h, w = frame.shape[:2]
-        cv2.imwrite(os.path.join(ss_dir, ss_name),
-                    frame[int(SS_BOX[1] * h):int(SS_BOX[3] * h), int(SS_BOX[0] * w):int(SS_BOX[2] * w)])
+        # 走 imwrite_unicode: 裸 cv2.imwrite 对非 ASCII 路径静默失败(报告里就是碎图)
+        imwrite_unicode(os.path.join(ss_dir, ss_name),
+                        frame[int(SS_BOX[1] * h):int(SS_BOX[3] * h),
+                              int(SS_BOX[0] * w):int(SS_BOX[2] * w)])
         results.append({"index": idx, "screenshot": ss_name, **rec})
         src_stat[set_src] = src_stat.get(set_src, 0) + 1
         set_stat[set_name] = set_stat.get(set_name, 0) + 1

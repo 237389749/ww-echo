@@ -415,7 +415,21 @@ class TaskExecutor:
             self.sleep(interval / 1000)
 
     def execute(self):
+        """执行器线程入口 —— **保证 `destroy()` 一定执行**。
+
+        为什么不能只在循环后面写一句 `self.destroy()`: `sleep()` / `frame` 在 `exit_event`
+        置位时抛的是 `sys.exit(0)`（`SystemExit` 是 `BaseException`），`except Exception` 抓不到，
+        `threading` 又会静默吞掉 → 循环被穿透、后面的清理**永远不执行** →
+        `task.on_destroy()` / `interaction.on_destroy()` 全被跳过（2026-11-22 后端审查 A4）。
+        这里用 `try/finally` 兜住，行为与原来一致（正常结束也走这里）。
+        """
         logger.info(f"start execute")
+        try:
+            self._execute_loop()
+        finally:
+            self.destroy()
+
+    def _execute_loop(self):
         while not self.exit_event.is_set():
             if self.paused:
                 logger.info(f'executor is paused sleep')
@@ -503,7 +517,6 @@ class TaskExecutor:
                     communicate.screenshot.emit(self.frame, name, True, None)
                 self.current_task = None
                 communicate.task.emit(None)
-        self.destroy()
 
     def stop(self):
         logger.info('stop')

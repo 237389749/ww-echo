@@ -193,6 +193,25 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
 - **关于页**: `_version()` 兜 `og.config is None`(引擎未初始化时关于页不能崩); 数据版本读
   `assets/gamedata/echo_data.json::_source`。
 
+### 后端 A 批修复(2026-11-22, 补记 78) — 勿回退
+
+审查全文见 `docs/BACKEND_REVIEW_2026-11-22.md`(🔴4/🟡13/🟢16 + 分批计划)。这四条是"静默失败"类, 守卫在
+`tests/test_backend_guards.py` 与 `tests/test_char_profiles.py`:
+
+- **图片落盘不许裸 `cv2.imwrite`**: 它对**非 ASCII 路径返回 False 且不抛**(Windows 中文用户名 → `%TEMP%`/
+  工作区在中文目录), 结果是报告里的截图全是碎图、日志还说"已存"。一律 `src.echo_panel_shot.imwrite_unicode`,
+  并在需要证据的地方**检查返回值**(`_save_fail_frame` 写失败返回 `''`)。产品面(`src/` `ui/` `tools/*.py`)
+  由 `test_no_bare_cv2_imwrite_in_product_code` 扫; 例外只有 `tools/analysis/`(一次性探针)与 `ww_engine/`(vendored)。
+- **角色预设的写路径必须用严格读**: `upsert`/`delete` 走 `char_profiles._read_for_write`, 文件存在却解析不了
+  (BOM/半截 JSON) → 抛 `ProfileFileError` 并**拒绝写**。`load_all` 只允许用于**展示**(坏文件返回 `{}`);
+  拿它做"读全量 → 改一条 → 写全量"会一次抹掉全部用户名下角色(实测)。`save_all` 是 `tmp + os.replace` 原子写。
+- **CLI 载入预设必须经 `char_profiles.apply_thresholds`**(内部只用 `to_request_kwargs`), 门槛 7 项 +
+  `max_level_only` 都要进来, 显式命令行优先。加了新字段而没人消费时, `test_every_translatable_field_is_consumed_by_cli` 会红。
+- **退出路径也要跑清理**: `TaskExecutor.execute()` 的 `try/finally: self.destroy()` 不许改回"循环后写一句" ——
+  `sleep()`/`frame` 在 `exit_event` 置位时抛 `sys.exit(0)`(SystemExit, `except Exception` 抓不到);
+  评估侧 `evaluate_only` 捕 `BaseException` 再 `raise`, 否则那轮的临时目录(可达数百 MB)永久留在 `%TEMP%`。
+  **别顺手把 `sys.exit(0)` 换成 `FinishedException`**: 它是 `Exception`, 沿途十几处 `except Exception` 会把它吞掉。
+
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
 
 **分层**(与阶段二十四"判定唯一收口"同一条纪律): `src/echo_panel.py`(计算) → `src/echo_combos.py`(穷举) →
@@ -601,7 +620,7 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**411 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**423 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_probe.py --strict`(界面 5 项缺陷探针, 应 **5/5**)
   + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材) + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`

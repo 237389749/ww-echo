@@ -389,8 +389,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             path = os.path.abspath(os.path.join('logs', 'eval_fail_frame.png'))
             frame = self.frame
             if frame is not None and getattr(frame, 'size', 0):
-                cv2.imwrite(path, frame)
-                return path
+                # **不能裸 `cv2.imwrite`**: 它对非 ASCII 路径返回 False 且**不抛**(Windows 中文用户名
+                # → %TEMP% / logs/ 就在中文目录下), 那样下面返回的路径就是假证据 —— 排查时打开的是
+                # 一个不存在的文件。统一走 imwrite_unicode(见 src/echo_panel_shot 的说明)。
+                if echo_panel_shot.imwrite_unicode(path, frame):
+                    return path
+                self.log_debug(f'保存失败画面失败: 写文件返回 False(路径含非 ASCII?): {path}')
         except Exception as e:                     # noqa: BLE001 - 存图失败不该掩盖原始错误
             self.log_debug(f'保存失败画面失败: {e}')
         return ''
@@ -600,6 +604,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         bag_retry_done = False   # 开局 B×2 后仍空网格 → 补按一次 B(开始时可能人在大世界)
         resynced = False         # 连续点空时"复位背包重扫"用过没有(只做一次, 防来回拉锯)
         stop_reason = ''         # 结束原因(写进"评估完成"那行, 免得只看到一个条数不知道为啥停)
+        shot_fail_warned = False # 截图落盘失败只警告一次(非 ASCII 路径下每只都会失败, 刷 160 条没意义)
 
         # ── debug 数据集: 每格存 全屏原图/ROI框叠图 + detail/grid/count 区域裁剪, 每次 OCR 结果
         #    记入 ocr_text.txt —— 离线核对坐标与 OCR 输入输出, 无需重开云游戏。
@@ -703,15 +708,17 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 return
             if frame.ndim == 2:
                 frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)   # 灰度帧转彩色, 否则 rectangle 画不出
-            cv2.imwrite(os.path.join(dbg_dir, f'{tag}_full.png'), frame)
+            # 落盘统一走 imwrite_unicode(裸 cv2.imwrite 对非 ASCII 路径静默失败, 见 _save_fail_frame)
+            echo_panel_shot.imwrite_unicode(os.path.join(dbg_dir, f'{tag}_full.png'), frame)
             boxed = frame.copy()
             for box, color in ((detail_box, (0, 0, 255)), (grid_box, (0, 255, 0))):
                 x1, y1, x2, y2 = int(box[0] * fw), int(box[1] * fh), int(box[2] * fw), int(box[3] * fh)
                 cv2.rectangle(boxed, (x1, y1), (x2, y2), color, max(2, fw // 600))
-            cv2.imwrite(os.path.join(dbg_dir, f'{tag}_boxes.png'), boxed)
+            echo_panel_shot.imwrite_unicode(os.path.join(dbg_dir, f'{tag}_boxes.png'), boxed)
             for name, box in (('detail', detail_box), ('grid', grid_box)):
                 x1, y1, x2, y2 = int(box[0] * fw), int(box[1] * fh), int(box[2] * fw), int(box[3] * fh)
-                cv2.imwrite(os.path.join(dbg_dir, f'{tag}_{name}.png'), frame[y1:y2, x1:x2])
+                echo_panel_shot.imwrite_unicode(os.path.join(dbg_dir, f'{tag}_{name}.png'),
+                                                frame[y1:y2, x1:x2])
 
         def ocr_conf(box):
             try:
@@ -949,7 +956,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 try:
                     os.makedirs('logs', exist_ok=True)
                     crop = self.box_of_screen(0.66, 0.10, 0.995, 0.635).crop_frame(self.frame)
-                    cv2.imwrite(os.path.join('logs', 'eval_fail_panel.png'), crop)
+                    echo_panel_shot.imwrite_unicode(os.path.join('logs', 'eval_fail_panel.png'), crop)
                 except Exception:                  # noqa: BLE001 - 存图失败不影响评估
                     pass
             self.log_info(f'[失败] 格{(" " + rc) if rc else ""}({nx:.3f},{ny:.3f}) 点击后没读到属性{why} '
@@ -1650,7 +1657,11 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     # 截图 = 右侧详情完整展示: 名字(y~122)/COST/主属性/词条(含第5, y~728)/声骸技能行
                     # 此前固定截网格左上角(0.09,0.09,0.37,0.55) → 与当前声骸无关, 已改为右侧面板
                     echo_img = self.box_of_screen(0.665, 0.07, 0.995, 0.65).crop_frame(self.frame)
-                    cv2.imwrite(ss_path, echo_img)
+                    # 报告引用这张图 → 落盘失败必须能看见, 不能像裸 cv2.imwrite 那样静默返回 False
+                    if not echo_panel_shot.imwrite_unicode(ss_path, echo_img) and not shot_fail_warned:
+                        shot_fail_warned = True
+                        self.log_warning(f'截图落盘失败(大概率是路径含非 ASCII 字符): {ss_path} — '
+                                         f'报告里的截图会是碎图; 把工作区/临时目录换到纯英文路径可解')
 
                     # 记录字段来自 evaluate_one, 这里补报告用的序号与截图名
                     results.append({"index": evaluated + 1, "screenshot": ss_name, **rec})
@@ -1754,7 +1765,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                           + ')', notify=True)
             if on_done:
                 self.handler.post(lambda: on_done(json_path, ss_dir))
-        except Exception:
+        except BaseException:                  # noqa: BLE001 - 连 SystemExit/KeyboardInterrupt 也要先清临时目录
+            # 只写 `except Exception` 会漏掉 `SystemExit`: `TaskExecutor.frame` 在退出时就是
+            # `sys.exit(0)`(见 A4), 那样这一轮评估的详情面板截图(可达数百 MB)会永久留在 %TEMP%。
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 

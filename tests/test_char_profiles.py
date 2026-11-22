@@ -10,7 +10,8 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from src.char_profiles import (CRIT_DEFAULTS, ENERGY_DEFAULTS, build_profile,          # noqa: E402
+from src.char_profiles import (CRIT_DEFAULTS, ENERGY_DEFAULTS, THRESHOLD_FIELDS,      # noqa: E402
+                               ProfileFileError, apply_thresholds, build_profile,
                                corrections_of, delete, derived_of, load_all,
                                to_request_kwargs, upsert)
 from src.echo_panel import Correction, DerivedBonus                                    # noqa: E402
@@ -95,6 +96,87 @@ class TestCharProfiles(unittest.TestCase):
                 self.assertIsInstance(to_request_kwargs(prof), dict)
                 corrections_of(prof)
                 derived_of(prof)
+
+    # ── A2(2026-11-22 后端审查): 坏文件不许被"读成空"后覆盖 ──────────────────
+
+    def test_corrupt_file_refuses_to_overwrite(self):
+        """带 BOM / 半截 JSON 的文件: `upsert` 必须**报错且原文件字节不变**。
+
+        旧实现把解析失败当成"没有预设"→ `upsert` 用 1 条覆盖全文件(实测 A/B/C 三个角色全丢)。
+        """
+        upsert("A", {"scaling": "攻击"}, self.path)
+        upsert("B", {"scaling": "生命"}, self.path)
+        with open(self.path, "rb") as f:
+            raw = f.read()
+        with open(self.path, "wb") as f:
+            f.write(b"\xef\xbb\xbf" + raw)          # 记事本 "UTF-8 带 BOM"
+        with open(self.path, "rb") as f:
+            before = f.read()
+        with self.assertRaises(ProfileFileError):
+            upsert("新角色", {"scaling": "攻击"}, self.path)
+        with open(self.path, "rb") as f:
+            self.assertEqual(f.read(), before, "坏文件被改写了 —— 用户预设已丢")
+        self.assertEqual(load_all(self.path), {})  # 展示路径仍不崩(只告警)
+
+    def test_corrupt_file_refuses_delete(self):
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write('{"version": 1, "chars": {"A": ')   # 半截 JSON
+        with self.assertRaises(ProfileFileError):
+            delete("A", self.path)
+
+    def test_upsert_keeps_existing_and_saves_atomically(self):
+        upsert("A", {"scaling": "攻击"}, self.path)
+        upsert("B", {"scaling": "生命"}, self.path)
+        self.assertEqual(sorted(load_all(self.path)), ["A", "B"])
+        self.assertFalse(os.path.exists(self.path + ".tmp"), "临时文件没清掉")
+
+    # ── A3(2026-11-22 后端审查): 预设里的门槛必须真的进请求 ────────────────────
+
+    def _ns(self, **kw):
+        import argparse
+        ns = argparse.Namespace(energy_min=120.0, energy_slope=0.30, energy_floor=0.85,
+                                crit_target=100.0, crit_slope=0.40, crit_floor=0.80,
+                                all_levels=False)
+        for k, v in kw.items():
+            setattr(ns, k, v)
+        return ns
+
+    def test_apply_thresholds_loads_all_saved_fields(self):
+        prof = {"energy": {"min": 110, "slope": 0.5, "floor": 0.7},
+                "crit": {"target": 90, "slope": 0.2, "floor": 0.6},
+                "max_level_only": False}
+        ns = self._ns()
+        applied = apply_thresholds(ns, prof)
+        self.assertEqual((ns.energy_min, ns.energy_slope, ns.energy_floor), (110.0, 0.5, 0.7))
+        self.assertEqual((ns.crit_target, ns.crit_slope, ns.crit_floor), (90.0, 0.2, 0.6))
+        self.assertTrue(ns.all_levels)             # max_level_only=False ⇔ --all-levels
+        self.assertEqual(len(applied), 7)
+
+    def test_apply_thresholds_explicit_cli_wins(self):
+        prof = {"energy": {"min": 110}, "crit": {"target": 90}, "max_level_only": False}
+        ns = self._ns()
+        applied = apply_thresholds(ns, prof, given=lambda f: f in ("energy-min", "all-levels"))
+        self.assertEqual(ns.energy_min, 120.0)     # 显式给了 → 保留命令行值
+        self.assertFalse(ns.all_levels)
+        self.assertEqual(ns.crit_target, 90.0)     # 没给 → 听预设
+        self.assertNotIn("energy_min", applied)
+        self.assertNotIn("all_levels", applied)
+
+    def test_every_translatable_field_is_consumed_by_cli(self):
+        """防"再加一个字段又漏接线": `to_request_kwargs` 能吐出的键, 必须有归属。
+
+        门槛 7 项由 `apply_thresholds` 吃掉; 其余(bare/补正/专伤/配装)在 CLI 里走另一条路径。
+        新增字段时这张表也要一起改 —— 这条断言就是为了让人被迫改。
+        """
+        sample = {"specialty": ["重击"], "max_level_only": True, "scaling": "攻击",
+                  "energy": {"min": 1, "slope": 1, "floor": 1},
+                  "crit": {"target": 1, "slope": 1, "floor": 1},
+                  "plan": {"mode": "5", "set_a": "a", "set_b": "b", "cost4_owner": "A"}}
+        keys = set(to_request_kwargs(sample))
+        threshold_attrs = {a for _f, a in THRESHOLD_FIELDS} | {"max_level_only"}
+        elsewhere = {"allowed_bonus", "scaling", "mode", "set_a", "set_b", "cost4_owner"}
+        self.assertEqual(keys - threshold_attrs - elsewhere, set(),
+                         "to_request_kwargs 新增了字段但 CLI 没人消费")
 
 
 if __name__ == "__main__":

@@ -223,11 +223,15 @@ class DebugTab(QWidget):
                 return
             import time
 
-            import cv2
+            from src.echo_panel_shot import imwrite_unicode
             folder = os.path.join(os.getcwd(), "screenshots")
             os.makedirs(folder, exist_ok=True)
             path = os.path.join(folder, f"screenshot_{int(time.time())}.png")
-            cv2.imwrite(path, frame)
+            # imwrite_unicode: 裸 cv2.imwrite 对非 ASCII 路径静默失败(cwd 在中文目录下就是空截图)
+            if not imwrite_unicode(path, frame):
+                InfoBar.error("截图失败", f"写文件被拒(路径含非 ASCII?): {path}", duration=4000,
+                              position=InfoBarPosition.TOP_RIGHT, parent=self)
+                return
             try:
                 self.preview.setImage(path)          # 顺手在页内预览
             except Exception:

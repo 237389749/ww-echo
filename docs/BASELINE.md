@@ -17,7 +17,7 @@
 | 显示器/分辨率 | **任意窗口比例**（1024x768 起；`supported_resolution.ratio=None` 时按帧宽高线性映射） | 真机评估需要游戏在"背包声骸列表"界面；只有"全屏+黑边"才需显式设 `ratio='16:9'` |
 
 > **本机当前状态（2026-11-22 复核）**：`requirements.txt` 已按钉死版本装进**系统 Python 3.13.16**
-> （`python -m pip install -r requirements.txt`，**411** 项单测在该解释器上全绿、`import mainui` 通过），
+> （`python -m pip install -r requirements.txt`，**423** 项单测在该解释器上全绿、`import mainui` 通过），
 > 因此 `python mainui.py` / `run.cmd`（无 `.venv` 时回落到 PATH 的 `python`）可直接跑。
 > `%TEMP%\ww-echo-venv313` 是 2026-11-13 旧会话遗留的临时环境（约 1.1GB），**已不被引用，可删**。
 
@@ -31,7 +31,7 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 
 | # | 命令 | 期望输出 | 依赖 |
 |---|---|---|---|
-| B1 | `python -m unittest discover -s tests` | **411 项**（`Ran 411 tests` / `OK (skipped=2)`；无素材时个别用例 `skipTest`，总数不变）。2026-11-22 B1 起含 `tests/test_ui_guards.py` 29 项（SpinBox 几何/文本放得下/抓图有字、两页可滚、调试页日志卡、运行页日志卡+最小宽+模式徽标、穷举动作条/列语义、status_texts、count_verdicts、判定色对比度）\n与 `tests/test_report_layout.py` 22 项（主行/详情行配对、筛排只认主行、打印样式、hash、chip 与符号、规则文案、正文无 `**`） | 仅代码 |
+| B1 | `python -m unittest discover -s tests` | **423 项**（`Ran 423 tests` / `OK (skipped=2)`；无素材时个别用例 `skipTest`，总数不变）。2026-11-22 B1 起含 `tests/test_ui_guards.py` 29 项（SpinBox 几何/文本放得下/抓图有字、两页可滚、调试页日志卡、运行页日志卡+最小宽+模式徽标、穷举动作条/列语义、status_texts、count_verdicts、判定色对比度）\n与 `tests/test_report_layout.py` 22 项（主行/详情行配对、筛排只认主行、打印样式、hash、chip 与符号、规则文案、正文无 `**`）\n与 `tests/test_backend_guards.py` 6 项（2026-11-22 后端审查 A 批：产品面不许裸 `cv2.imwrite` / 中文目录真能出图 / 写失败返回 `''`、`destroy()` 在 `finally` 里 / `evaluate_only` 捕 `BaseException`；`tests/test_char_profiles.py` 另加 6 项：坏预设文件拒绝覆盖 + 提交前校验、预设门槛必须进请求） | 仅代码 |
 | B1c | `python tools/verify_report_js.py <报告.html>` | **11 项全 PASS**（退出码 0）：点可见主行→详情展开 / 被筛掉的行点开不展开 / 排序后 160 组配对 0 断开 / `#hash` 还原筛选 / 筛掉已展开的行时详情跟着藏 | 需要一份报告 + QtWebEngine（离屏） |
 | B1b | `python tools/ui_probe.py --strict` | **5/5 通过**（退出码 0）。C1 SpinBox 数值可见（0/14 窄、0 个文本被裁）/ C2 页面滚动范围 >0 / C3 评估计数 / C4 六档拆分 / C5 判定色 ≥4.5:1 | 仅代码（离屏 Qt） |
 | B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |
@@ -93,7 +93,7 @@ python tools/offline_eval_report.py --from-json eval_report_20261011203423.json
 | `energy_weight_impact.py [评估json]` | **共效口径影响面**：`DEFAULT_WEIGHTS` 0.5 / 模板 0.6 / 听唤 0.5 / 隐世 1.2 各改一边会动哪些判定与 B 线（每个场景重跑 `evaluate_one`） | stdout + `logs/analysis/energy_weight_impact.md` | `docs/SESSION_2026-11-20.md` §11-2、CHANGELOG 补记 69 |
 | `icon_accuracy_report.py [评估json] [--panels 目录]` | **面板图标回归**：139 张 `_top.png` 的 top-1 / 置信闸覆盖与精度 / 名字候选约束 / 环色 / 二值形状 / 按等级 / 面板下滑时间账（真值 = 报告里的 `text` 套装） | stdout + `logs/analysis/icon_accuracy_report6.md` | `docs/SESSION_2026-11-20.md` §3、CHANGELOG 补记 71 |
 | `panel_scroll_time.py [--log] [--panels]` | **面板下滑的时间账**：用日志 `[评估#N]` 时间差拟合"每条固定开销 + 每步耗时"，算出下滑占整轮多少 | stdout + `logs/analysis/panel_scroll_time.md` | 同上 |
-| `verify_eval_run.py <评估json> [--log]` | **真机验收一条命令**（2026-11-20 口径）：条数 **160±2**（`--expect` 必须显式给，缺省不判条数）/ 完全重复 0 / `set_src=text` **≥85%** / `effect` 0 / **面板回顶失败 0** / **缺 COST 0** / **词条缺失 0** / **无 `持有数量` 假主属性**，外加每屏重叠与滚动健康（无重叠守卫、受阻、过滚）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项降级 SKIP） | stdout | `docs/SESSION_2026-11-20.md` §0、`docs/BASELINE.md` §2 |
+| `verify_eval_run.py <评估json> [--log]` | **真机验收一条命令**（2026-11-22 口径）：条数 **160±2**（`--expect` 必须显式给，缺省不判条数）/ 完全重复 0 / `set_src` **text+icon ≥85%**（`--min-panel-pct`，`text` 单独不再作闸门）/ **面板回顶失败 0** / **缺 COST 0** / **词条缺失 0** / **无 `持有数量` 假主属性**，外加每屏重叠与滚动健康（无重叠守卫、受阻、过滚）；`effect` 只统计**不作闸门**（弱信号 2026-11-20 起停用，见 `verify_eval_run.py` 的 docstring 与 `docs/BACKEND_REVIEW_2026-11-22.md` B5）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项降级 SKIP） | stdout | `docs/SESSION_2026-11-20.md` §0、`docs/BASELINE.md` §2 |
 | `replay_panel_scroll.py [目录]` | 评估时存的 `logs/panel_debug/<ts>/` → 逐只重放「找套装」：线上结论 vs 离线（第几步命中）、回顶是否成功、长图尺寸；`--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读/回顶失败退出码 1 | stdout（`logs/panel_debug/` 是输入，只读） | CHANGELOG 补记 48；`CLAUDE.md` 评估遍历·面板数据集 |
 | `check_set_panel.py <面板截图…>` | **不玩游戏**，拿截图跑真 OCR，验证 `match_set_text`/`match_set_effect` | stdout | `docs/SESSION_2026-11-18.md` §3 |
 

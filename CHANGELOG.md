@@ -2984,3 +2984,59 @@ B1 之后的 8 项结构与易用修复。**单测 378 → 384**（`test_ui_guar
 **测试**：`test_ui_guards` +5（状态卡无卡片头 / 数据版本 / 诊断信息 / 代码框等宽+透明 / 日志样式）。
 
 **至此 B1~B4 全部完成**：探针 5/5、单测 411、报告交互 11 项、7 页亮/暗离屏渲染均已目检。
+
+---
+
+**补记 78（2026-11-22：后端审查 + A 批落地 —— 四处「静默失败」）**
+
+用户要求"用 code-review skill 审后端"。审查全文落在 `docs/BACKEND_REVIEW_2026-11-22.md`
+（🔴4 / 🟡13 / 🟢16 + 每条的复现命令 + 分批计划）。本轮只做 **A 批（4 个 🔴）**，
+它们的共同点是**失败时不吭声**：看起来成功了，其实没成。**单测 411 → 423**（+12）。
+
+**A1 评估截图在非 ASCII 路径下静默写不出**
+- 现象：报告里 160 张截图全是碎图，而 `total`/判定/分数都正常；`logs/eval_fail_frame.png` 的日志说"已存"，
+  文件却不存在。
+- 根因：评估链用裸 `cv2.imwrite`，而它对**非 ASCII 路径返回 False 且不抛**（Windows 中文用户名 →
+  `%TEMP%` 在中文目录下）。本机实测 `cv2.imwrite(中文路径) -> False, exists=False`。项目自己有
+  `echo_panel_shot.imwrite_unicode`（`echo_inventory.imread` 同款回退），唯独出报告那条链没用。
+- 改动：`EnhanceEchoTask` 的 6 处落盘（截图 / 失败帧 / 失败面板 / debug 三连）+ `tools/offline_eval_report.py`
+  的截图 + `ui/debug_tab.py` 的手动截图全改 `imwrite_unicode`；`_save_fail_frame` **检查返回值**（写失败返回 `''`）；
+  评估截图失败只警告一次（含"换英文路径"的提示）；`offline_eval_report` 的**读图**也改走 `echo_inventory.imread`（同一坑的读侧）。
+- 守卫：`tests/test_backend_guards.py` —— 产品面（`src/` `ui/` `tools/*.py`）不许出现 `cv2.imwrite(`，
+  且在中文目录下真写一张（对照断言裸 `cv2.imwrite` 在该路径上确实失败）。
+
+**A2 角色预设：读失败被当成空文件 → 下一次保存覆盖销毁全部预设**
+- 复现：A/B/C 三个角色 + 一个 UTF-8 BOM → `load_all` 返回 `{}` → `upsert` 之后文件里只剩 `['新角色']`。
+- 根因：`load_all` 把"解析失败"与"文件不存在"合流成 `{}`，而 `upsert` 是"读全量 → 改一条 → 写全量"。
+- 改动：加 `ProfileFileError` + `_read_for_write`（文件存在却解析不了 → **报错并拒绝写**）；`upsert`/`delete`
+  改走它；`save_all` 改 `tmp + os.replace` **原子写**（崩在中间旧文件完好）；`load_all` 只留给展示（坏文件告警）。
+- 守卫：`test_char_profiles` 新增"坏文件 + upsert → 抛错且原文件**字节不变**"、"坏文件 + delete → 抛错"、
+  "原子写不留 `.tmp`"。
+
+**A3 CLI `--profile` 不载入门槛 → 静默算另一套数**
+- 现象：`--help` 声称载入"裸面板/补正/专伤/**门槛**/配装"，但载入块只搬前四类，`energy/crit/max_level_only`
+  一律读 argparse 默认值；而 `--save-profile` **是**把它们存下来的（存门槛、不读门槛）。
+  `to_request_kwargs`（docstring 自称"唯一翻译层"）全仓零生产调用。
+- 改动：`char_profiles.apply_thresholds(ns, profile, given)` —— 用 `to_request_kwargs` 取字段、显式命令行优先、
+  返回生效字段名；CLI 载入预设后调它，并把"载入门槛 X/Y/Z"打进摘要。实测三次调用（存→载→载+显式覆盖）：
+  `110/90 + all_levels` 能复现，显式 `--energy-min 120` 能压过预设。
+- 守卫：`test_apply_thresholds_loads_all_saved_fields` / `..._explicit_cli_wins` /
+  `test_every_translatable_field_is_consumed_by_cli`（`to_request_kwargs` 新增字段没人消费就红）。
+
+**A4 退出路径跳过清理链**
+- 根因：`TaskExecutor.sleep()`/`frame` 在 `exit_event` 置位时抛 `sys.exit(0)`（`SystemExit` 是 `BaseException`），
+  `execute()` 的 `except Exception` 抓不到、`threading` 又静默吞掉 → 循环被穿透，而 `destroy()`
+  写在循环**之后** → `task.on_destroy()` / `interaction.on_destroy()` 永不执行。评估侧
+  `evaluate_only` 的清理也只在 `except Exception` 里，`%TEMP%\okecho_eval_*` 就永久留下（面板数据集可达数百 MB）。
+- 改动：`execute()` 拆成 `try: self._execute_loop() finally: self.destroy()`；`evaluate_only` 改
+  `except BaseException`（先 `rmtree` 再 `raise`）。**没有**把 `sys.exit(0)` 换成 `FinishedException`：
+  它继承 `Exception`，沿途十几处 `except Exception` 会把它吞掉，反而不停（理由写进了代码注释与 CLAUDE）。
+- 守卫：`test_backend_guards` —— `destroy()` 必须在 `execute()` 的 `finally` 里（AST）+ 用假 self 真跑
+  `TaskExecutor.execute`（`SystemExit` 穿透后 `destroy()` 仍被调用）+ `evaluate_only` 捕 `BaseException`。
+
+**验收**：`python -m unittest discover -s tests` → `Ran 423 tests / OK (skipped=2)`（exit 0）；
+`tools/ui_probe.py --strict` **5/5**；`offline_eval_report.py --from-json` 160 条**分数变化 0.000**；
+`verify_eval_run.py ... --check --expect 160` → `[ok] 全部验收项通过`；`echo_plan --list` 仍 `160 只 / 49 名字`。
+
+**没做（下一批）**：`docs/BACKEND_REVIEW_2026-11-22.md` §3 的 13 个 🟡 与 §4 的 16 个 🟢 ——
+优先 B4/B5/B6/B7（验收类，决定"以后改判定还敢不敢信测试"）与 B3/B10（错误处理一致性）。
