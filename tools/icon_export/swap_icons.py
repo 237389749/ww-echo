@@ -36,6 +36,14 @@ def main() -> int:
     sets = data["sets"]
 
     added, replaced, same, missing = [], [], 0, []
+    # **先备份再覆盖**(C11): 原顺序是"先 copy2 覆盖、再备份"，备份下来的"旧模板"其实已经是新图。
+    backup = None
+    if a.apply:
+        backup = Path(a.backup).resolve() if a.backup else official.parent / "echo_icons_before"
+        backup.mkdir(parents=True, exist_ok=True)
+        for p in ICONS.glob("*.png"):
+            if not (backup / p.name).exists():
+                shutil.copy2(p, backup / p.name)
     for name, v in sorted(sets.items()):
         src = official / f"{v['icon_asset']}.png"
         if not src.exists():
@@ -50,13 +58,7 @@ def main() -> int:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
 
-    if a.apply and (added or replaced):
-        backup = Path(a.backup).resolve() if a.backup else official.parent / "echo_icons_before"
-        backup.mkdir(parents=True, exist_ok=True)
-        # 备份当前(旧)模板: 只在备份目录里还没有同名文件时复制, 避免把刚覆盖的官方图当"旧图"存两份
-        for p in ICONS.glob("*.png"):
-            if not (backup / p.name).exists():
-                shutil.copy2(p, backup / p.name)
+    if backup is not None:
         print(f"旧模板备份 -> {backup}")
 
     print(f"套装 {len(sets)} 套 | 字节相同 {same} | 新增 {len(added)} | 替换 {len(replaced)} | 缺官方图 {len(missing)}")

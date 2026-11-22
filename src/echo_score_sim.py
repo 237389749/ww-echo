@@ -18,7 +18,7 @@ from src.echo_set_templates import get_set_weights
 from src.echo_stats import DEFAULT_WEIGHTS, _TIERS, _load_tier_probs, get_mean
 
 SAMPLES = 50000        # 每个套装的抽样次数: 分位误差约 ±0.7%, 约 1 秒
-_cache: dict[str, list[float]] = {}
+_cache: dict[tuple, list[float]] = {}
 
 
 def _contrib_table(set_name: str | None) -> dict[str, tuple[list[float], list[float]]]:
@@ -44,12 +44,23 @@ def _contrib_table(set_name: str | None) -> dict[str, tuple[list[float], list[fl
     return table
 
 
+def _weights_fingerprint(set_name: str | None) -> tuple:
+    """当前套装的权重指纹（C3）。
+
+    缓存只按套装名做键的话，用户在「套装配置」里改了权重、同一进程里再出报告，
+    `score_percentile` 还会用**旧分布**算 —— 而 `completeness` 每次现算分母 → 两个指标互相打脸。
+    """
+    weights = get_set_weights(set_name) if (set_name and set_name != '通用') else None
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
+    return tuple(sorted((k, float(v)) for k, v in weights.items()))
+
+
 def score_distribution(set_name: str | None, samples: int = SAMPLES, seed: int = 0) -> list[float]:
-    """该套装下"随机满级声骸"的分数分布(升序列表)。按套装缓存。"""
-    key = set_name or '通用'
+    """该套装下"随机满级声骸"的分数分布(升序列表)。按 (套装, 权重指纹) 缓存。"""
+    key = (set_name or '通用', _weights_fingerprint(set_name))
     if key in _cache:
         return _cache[key]
-    table = _contrib_table(None if key == '通用' else key)
+    table = _contrib_table(None if key[0] == '通用' else key[0])
     names = list(table)
     if len(names) < 5:
         _cache[key] = []

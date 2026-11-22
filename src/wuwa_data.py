@@ -17,9 +17,12 @@ from __future__ import annotations
 import base64
 import glob
 import json
+import logging
 import os
 import re
 import zipfile
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["BinData", "load_textmaps", "parse_plan_bin", "read_version"]
 
@@ -38,11 +41,31 @@ class BinData:
         self._index: dict[str, str] = {}
         if os.path.isdir(path):
             for p in glob.glob(os.path.join(path, "**", "*.json"), recursive=True):
-                self._index.setdefault(os.path.basename(p).lower(), p)
+                self._add_index(p, os.path.basename(p).lower(), p)
         else:
             self._zip = zipfile.ZipFile(path)
             for n in self._zip.namelist():
-                self._index.setdefault(os.path.basename(n).lower(), n)
+                self._add_index(n, os.path.basename(n).lower(), n)
+
+    def _add_index(self, shown, base, real):
+        """同名表(不同子目录)只留第一个，但**必须告警** —— 静默遮蔽会让"为什么某张表读出来是旧数据"无法排查(C9)。"""
+        if base in self._index:
+            logger.warning(f"BinData 里有同名表, 已忽略后者: {shown} (采用 {self._index[base]})")
+        else:
+            self._index[base] = real
+
+    def close(self):
+        """关掉 zip 句柄（目录模式无句柄）。也支持 `with BinData(p) as bd:`。"""
+        if self._zip is not None:
+            self._zip.close()
+            self._zip = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
 
     def has(self, name: str) -> bool:
         return self._key(name) is not None

@@ -2,6 +2,7 @@
 
 不依赖游戏与 Qt; 用临时文件当预设库, 不碰仓库里的 `assets/char_profiles.json`。
 """
+import json
 import os
 import sys
 import tempfile
@@ -178,6 +179,38 @@ class TestCharProfiles(unittest.TestCase):
         self.assertEqual(keys - threshold_attrs - elsewhere, set(),
                          "to_request_kwargs 新增了字段但 CLI 没人消费")
 
+
+class TestProfileJsonHygiene(unittest.TestCase):
+    """C2 / C17：落盘 JSON 必须合法、专伤要分清"用户指定"还是"模板推断"。"""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.dir.name, "chars.json")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_unbounded_cap_is_omitted_not_infinity(self):
+        """C2：`cap=inf` 写进 JSON 会变成 `Infinity`（RFC 8259 不认）。"""
+        prof = build_profile("攻击", {}, [], [DerivedBonus(source="共鸣效率", threshold=125,
+                                                          per_point=2)])   # cap 默认 inf
+        raw = json.dumps({"version": 1, "chars": {"X": prof}}, ensure_ascii=False)
+        self.assertNotIn("Infinity", raw)
+        self.assertEqual(json.loads(raw)["chars"]["X"]["derived"][0].get("cap"), None)
+        # 读回来等价于"无上限"
+        self.assertEqual(derived_of(prof)[0].cap, float("inf"))
+
+    def test_explicit_cap_survives(self):
+        prof = build_profile("攻击", {}, [], [DerivedBonus(source="共鸣效率", threshold=125,
+                                                          per_point=2, cap=50)])
+        self.assertEqual(prof["derived"][0]["cap"], 50)
+
+    def test_specialty_source_is_recorded(self):
+        """C17：模板推断出来的专伤要标 `template`，载入时才不会把旧并集钉死。"""
+        explicit = build_profile("攻击", {}, [], [], specialty=("重击",), specialty_src="explicit")
+        inferred = build_profile("攻击", {}, [], [], specialty=("重击",), specialty_src="template")
+        self.assertEqual(explicit["specialty_src"], "explicit")
+        self.assertEqual(inferred["specialty_src"], "template")
 
 if __name__ == "__main__":
     unittest.main()

@@ -55,9 +55,10 @@ def check_mutex():
     # Try to create a named mutex
     mutex_name = hashlib.md5(path.encode()).hexdigest()
     mutex = _CreateMutex(0, False, mutex_name)
+    # GetLastError 是 **per-thread 的"最后一次 API 错误"**: 中间夹任何一次 I/O(比如写日志)都可能把它冲掉(C14)
+    already_exists = _GetLastError() == _ERROR_ALREADY_EXISTS
     logger.info(f'_CreateMutex {mutex_name}')
-    # Check if the mutex already exists
-    if _GetLastError() == _ERROR_ALREADY_EXISTS:
+    if already_exists:
         logger.error(
             f'Another instance of this application is already running {mutex_name}. Waiting for it to disappear.')
         print(f"Another instance of this application is already running. {mutex_name}")

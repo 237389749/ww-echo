@@ -111,6 +111,9 @@ def _given(a, flag: str) -> bool:
 
 
 def build_request(a, derived_extra=()) -> PlanRequest:
+    if int(getattr(a, "top", 1)) < 1:
+        # 旧行为: `--top 0` 也照常输出 1 行(combos 里 max(1, top_k)), 与 help 的"前 N 名"不符(C10)
+        raise SystemExit("--top 至少 1（它是排名表的行数）")
     mode, cost4 = a.mode, (getattr(a, "cost4", "") or "").upper()
     if mode == "3+2":
         if cost4 not in ("A", "B"):
@@ -308,7 +311,7 @@ def main() -> int:
         return 0
 
     items = load_inventory(a.inventory or a.dir, use_icons=not a.no_icons)
-    print_inventory(items, limit=99 if a.list_all else 12)
+    print_inventory(items, limit=10 ** 6 if a.list_all else 12)
     if a.list:
         return 0
 
@@ -323,8 +326,9 @@ def main() -> int:
         for k, v in (profile.get("bare") or {}).items():
             bare.setdefault(str(k), float(v))
         corrections = [Correction(c.key, c.value, c.source) for c in corrections_of(profile)] + corrections
-        if not _given(a, "specialty"):
-            a.specialty = [kk.replace("伤害加成", "") for kk in (profile.get("specialty") or [])]
+        if (not _given(a, "specialty") and profile.get("specialty")
+                and profile.get("specialty_src", "explicit") != "template"):
+            a.specialty = [kk.replace("伤害加成", "") for kk in profile["specialty"]]
         prof_plan = profile.get("plan") or {}
         for flag, key, attr in (("set-a", "set_a", "set_a"), ("set-b", "set_b", "set_b"),
                                 ("mode", "mode", "mode"), ("cost4", "cost4_owner", "cost4"),
@@ -343,6 +347,9 @@ def main() -> int:
     if getattr(a, "save_profile", ""):
         prof = build_profile(req.scaling, bare, corrections, list(req.derived),
                              specialty=req.allowed_bonus or (),
+                             # C17: 只有用户**显式**给了 --specialty 才算"指定"；否则那是模板推断的并集，
+                             # 换套装后不该继续钉死
+                             specialty_src="explicit" if _given(a, "specialty") else "template",
                              energy={"min": req.energy_min, "slope": req.energy_slope,
                                      "floor": req.energy_floor},
                              crit={"target": req.crit_target, "slope": req.crit_slope,

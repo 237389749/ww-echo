@@ -9,7 +9,7 @@
 > （每条 🔴🟡 都给了命令与输出）。引擎层与工具层各有一路并行审查，本文只收**主审复核过**的条目。
 >
 > 基线：审查时 `python -m unittest discover -s tests` → `Ran 411 tests / OK (skipped=2)`，退出码 0；
-> **A 批落地后 423 项**（+12，见 §7.4）、**B 批落地后 455 项**（+32，见 §7.5）。审查期间**未改动仓库任何文件**（探针产物只写 `%TEMP%`）。
+> **A 批后 423 项**（+12，§7.4）、**B 批后 455 项**（+32，§7.5）、**C 批后 464 项**（+9，§7.6）。审查期间**未改动仓库任何文件**（探针产物只写 `%TEMP%`）。
 >
 > **进度**：🔴 A1~A4 **已修**（补记 78）；🟡 B1~B13 **已修**（补记 79，单测 423 → **455**）；🟢 C1~C17 未动，按 §7 分批。
 >
@@ -350,6 +350,34 @@ finally:
 **刻意没做**：`_coerce` 只覆盖标量（`bool/int/float/str`），嵌套 dict 仍按"类型匹配就用"——深合并语义没有需求，
 改它会把"用户删掉的子键"又补回来。B13 的 D3D `create_device()` 覆盖前不 Release、`overlay.ui_dict` 从没写入
 （engine-review 的第 11/15 条）留给下一轮：它们要真机才能验证"修完真的不漏/真的画得出"。
+
+### 7.6 C 批落地记录（2026-11-22，补记 80）
+
+C 批是 17 个 🟢（卫生项），按"会改变行为的"和"纯机械的"分开：
+
+| 项 | 改动 | 是否改了行为 |
+|---|---|---|
+| C1 | `get_set_weights` 返回**副本**（原来返回模板缓存的同一个 dict） | 否（除非有人靠就地改缓存生效） |
+| C2 | `DerivedBonus.cap == inf` 时**不写**该键（原来写出 `Infinity`，非法 JSON） | 否 |
+| C3 | `score_distribution` 缓存键 = (套装, 权重指纹) | 否（修"改权重后旧分布"） |
+| C4 | `plan()` 的堆元素类型注解 8 元组 | 否 |
+| C5 | `_legacy_threshold` 遇到**模板里没有的套装**告警一次（仍按 0 处理，不抛） | 只多一条 warning |
+| C6 | `_pair_props` 数量相等时**按行序**配对，不等才回退最近邻 | **是**（更稳；有 2 个单测） |
+| C7 | `read_detail` 的 docstring 补上第 6 个返回值 `level_box` | 否 |
+| C8 | 8 处 `open().read()` → `with` | 否 |
+| C9 | `BinData.close()` / `with`；同名表**告警**不再静默遮蔽 | 否 |
+| C10 | `--top ≥ 1` 校验；`--list-all` 不再被 99 截断 | 报错更早 |
+| C11 | `swap_icons` **先备份、再覆盖** | 否（只影响备份内容对不对） |
+| C12 | 生成物 `_source` 只留版本/条数/目录**末级名**，不写绝对路径 | 下次重新生成才生效 |
+| C13 | `window.py` 显式 `import ctypes.wintypes` | 否 |
+| C14 | `GetLastError` 紧跟 `_CreateMutex`，不被日志 I/O 冲掉 | 否 |
+| C15 | `run()`：强化轮次上限 12、连续满级跳过上限 20 | 只在死循环时抛错 |
+| C16 | `evaluate_only` 无回调时自清临时目录 | 否 |
+| C17 | 预设记 `specialty_src`（explicit/template），载入时 `template` 不再钉死专伤 | **是**（换套装后才看得出） |
+
+**没做的**：`pak_to_loose.py` 的 `self._fh = open(...)` 是正常的句柄成员（有 `close()`），不是漏 `with`。
+engine-review 里要真机验证的三条（D3D `create_device()` 覆盖前不 Release、`overlay.ui_dict` 从没写入、
+`handler.post(skip_if_running)` 丢请求）不在本批。
 
 ## 8. 未验证 / 下一棒
 

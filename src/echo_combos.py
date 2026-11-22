@@ -227,7 +227,7 @@ def plan(items, req: PlanRequest, bare: dict | None = None, corrections=(),
         name_combos = ((*a, *b) for a in itertools.combinations(names_a, 3)
                        for b in itertools.combinations(names_b, 2))
 
-    heap: list[tuple[float, int, tuple[EchoItem, ...], Panel]] = []
+    heap: list[tuple[float, int, tuple[EchoItem, ...], Panel, float, bool, float, float]] = []
     evaluated = 0
     seq = 0
     cancelled = False

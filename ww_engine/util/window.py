@@ -1,5 +1,6 @@
 # window.py
 import ctypes
+import ctypes.wintypes          # 显式依赖: 下面用 ctypes.wintypes.RECT —— 别指望别的模块"顺手"挂上属性(C13)
 import os
 import platform
 import re

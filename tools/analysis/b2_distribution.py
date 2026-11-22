@@ -27,7 +27,8 @@ MATCH_ORDER = ["建议重铸", "不建议强化", "建议强化", "达标", "保
 
 def main() -> int:
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "eval_report.html")
-    html = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
     rows = re.findall(r"<tr (data-score=.*?)</tr>", html, re.S)
 
     total = Counter()

@@ -43,6 +43,20 @@ SKIN_PREFIXES = ("异相·", "异相")
 UNRESOLVED_LIMIT = 30
 
 
+def source_info(version, sets: int, echoes: int, bindata: str = "", textmaps: str = "") -> dict:
+    """生成物的 `_source`：版本 + 条数 + 来源目录的**末级名**。
+
+    **不写绝对路径**(C12)：`assets/gamedata/echo_data.json` 是入库产物，写死 `C:\\Users\\...`
+    会让每次重新生成都产生与数据无关的 diff，也把作者的目录结构带进仓库(已经发生过一次)。
+    来源只留 `BinData` / `zh-Hans` 这个粒度 —— 真要追溯，看版本号 + 生成器命令。
+    """
+    def tail(p: str) -> str:
+        return os.path.basename(os.path.normpath(p)) if p else ""
+
+    return {"version": version, "sets": sets, "echoes": echoes,
+            "bindata": tail(bindata), "textmaps": tail(textmaps)}
+
+
 def strip_skin(name: str) -> str | None:
     for p in SKIN_PREFIXES:
         if name.startswith(p):
@@ -343,13 +357,8 @@ def main() -> int:
             print(f"    … 另有 {len(b.unresolved) - UNRESOLVED_LIMIT} 条", file=sys.stderr)
         return 2
 
-    data["_source"] = {
-        "version": read_version(a.textmaps),
-        "bindata": os.path.abspath(a.bindata),
-        "textmaps": os.path.abspath(a.textmaps),
-        "sets": len(data["sets"]),
-        "echoes": len(data["echoes"]),
-    }
+    data["_source"] = source_info(read_version(a.textmaps), len(data["sets"]),
+                                  len(data["echoes"]), a.bindata, a.textmaps)
     data = {"_source": data.pop("_source"), **data}
 
     missing_icons = [n for n, v in data["sets"].items()

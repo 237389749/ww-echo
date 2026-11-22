@@ -30,7 +30,8 @@ def main():
     ap.add_argument('--verbose', action='store_true', help='逐条打印套装判定')
     args = ap.parse_args()
 
-    data = json.load(open(args.json_path, encoding='utf-8'))
+    with open(args.json_path, encoding="utf-8") as f:
+        data = json.load(f)
     rows = data.get('results') or []
     print(f"记录数: {len(rows)}  (总表 set={data.get('set')}, 时间={data.get('evaluated_at')})")
 

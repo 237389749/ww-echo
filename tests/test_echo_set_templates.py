@@ -236,5 +236,20 @@ class TestEchoSetCounts(unittest.TestCase):
         self.assertEqual(counts['无常凶鹭'], 1)
 
 
+class TestWeightsAreCopied(unittest.TestCase):
+    """C1：`get_set_weights` 必须返回副本。
+
+    以前返回模板缓存里的同一个 dict —— 任何调用方 `w[k] = v` 都会改掉全局模板，
+    后面的评分/判定跟着变，而且找不到是谁改的（实测改一下再取就变）。
+    """
+
+    def test_mutation_does_not_leak_into_cache(self):
+        name = "凝夜白霜"
+        w = T.get_set_weights(name)
+        if not w:
+            self.skipTest("无模板")
+        w["暴击"] = 99.0
+        self.assertNotEqual(T.get_set_weights(name)["暴击"], 99.0)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

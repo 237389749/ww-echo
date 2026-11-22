@@ -586,12 +586,15 @@ def get_set_weights(set_name: str | None) -> dict[str, float] | None:
     """
     获取指定套装的 {词条名: 权重} 字典。
     返回 None 表示使用通用配置。
+
+    **返回副本**（C1）：以前返回的是模板缓存里的同一个 dict —— 任何调用方 `weights[k] = v`
+    都会改掉全局模板，后面的评分/判定跟着变，且找不到是谁改的。
     """
     if not set_name or set_name == "通用":
         return None
     templates = load_templates()
     info = templates.get(set_name)
-    return info["weights"] if info else None
+    return dict(info["weights"]) if info else None
 
 
 def get_set_core_first(set_name: str | None) -> list[str] | None:

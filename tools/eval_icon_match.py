@@ -38,7 +38,8 @@ def names_from_report(dbg_dir: str) -> dict:
     path = os.path.join(dbg_dir, 'image_report.md')
     if not os.path.exists(path):
         return {}
-    text = open(path, encoding='utf-8').read()
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
     out = {}
     for m in _ITEM_RE.finditer(text):
         detail = _DETAIL_RE.search(m.group(2))

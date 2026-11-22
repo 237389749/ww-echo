@@ -178,5 +178,29 @@ class TestCaptureClose(unittest.TestCase):
         self.assertIsNone(method.bitmap)
 
 
+class TestPairProps(unittest.TestCase):
+    """C6：`_pair_props` 在数量相等时按**行序**配对。
+
+    旧实现是"最近邻贪心"：某个值先被上一行抢走，后面的行整体错位 ——
+    正常面板（N 个属性名 + N 个数值）用行序比"最近"更稳。
+    """
+
+    @staticmethod
+    def _box(name, y):
+        from types import SimpleNamespace
+        return SimpleNamespace(name=name, y=y)
+
+    def test_equal_counts_pair_in_order(self):
+        props = [self._box("攻击", 100), self._box("暴击", 200)]
+        vals = [self._box("150", 110), self._box("6.3%", 190)]
+        self.assertEqual(EnhanceEchoTask._pair_props(props, vals),
+                         [("攻击", "150"), ("暴击", "6.3%")])
+
+    def test_unequal_counts_fall_back_to_nearest_and_fill_zero(self):
+        props = [self._box("攻击", 100), self._box("暴击", 200), self._box("声骸技能", 300)]
+        vals = [self._box("150", 110), self._box("6.3%", 190)]
+        self.assertEqual(EnhanceEchoTask._pair_props(props, vals),
+                         [("攻击", "150"), ("暴击", "6.3%"), ("声骸技能", "0")])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -71,7 +71,8 @@ def main():
     if not args:
         print(__doc__)
         return 1
-    html = open(args[0], encoding='utf-8', errors='ignore').read()
+    with open(args[0], encoding='utf-8', errors='ignore') as f:
+        html = f.read()
     icon2set, rows = parse(html)
     if not icon2set or not rows:
         print('[ERROR] 未解析到数据, 确认是 wuther.in 声骸列表页(渲染后保存)')
@@ -79,7 +80,8 @@ def main():
     agg, by_id = aggregate(icon2set, rows)
     print(f'解析: 图标-套装 {len(icon2set)} 组 | 声骸卡片 {len(rows)} | 去重声骸 {len(by_id)}')
 
-    data = json.load(open(TEMPLATE, encoding='utf-8'))
+    with open(TEMPLATE, encoding='utf-8') as f:
+        data = json.load(f)
     # 只覆盖"页面解析到数据"的套装; 页面无数据时保留现有 _echoes(不抹掉用户手动补的)
     hit, miss_data, kept = 0, [], []
     set2icon = {s: ic for ic, s in icon2set.items()}
@@ -108,7 +110,8 @@ def main():
     print(f'写回 _echoes: {hit} 套 | 页面无数据但保留手动值: {kept} | 仍缺: '
           f'{[n for n in miss_data if n not in kept]} | 新增套装: {extra}')
     if not dry:
-        json.dump(data, open(TEMPLATE, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+        with open(TEMPLATE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
         # 核对表
         lines = ['# 套装声骸清单核对表', '',
                  '- 来源: 解析 wuther.in 声骸列表页(本地保存) → `assets/echo_set_templates.json` 的 `_echoes`',
@@ -120,7 +123,8 @@ def main():
                          f"| {'/'.join(e['4c']) or '—'} | {'/'.join(e['3c']) or '—'} | {'/'.join(e['1c']) or '—'} |")
         no_icon = sorted({b['name'] for b in by_id.values() if not b['sets']})
         lines += ['', f'## 无图标未映射声骸({len(no_icon)})', '', '、'.join(no_icon)]
-        open(CHECK_MD, 'w', encoding='utf-8').write('\n'.join(lines))
+        with open(CHECK_MD, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
         print(f'已写入 {TEMPLATE} 与 {CHECK_MD}')
     else:
         print('(--dry 未写文件)')

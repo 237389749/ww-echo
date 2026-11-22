@@ -3094,3 +3094,33 @@ UI 把异步当同步。
 
 **没做**：🟢 C1~C17；以及 engine-review 里"要真机才能验"的三条（D3D `create_device()` 覆盖前不 Release、
 `overlay.ui_dict` 从没写入、`handler.post(skip_if_running)` 丢请求）。
+
+---
+
+**补记 80（2026-11-22：后端审查 C 批 —— 17 个卫生项）**
+
+接补记 78（A 批 🔴4）与 79（B 批 🟡13）。C 批是审查文档 §4 的 17 个 🟢：**单测 455 → 464**（+9）。
+大部分"不改行为"，只有三项真的动了逻辑：
+
+**动了行为的（C6 / C17 / C15）**
+- **C6 `_pair_props` 按行序配对**：旧实现是"每个属性名找最近的未用数值"，一个值被上一行抢走就会
+  让后面的行整体错位。现在**两侧数量相等时按 y 序一一配对**（正常面板就是这种情况），
+  数量不等（多/少一条噪声行）才回退原来的最近邻 + `"0"` 兜底。2 个单测钉住两种路径。
+- **C17 专伤不再是"存下来就钉死"**：`--save-profile` 以前把 `req.allowed_bonus`（多数情况是**模板推断的并集**）
+  当成"用户指定"存进预设；换套装后仍按旧并集过滤。现在写 `specialty_src: explicit|template`，
+  `template` 的载入时**不套用**。已有 4 个预置没有该键 → 按 `explicit` 处理（行为不变）。
+- **C15 `run()` 有界**：强化轮次上限 12（正常 ≤5）、连续"满级跳过"上限 20（防 esc 没换到下一只时原地死循环）。
+
+**修数据/文件格式的**
+- C1 `get_set_weights` 返回**副本**（原来直接把模板缓存里的 dict 交出去，任何就地改都会污染全局）。
+- C2 `cap == inf` 时**不写** `cap` 键 —— 原来 `json.dump` 会写出 `Infinity`，RFC 8259 不认。
+- C12 生成物 `_source` 只留 `version/sets/echoes` + 目录末级名（`BinData`/`zh-Hans`），
+  不再写 `C:\\Users\\root\\...`。⚠ **已入库的生成物还是旧格式**，下次重新生成 `gen_echo_data` 才会变。
+
+**机械的**：C3 缓存加权重指纹（改权重后不再用旧分布）、C4 类型注解、C5 未知套装告警、C7 docstring、
+C8 八处 `open().read()` 改 `with`、C9 `BinData.close()`+同名表告警、C10 `--top ≥ 1`+`--list-all` 不截断、
+C11 `swap_icons` 先备份再覆盖、C13 `import ctypes.wintypes`、C14 `GetLastError` 紧跟调用、
+C16 无回调时自清临时目录。
+
+**验收**：`Ran 464 tests / OK (skipped=2)`；`ui_probe --strict` 5/5；离线重放 160 条**分数变化 0.000**；
+`verify_eval_run --check` `[ok]`；`echo_plan --list` 仍 `160 只 / 49 名字`。

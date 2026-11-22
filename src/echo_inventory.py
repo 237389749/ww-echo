@@ -120,7 +120,8 @@ def imread(path: str):
 
 def parse_report(path: str) -> dict:
     """`image_report.md` → {tag: [详情文字行...]}(与线下重放工具同一份解析)。"""
-    text = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
     out = {}
     for m in re.finditer(r"^### (\S+)\n(.*?)(?=^### |\Z)", text, re.S | re.M):
         body = re.search(r"\*\*【详情文字】\*\*\n((?:- .*\n)+)", m.group(2))

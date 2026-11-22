@@ -74,5 +74,17 @@ class RectifyInputTest(unittest.TestCase):
         self.assertIn("键=值", str(code))
 
 
+class TopOptionTest(unittest.TestCase):
+    """C10：`--top 0` 以前照样输出 1 行（combos 里 `max(1, top_k)`），与 help 不符。"""
+
+    def test_top_must_be_positive(self):
+        with self.assertRaises(SystemExit) as cm:
+            ep.build_request(_ns(top=0))
+        self.assertIn("--top", str(cm.exception.code))
+
+    def test_top_one_is_fine(self):
+        req = ep.build_request(_ns(top=1))
+        self.assertEqual(req.top_k, 1)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

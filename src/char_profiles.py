@@ -192,6 +192,20 @@ def apply_thresholds(ns, profile: dict, given=None) -> list[str]:
     return applied
 
 
+def _derived_json(d: DerivedBonus) -> dict:
+    """`DerivedBonus` → 可存 JSON 的 dict。
+
+    **`cap` 是 `inf` 时不写这个键**（C2）：`json.dump` 默认 `allow_nan=True` 会写出 `Infinity`，
+    而 RFC 8259 不认这个字面量 —— 文件会变成"只有 Python 读得懂"的 JSON。
+    `derived_of` 对缺失的 cap 给的默认值就是 `inf`，所以不写等价于"无上限"。
+    """
+    out = {"source": d.source, "threshold": d.threshold, "per_point": d.per_point,
+           "key": d.key, "label": d.label}
+    if d.cap != float("inf"):
+        out["cap"] = d.cap
+    return out
+
+
 def corrections_of(profile: dict) -> list[Correction]:
     """预设里的静态补正 → `Correction` 列表。"""
     return [Correction(str(c.get("key", "")), float(c.get("value", 0)),
@@ -215,18 +229,21 @@ def derived_of(profile: dict) -> list[DerivedBonus]:
 
 def build_profile(scaling: str, bare: dict, corrections, derived, specialty=(),
                   energy: dict | None = None, crit: dict | None = None,
-                  plan: dict | None = None, max_level_only: bool = True) -> dict:
+                  plan: dict | None = None, max_level_only: bool = True,
+                  specialty_src: str = "explicit") -> dict:
     """把当前输入装配打成一个预设(UI「保存为…」/ CLI `--save-profile` 用)。
 
     门槛参数只写**非默认值** —— 让 json 一眼能看出"这个角色和常规有什么不同"。
+    `specialty_src`（C17）: `"explicit"` = 用户显式指定(如 `--specialty 重击`);
+    `"template"` = 由套装模板推断出来的并集 —— 后者只是"当时的默认值"，换套装后不该继续钉死。
     """
     prof: dict = {"scaling": str(scaling), "bare": {str(k): float(v) for k, v in (bare or {}).items()}}
     prof["corrections"] = [{"key": c.key, "value": float(c.value), "source": c.source}
                            for c in corrections]
-    prof["derived"] = [{"source": d.source, "threshold": d.threshold, "per_point": d.per_point,
-                        "cap": d.cap, "key": d.key, "label": d.label} for d in derived]
+    prof["derived"] = [_derived_json(d) for d in derived]
     if specialty:
         prof["specialty"] = [normalize_bonus_key(s) for s in specialty]
+        prof["specialty_src"] = "explicit" if specialty_src == "explicit" else "template"
     e = {k: float(v) for k, v in (energy or {}).items() if float(v) != ENERGY_DEFAULTS.get(k)}
     c = {k: float(v) for k, v in (crit or {}).items() if float(v) != CRIT_DEFAULTS.get(k)}
     if e:

@@ -152,7 +152,8 @@ def main() -> int:
         print('找不到面板数据集: logs/panel_debug/<时间戳>/')
         return 2
 
-    data = json.load(open(args.report, encoding='utf-8'))
+    with open(args.report, encoding="utf-8") as f:
+        data = json.load(f)
     truth = {int(r['index']): r for r in (data.get('results') or []) if r.get('index') is not None}
 
     steps, summ = load_records(panel_dir)

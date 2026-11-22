@@ -121,14 +121,30 @@ SAVE_PANEL_DATASET = True
 # 频整器成本见 `EnhanceEchoTask.REFORGE_PRICE`(官方: 锁 L 条 = L−1 个, 锁 1~2 条按 1 个计)。
 
 
+_UNKNOWN_SET_WARNED: set[str] = set()
+
+
 def _legacy_threshold(set_name: str, tier: int) -> float:
     """基准门槛 B = 该套装有效键权重升序最低 (tier-1) 条 ×10 之和。
     通用模式走 _GENERAL_WEIGHTS 代表集 → tier=5 时为 (0.25+0.4+0.5+0.6)×10 = 17.5。
     注意: 它作为"基准门槛"用, 但**单独作达标线已废弃** —— "键多但权重低"的套装(隐世回光/轻云出月)
-    会被压到 5~6 分(见 _tier_threshold 注释)。"""
+    会被压到 5~6 分(见 _tier_threshold 注释)。
+
+    未知套装名(模板里没有)会算出 B=0 → 该套装全判达标。`_check_set_keys` 只挡得住"配置套装"那条路,
+    逐只解析出来的套装名没有二次校验, 所以这里至少**喊一次**(C5, 不抛: 评估中途抛会丢掉整轮结果)。
+    """
     if tier <= 2:
         return 0.0
-    src = _GENERAL_WEIGHTS if (not set_name or set_name == '通用')         else tuple((get_set_weights(set_name) or {}).values())
+    if not set_name or set_name == '通用':
+        src = _GENERAL_WEIGHTS
+    else:
+        weights = get_set_weights(set_name)
+        if weights is None:
+            if set_name not in _UNKNOWN_SET_WARNED:
+                _UNKNOWN_SET_WARNED.add(set_name)
+                logger.warning(f'套装「{set_name}」不在模板里 → 基准线 B 按 0 处理(该套装判定会偏松)')
+            weights = {}
+        src = tuple(weights.values())
     return round(sum(sorted(10 * w for w in src if w > 0)[:tier - 1]), 1)
 
 
@@ -215,10 +231,18 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
     @staticmethod
     def _pair_props(properties, values):
         """按 y 坐标(相对行序, 分辨率无关)配对待属性名和数值, 返回 [(name, value_str), ...].
-        先对两侧按 y 排序: OCR 返回顺序不保证有序, 不排序则"前 2 行=主属性"等行序语义会错。"""
+        先对两侧按 y 排序: OCR 返回顺序不保证有序, 不排序则"前 2 行=主属性"等行序语义会错。
+
+        **两侧数量相等时按序配对**(正常面板: 一行一个值), 只在数量不等(多/少一条噪声行)时
+        才退回"最近邻贪心"—— 贪心会让某个值被上一行抢走、后面整片错位(C6)。
+        """
+        props = sorted(properties, key=lambda p: p.y)
+        vals = sorted(values, key=lambda v: v.y)
+        if len(props) == len(vals):
+            return [(p.name, v.name) for p, v in zip(props, vals)]
         paired = []
-        unmatched = sorted(values, key=lambda v: v.y)
-        for prop in sorted(properties, key=lambda p: p.y):
+        unmatched = list(vals)
+        for prop in props:
             v_text = "0"
             if unmatched:
                 closest = min(unmatched, key=lambda v: abs(prop.y - v.y))
@@ -1326,7 +1350,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             return False
 
         def read_detail():
-            """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost, level):
+            """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost, level, level_box):
               echo_name  声骸名(面板顶部唯一中文行, y < 0.28*fh; 用于签名唯一性)
               paired_all 全部属性行 [(name, value_str), ...]  (主属性+词条, 按 y 序)
               detail_sig 名字 + 全量属性行签名(点选切换/唯一性检测)
@@ -1765,6 +1789,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                           + ')', notify=True)
             if on_done:
                 self.handler.post(lambda: on_done(json_path, ss_dir))
+            else:
+                # 没有回调(离线/批处理场景): 没人会来收这个临时目录, 自己清掉(C16)
+                shutil.rmtree(tmp_dir, ignore_errors=True)
         except BaseException:                  # noqa: BLE001 - 连 SystemExit/KeyboardInterrupt 也要先清临时目录
             # 只写 `except Exception` 会漏掉 `SystemExit`: `TaskExecutor.frame` 在退出时就是
             # `sys.exit(0)`(见 A4), 那样这一轮评估的详情面板截图(可达数百 MB)会永久留在 %TEMP%。
@@ -1782,6 +1809,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         self.info_set('成功声骸数量', 0)
         self.info_set('失败声骸数量', 0)
         clear_folder('screenshots')
+        # **连续跳过上限**(C15): "已是满级 → esc → 下一个"这条分支如果 esc 没真的换到下一只,
+        # 就会原地死循环(不报错、不推进)。20 只是余量, 超过必然是界面/过滤器出问题。
+        max_level_skips = 0
         while True:
             enhance = self.find_echo_enhance()
             if not enhance:
@@ -1795,11 +1825,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 properties = [p for p in self.find_boxes(texts, match=property_pattern) if '辅音' not in p.name]
                 if len(properties) >= 5:
                     # 已满级 → 跳过这个, 找下一个
+                    max_level_skips += 1
+                    if max_level_skips > 20:
+                        raise Exception('连续 20 只都是满级声骸 —— 过滤器/排序没生效, 或 esc 没换到下一只')
                     self.log_info('已是满级声骸, 跳过')
                     self.esc()
                     self.wait_ocr(0.82, 0.86, 0.97, 0.96, match='培养', settle_time=0.1)
                     continue
                 elif len(properties) > 0:
+                    max_level_skips = 0        # 真的在处理一只 → 清掉"连续跳过"计数
                     self.log_info(f'未满级声骸(已有{len(properties)}词条), 继续强化')
                 else:
                     total = self.info_get('成功声骸数量') + self.info_get('失败声骸数量')
@@ -1835,7 +1869,9 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     break
                 self.log_info(f'前置检查通过, 继续强化')
 
-            while True:
+            # **有界循环**(C15): 正常每轮 +5 级, 最多 5 轮就该满级;
+            # 给 12 轮是余量, 超过说明"点了强化但词条不涨"(材料不足/界面变了/OCR 一直漏读)。
+            for _level_round in range(12):
                 start_wait = time.time()
                 have_add_mat = False
                 while time.time() - start_wait < 5:
@@ -1894,6 +1930,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if len(properties) >= 5:
                     self.lock_and_esc()
                     break
+            else:
+                # for-else: 12 轮都没 break = 一直在"点强化但没满级"(C15)
+                raise Exception(f'强化 {12} 轮仍未满级 —— 看看"强化并调谐"是否点到了/材料是否够'
+                                f'(当前词条 {len(properties)} 条)')
 
     def find_confirm(self):
         button_box = self.box_of_screen(0.60, 0.65, 0.82, 0.82)

@@ -8,6 +8,7 @@
 跑法（项目根目录）：
     python -m unittest tests.test_gen_echo_data -v
 """
+import json
 import os
 import sys
 import unittest
@@ -67,6 +68,20 @@ class EchoesUnresolvedTest(unittest.TestCase):
         self.assertEqual(echoes["无归的谬误"]["sets"], ["衔梦照世之心"])
         self.assertEqual(b.unresolved, [])
 
+
+class SourceInfoTest(unittest.TestCase):
+    """C12：生成物的 `_source` 不许写本机绝对路径（入库产物，diff 会被路径污染）。"""
+
+    def test_no_absolute_paths(self):
+        info = gen.source_info("3.7.0", 37, 229,
+                               bindata=r"C:\Users\someone\ww\search\wwdata37\BinData",
+                               textmaps=r"C:\Users\someone\ww\search\wwdata37\Textmaps\zh-Hans")
+        raw = json.dumps(info, ensure_ascii=False)
+        self.assertNotIn("C:\\", raw)
+        self.assertNotIn("Users", raw)
+        self.assertEqual(info["bindata"], "BinData")
+        self.assertEqual(info["textmaps"], "zh-Hans")
+        self.assertEqual((info["version"], info["sets"], info["echoes"]), ("3.7.0", 37, 229))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
