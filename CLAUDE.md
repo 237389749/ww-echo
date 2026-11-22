@@ -47,6 +47,10 @@ tests/                    单测(不依赖游戏): 图标匹配合成帧闭环 /
 tools/eval_icon_match.py  图标识别离线回归(用 logs/eval_debug 数据集, 无需开游戏)
 tools/echo_plan.py        声骸组合穷举 + 伤害排名的命令行入口(离线; `--list` 看库存)
 tools/ui_shot.py          离屏渲染 7 个页面出 PNG(桩件替代引擎, 改 UI 后的自检工具)
+tools/ui_page_shot.py     按页面内容区尺寸抓单页(940x620 这类最小窗口验收; ui_shot 会被离屏屏幕夹小)
+tools/ui_probe.py         界面缺陷探针 C1~C5(`--strict` 应 5/5, 交接验收)
+tools/verify_report_js.py 报告交互端到端验收(QtWebEngine 真跑点击/筛选/排序/hash, 11 项)
+tools/shot_report.py      报告 HTML 离屏截图(1440/1024)
 tools/offline_eval_report.py 离线重放评估(同素材) → eval_report.html 核对评分/判定/渲染
 tools/analysis/           复现脚本入库区(约定: 文件头写"输入→输出→支撑哪条结论"; B2 分布/换权重重放在此)
 ```
