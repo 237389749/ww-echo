@@ -161,6 +161,20 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   改结果表后**必须跑一次填充页渲染**(`.scratch/plan_filled_shot.py`) —— 空表看不出截断。
 - **组合穷举的动作条在滚动区外**(`_build_action_bar`), 方案摘要随输入实时刷新; 跑完自动滚到结果。
 
+### 界面 B3 修复(2026-11-22, 补记 76) — 报告
+
+- **报告每件两条 `<tr>`**: `tr.main`(56px: 缩略图/名称/套装/COST/得分/判定 chip) + `tr.detail`(180px 大图 +
+  逐条词条 + 备注)。**筛选/排序只认 `tr.main`** —— 旧写法 `querySelectorAll('#tbody tr')` 会把详情行当数据行
+  (计数翻倍、筛不掉)。排序搬主行前**先取**配对详情行(`appendChild` 后 `nextElementSibling` 就变了)。
+  详情可见性 = 主行可见 **且** 已展开(`syncDetail`)。
+- **词条渲染**: 名字 + 数值右对齐 + 档位条; **公式/分位只进 `title`**; `ratio==0` 的无效词条折叠成一行。
+- **判定用 chip**: 浅底 `VERDICT_CHIP_BG` + 深色 `VERDICT_COLOR` + `VERDICT_MARK` 符号(色弱冗余)。
+- **交互验收用 `tools/verify_report_js.py <报告.html>`**(QtWebEngine 真跑点击/筛选/排序/hash, 11 项):
+  单测只能断言"字符串里有这段 JS", 报告是纯 HTML+JS, 交互必须跑浏览器。
+- **筛选写进 `location.hash`**; `@media print` 展开所有行 + 隐藏筛选条; **依赖说明放页首**
+  (页脚在 160 行表格最底下没人看得到)。
+- **HTML 不认 Markdown**: 报告正文(script/style 之外)不许出现 `**` —— 有单测守着。
+
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
 
 **分层**(与阶段二十四"判定唯一收口"同一条纪律): `src/echo_panel.py`(计算) → `src/echo_combos.py`(穷举) →
@@ -569,7 +583,7 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**384 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**406 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_probe.py --strict`(界面 5 项缺陷探针, 应 **5/5**)
   + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材) + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`

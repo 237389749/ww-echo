@@ -23,7 +23,7 @@ from ww_engine import og
 
 from src.echo_stats import DEFAULT_WEIGHTS
 from src.echo_set_templates import get_set_weights
-from ui.present import (VERDICT_CHIP_BG, VERDICT_CN, VERDICT_COLOR, VERDICT_ORDER,
+from ui.present import (VERDICT_CHIP_BG, VERDICT_CN, VERDICT_COLOR, VERDICT_MARK, VERDICT_ORDER,
                         count_verdicts, status_texts, summary_text, verdict_color)
 from ui.widgets import WrapSettingCard, flow_row, make_scroll_transparent
 
@@ -733,15 +733,16 @@ class RunTab(QWidget):
 # 判定档位的中文名/配色/计数/状态卡文案都在 `ui/present.py`（纯展示逻辑, 无 Qt/引擎依赖:
 # 报告 HTML、汇总卡、状态卡共用同一份口径; 也让 tools/ui_probe.py 与单测能直接跑真代码验收）。
 
-# 评估报告样式: 词条按档位(档位/均值)着色, 筛选区样式
+# 评估报告样式: 词条按档位(档位/均值)着色, 筛选区样式, 行折叠(U-10), 打印(U-20)
 _EVAL_CSS = """
-body{font-family:'Microsoft YaHei',sans-serif;margin:20px;background:#f5f5f5}
+body{font-family:'Microsoft YaHei',sans-serif;margin:20px;background:#f5f5f5;color:#1f2937}
+h1{font-size:24px;margin:0 0 12px}
 .card{background:#fff;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
-.summary{display:flex;gap:24px;font-size:16px;flex-wrap:wrap}
-.summary span{padding:4px 12px;border-radius:4px}
+.summary{display:flex;gap:12px;font-size:15px;flex-wrap:wrap}
+.summary span{padding:4px 12px;border-radius:4px;font-weight:600}
 table{width:100%;border-collapse:collapse;margin-top:12px}
 th,td{padding:8px 12px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
-th{background:#fafafa;font-weight:bold;position:sticky;top:0}
+th{background:#fafafa;font-weight:bold;position:sticky;top:0;font-size:13px;color:#475467;z-index:1}
 img{border-radius:4px;border:1px solid #ddd}
 .stat{margin:2px 0;padding:1px 5px;border-radius:3px;border:1px solid rgba(0,0,0,0.06)}
 .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;background:#fafafa;padding:10px;border-radius:6px}
@@ -757,10 +758,73 @@ details.rules summary{cursor:pointer;font-weight:bold;font-size:15px}
 .wtable{width:auto;margin-top:6px}
 .wtable th,.wtable td{padding:4px 10px}
 .w{display:inline-block;margin:2px 4px 2px 0;padding:1px 6px;border-radius:3px;background:#e3f2fd;color:#1565c0}
+
+/* ── 行折叠(U-10): 主行 56px 只给"一眼要判断的"; 截图/词条/公式收进详情行 ── */
+tr.main{cursor:pointer;height:56px}
+tr.main:hover{background:#f6f9fd}
+tr.main.open{background:#eef4fb}
+tr.main td{padding:5px 12px;border-bottom:1px solid #eef1f5;vertical-align:middle;font-size:13px}
+tr.main td.thumb{padding:4px 8px;width:48px}
+tr.main img.thumb{width:40px;height:52px;object-fit:cover;display:block}
+tr.main td.idx{color:#98a2b3;font-size:12px;width:44px}
+tr.main td.score{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.main .comp{display:block;font-size:11px;font-weight:400;color:#667085}
+tr.detail td{padding:0;background:#fbfdff;border-bottom:1px solid #e2ebf5}
+.detail-box{display:flex;gap:18px;padding:14px 16px;align-items:flex-start}
+.detail-box img.full{width:180px;flex:0 0 180px}
+.detail-side{flex:1;min-width:0}
+.srows{margin-bottom:8px}
+.srow{display:flex;align-items:center;gap:10px;padding:2px 0;font-size:13px;line-height:1.5}
+.srow .sname{width:8em;color:#42576B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .sval{width:6em;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.srow .sbar{flex:1;height:6px;background:#eef2f6;border-radius:3px;overflow:hidden}
+.srow .sbar i{display:block;height:100%}
+.srow.invalid{color:#98a2b3}
+.notes{font-size:11px;color:#667085;line-height:1.7}
+.notes b{color:#344054}
+.vchip{display:inline-block;padding:2px 9px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap}
+.mark{margin-right:4px}
+.hint{font-size:12px;color:#667085;margin:6px 0 0}
+
+/* ── 打印/导出 PDF(U-20): 隐藏筛选条、展开所有行、去阴影 ── */
+@media print{
+  body{background:#fff;margin:0;font-size:12px}
+  .filters,.noprint{display:none!important}
+  .card{box-shadow:none;border:1px solid #ddd;break-inside:auto}
+  th{position:static}
+  tr.detail[hidden]{display:table-row!important}
+  tr.main{cursor:default;height:auto}
+  tr.main:hover{background:transparent}
+  a{color:inherit;text-decoration:none}
+}
 """
 
-# 评估报告筛选脚本(原生 JS, 无外部依赖): 得分区间 + 判定多选 + 名称包含 + 套装 + COST
+# 评估报告脚本(原生 JS, 无外部依赖): 行折叠 + 得分区间/判定/名称/套装/COST 筛选 + 排序 + 筛选写进 hash
 _EVAL_JS = """
+// ── 行折叠(U-10): 只认 tr.main 当数据行; tr.detail 是它的配对详情行 ──
+function mainRows(){
+  return Array.prototype.slice.call(document.querySelectorAll('#tbody tr.main'));
+}
+function detailOf(tr){
+  var d = tr.nextElementSibling;
+  return (d && d.classList.contains('detail')) ? d : null;
+}
+function syncDetail(tr){
+  var d = detailOf(tr);
+  if(!d) return;
+  // 只有"主行可见 + 已展开"时才显示详情 —— 否则筛掉的行会留下一条孤儿详情
+  d.hidden = !(tr.classList.contains('open') && tr.style.display !== 'none');
+}
+function toggleRow(tr){
+  tr.classList.toggle('open');
+  syncDetail(tr);
+}
+document.getElementById('tbody').addEventListener('click', function(e){
+  var tr = e.target.closest ? e.target.closest('tr.main') : null;
+  if(tr) toggleRow(tr);
+});
+
+// ── 筛选 ──
 function applyFilter(){
   var min=parseFloat(document.getElementById('fmin').value);
   var max=parseFloat(document.getElementById('fmax').value);
@@ -770,7 +834,7 @@ function applyFilter(){
   var vs=Array.prototype.slice.call(document.querySelectorAll('.fv'))
             .filter(function(c){return c.checked}).map(function(c){return c.value});
   var shown=0;
-  document.querySelectorAll('#tbody tr').forEach(function(tr){
+  mainRows().forEach(function(tr){
     var s=parseFloat(tr.getAttribute('data-score'));
     // 判定按**中文口径**过滤: "保留(词条缺失)" 以"保留"开头也算保留; 不合格/不建议强化分开选
     var v=tr.getAttribute('data-vcn')||tr.getAttribute('data-verdict')||'';
@@ -783,10 +847,73 @@ function applyFilter(){
     if(st&&(tr.getAttribute('data-set')||'')!==st) ok=false;
     if(co&&(tr.getAttribute('data-cost')||'')!==co) ok=false;
     tr.style.display=ok?'':'none';
+    syncDetail(tr);
     if(ok) shown++;
   });
   document.getElementById('cnt').textContent='显示 '+shown+' / '+TOTAL;
+  saveHash();
 }
+
+// ── 排序: 主行与配对的详情行**一起搬**(否则详情会错位到别的件下面) ──
+var _origOrder=null;
+function applySort(){
+  var tb=document.getElementById('tbody');
+  var rows=mainRows();
+  if(_origOrder===null) _origOrder=rows.slice();          // 首次记录生成时的原始顺序
+  var mode=document.getElementById('fsort').value;
+  var arr = (mode==='orig') ? _origOrder.slice() : rows.slice();
+  if(mode!=='orig'){
+    arr.sort(function(a,b){
+      var x=parseFloat(a.getAttribute('data-comp')), y=parseFloat(b.getAttribute('data-comp'));
+      if(isNaN(x)) x=-1;
+      if(isNaN(y)) y=-1;
+      return (mode==='comp_desc') ? (y-x) : (x-y);
+    });
+  }
+  arr.forEach(function(tr){
+    var d=detailOf(tr);            // **先取**配对行: appendChild 之后 nextElementSibling 就变了
+    tb.appendChild(tr);
+    if(d) tb.appendChild(d);
+  });
+  saveHash();
+}
+
+// ── 筛选/排序写进 location.hash(U-20): 刷新/分享/收藏都能还原 ──
+function saveHash(){
+  var vs=Array.prototype.slice.call(document.querySelectorAll('.fv'))
+            .filter(function(c){return c.checked}).map(function(c){return c.value});
+  var q=[['min',document.getElementById('fmin').value],
+         ['max',document.getElementById('fmax').value],
+         ['name',document.getElementById('fname').value],
+         ['set',document.getElementById('fset').value],
+         ['cost',document.getElementById('fcost').value],
+         ['sort',document.getElementById('fsort').value],
+         ['v',vs.join(',')]]
+        .filter(function(kv){return kv[1]!==''})
+        .map(function(kv){return kv[0]+'='+encodeURIComponent(kv[1])}).join('&');
+  if(q!==location.hash.slice(1)) history.replaceState(null,'','#'+q);
+}
+function loadHash(){
+  var q=location.hash.slice(1);
+  if(!q) return false;
+  var map={};
+  q.split('&').forEach(function(kv){
+    var i=kv.indexOf('='); if(i<0) return;
+    map[kv.slice(0,i)]=decodeURIComponent(kv.slice(i+1));
+  });
+  if(map.min!==undefined) document.getElementById('fmin').value=map.min;
+  if(map.max!==undefined) document.getElementById('fmax').value=map.max;
+  if(map.name!==undefined) document.getElementById('fname').value=map.name;
+  if(map.set!==undefined) document.getElementById('fset').value=map.set;
+  if(map.cost!==undefined) document.getElementById('fcost').value=map.cost;
+  if(map.sort!==undefined) document.getElementById('fsort').value=map.sort;
+  if(map.v!==undefined){
+    var want=map.v.split(',');
+    document.querySelectorAll('.fv').forEach(function(c){c.checked=want.indexOf(c.value)>=0});
+  }
+  return true;
+}
+
 ['fmin','fmax','fname'].forEach(function(id){
   document.getElementById(id).addEventListener('input',applyFilter)});
 ['fset','fcost'].forEach(function(id){
@@ -804,25 +931,13 @@ document.getElementById('fclear').addEventListener('click',function(){
   applySort();
   applyFilter();
 });
-// 按"完成度"排序(报告主指标): 同套装内跨件可比 —— 用 data-comp, 缺值(未评估/无套装)排最后
-var _origOrder=null;
-function applySort(){
-  var tb=document.getElementById('tbody');
-  var rows=Array.prototype.slice.call(tb.querySelectorAll('tr'));
-  if(_origOrder===null) _origOrder=rows.slice();          // 首次记录生成时的原始顺序
-  var mode=document.getElementById('fsort').value;
-  var arr = (mode==='orig') ? _origOrder.slice() : rows.slice();
-  if(mode!=='orig'){
-    arr.sort(function(a,b){
-      var x=parseFloat(a.getAttribute('data-comp')), y=parseFloat(b.getAttribute('data-comp'));
-      if(isNaN(x)) x=-1;
-      if(isNaN(y)) y=-1;
-      return (mode==='comp_desc') ? (y-x) : (x-y);
-    });
-  }
-  arr.forEach(function(tr){ tb.appendChild(tr); });        // appendChild 移动节点 = 排序
-}
-document.getElementById('fsort').addEventListener('change',applySort);
+document.getElementById('fsort').addEventListener('change',function(){applySort();applyFilter();});
+// 打印前先把所有行展开(打印样式里也会强制显示, 这里保证用户看到的就是打印出来的)
+window.addEventListener('beforeprint',function(){
+  mainRows().forEach(function(tr){tr.classList.add('open');syncDetail(tr);});
+});
+loadHash();
+applySort();
 applyFilter();
 """
 
@@ -902,9 +1017,15 @@ Lv5 / Lv10 为结构判定：<b>只看首条</b>——首条在「首核」内�
 <b>0 级 / 无词条</b>：无评估价值，不写入报告。<br>
 <b>保留 / 建议重铸仅为报告建议，强化流程不豁免</b>（不达标仍丢弃）。</p>
 <h3>套装如何判定</h3>
-<p>优先读游戏详情面板的<b>套装图标</b>（与 <code>assets/echo_icons/</code> 37 套模板做灰度 ZNCC，s1 ≥ 0.60 且与次优间隔 ≥ 0.05 才采信）；
-置信不足时回退"声骸名 → 套装候选"（官方配置表 229 个显示名，<code>异相·X</code> 皮肤条目按自己的套装），都拿不到则按通用。
-报告中「套装」列可悬停查看来源。</p>
+<p><b>默认「图标优先」</b>（2026-11-20 起）：名字有 ≥2 个候选或没认出来时，先读详情面板<b>固定表头</b>的套装图标
+（锚定到等级 <code>+NN</code> 框，与 <code>assets/echo_icons/</code> 37 套模板做灰度 ZNCC，s1 ≥ 0.60 且与次优间隔 ≥ 0.05 才采信）
+—— <b>不滚面板</b>，真机上约占整轮 46% 的下滑时间因此省掉；
+图标不达线就用网格卡片<b>徽章环色</b>收窄名字候选；<b>都不到才下滑</b>读「合鸣效果」区的<b>套装名明文</b>；
+再不行才退回"声骸名 → 套装候选"（官方配置表 229 个显示名，<code>异相·X</code> 皮肤条目按自己的套装），最后按通用。</p>
+<p><b>勾选「精确模式」</b>时<b>总是</b>下滑读明文（更慢，用于复核）。<b>只属于一套的名字直接按名字定</b>、不读面板。
+「合鸣效果<b>原文</b>反查」已停用 —— 那是长文本覆盖率匹配，会把技能描述里的"热熔伤害"当成套装效果（宁缺毋滥）。</p>
+<p>报告里「套装」列可悬停查看<b>来源</b>：合鸣效果区套装名 / 套装图标判定 / 卡片徽章环色判定 / 声骸名兜底 / 默认(通用)。
+本报告的判定模式见页首「套装判定」一行。</p>
 <h3>COST 与官方主属性方案</h3>
 <p>「COST/主属性」列给出面板 COST 角标（1/3/4）、两条主属性，以及游戏内置<b>声骸管理方案</b>
 （<code>PhantomManagePlanV2</code>，经 <code>tools/gen_echo_data.py</code> 生成到 <code>assets/gamedata/</code>）
@@ -939,15 +1060,32 @@ def _build_eval_html(data):
         # 判定文案**以记录里的 verdict_cn 为准**(判定层产出); 旧报告缺该字段时才用 VERDICT_CN 兜底
         vcn = r.get("verdict_cn") or VERDICT_CN.get(v, "")
         color = verdict_color(vcn, v)     # U-11: 按中文档位配色(fail 的两档才分得开, 且对比度 ≥4.5)
-        stat_lines = []
-        for s in r.get("stats", []):
-            detail = s.get("detail") or f"{s.get('name')}={s.get('value')}"
-            ratio = s.get("ratio")
-            bg = ""
-            if isinstance(ratio, (int, float)):
-                bg = f' style="background:{_ratio_color(ratio)}"'
-            stat_lines.append(f'<div class="stat"{bg}>{detail}</div>')
-        stats_html = "".join(stat_lines) or '<div class="stat" style="color:#bbb">未强化/无词条</div>'
+        # 词条(U-10): 有效词条逐行(名字 + 数值右对齐 + 档位条), 公式/分位只放 title;
+        # 无效词条(ratio==0: 该套装不认 / 无档位数据)折叠成一行, 不再占 5 行版面。
+        good_stats, bad_stats = [], []
+        for st in r.get("stats", []):
+            ratio = st.get("ratio")
+            if isinstance(ratio, (int, float)) and ratio > 0:
+                good_stats.append(st)
+            else:
+                bad_stats.append(st)
+        stat_rows = []
+        for st in good_stats:
+            ratio = st["ratio"]
+            pct = max(0.0, min(1.0, (ratio - 0.65) / 0.7)) * 100
+            tip = (st.get("detail") or "").replace('"', "&quot;")
+            stat_rows.append(
+                f'<div class="srow" title="{tip}">'
+                f'<span class="sname">{st.get("name", "")}</span>'
+                f'<span class="sval">{st.get("value", "")}</span>'
+                f'<span class="sbar"><i style="width:{pct:.0f}%;background:{_ratio_color(ratio)}"></i></span>'
+                f'</div>')
+        if bad_stats:
+            names = "、".join(f'{st.get("name", "")} {st.get("value", "")}' for st in bad_stats)
+            stat_rows.append(f'<div class="srow invalid"><span class="sname">无效/不计</span>'
+                             f'<span style="flex:1" title="该套装不认这条词条(权重 0)或没有档位数据">'
+                             f'{names}</span></div>')
+        stats_html = "".join(stat_rows) or '<div class="srow invalid">未强化/无词条</div>'
         name = r.get("name", "")
         # OCR 原文与规范名不同(错字已被容错匹配纠正)时, 把原文放进 title 供追溯
         name_raw = r.get("name_raw") or name
@@ -1023,19 +1161,32 @@ def _build_eval_html(data):
             val_html = (f'<div title="数值不在官方可能的网格上(疑似 OCR 误读): {detail}" '
                         f'style="color:#c62828;font-size:11px">⚠ 数值可疑</div>')
         cost_txt = f'{r["cost"]}C' if r.get("cost") else "—"
+        # 主行只放"一眼要判断的": 缩略图/名称/套装/COST+首条主属性/得分+完成度/判定 chip(U-11)
+        mp_first = (r.get("main_props") or [{}])[0]
+        mp_brief = (f'<span class="mprop">{mp_first.get("name", "")} {mp_first.get("value"):g}</span>'
+                    if mp_first.get("name") else "")
+        chip = (f'<span class="vchip" style="background:{VERDICT_CHIP_BG.get(vcn, "#F2F2F2")};color:{color}">'
+                f'<span class="mark">{VERDICT_MARK.get(vcn, "·")}</span>{vcn}</span>')
+        notes_html = "".join(x for x in (sm_html, gen_html, pr_html, rf_html, plan_html, val_html) if x)
         rows.append(
-            f'<tr data-score="{r["score"]}" data-verdict="{v}" data-vcn="{vcn}" data-name="{name}" data-set="{set_name}"'
-            f' data-cost="{r.get("cost") or ""}" data-plan="{pc.get("state") or ""}"'
-            f' data-mpval="{"bad" if mvc else ""}"'
-            f' data-comp="{comp if comp is not None else -1}">'
-            f'<td>{r["index"]}</td>'
-            f'<td><img src="eval_screenshots/{r["screenshot"]}" width="180"></td>'
+            f'<tr class="main" data-score="{r["score"]}" data-verdict="{v}" data-vcn="{vcn}" data-name="{name}"'
+            f' data-set="{set_name}" data-cost="{r.get("cost") or ""}" data-plan="{pc.get("state") or ""}"'
+            f' data-mpval="{"bad" if mvc else ""}" data-comp="{comp if comp is not None else -1}">'
+            f'<td class="idx">{r["index"]}</td>'
+            f'<td class="thumb"><img class="thumb" src="eval_screenshots/{r["screenshot"]}" alt=""></td>'
             f'<td{name_title}>{name}</td>'
             f'<td title="{set_src}">{set_name}</td>'
-            f'<td><b>{cost_txt}</b>{plan_html}{val_html}{mp_html}</td>'
-            f'<td>{r["score"]}{comp_html}{gen_html}{sm_html}</td>'
-            f'<td style="color:{color};font-weight:bold">{vcn}{pr_html}{rf_html}</td>'
-            f'<td>{stats_html}</td></tr>')
+            f'<td><b>{cost_txt}</b>{mp_brief}</td>'
+            f'<td class="score">{r["score"]}'
+            + (f'<span class="comp">完成度 {comp:g}%</span>' if comp is not None else '')
+            + f'</td>'
+            f'<td>{chip}</td></tr>'
+            # 配对详情行: 点击主行展开。**筛选/排序只认 tr.main**(见 _EVAL_JS)
+            f'<tr class="detail" hidden><td colspan="7"><div class="detail-box">'
+            f'<img class="full" src="eval_screenshots/{r["screenshot"]}" alt="">'
+            f'<div class="detail-side"><div class="srows">{stats_html}</div>'
+            f'<div class="notes">{notes_html}</div>'
+            f'</div></div></td></tr>')
 
     names = sorted({r.get("name", "") for r in results if r.get("name")})
     datalist = "".join(f'<option value="{n}">' for n in names)
@@ -1050,7 +1201,8 @@ def _build_eval_html(data):
     # 六档摘要 chips: 与行内判定文字**同一套色**(U-11 —— 以前这里是另一套 #2e7d32/#e65100…,
     # 建议强化 那对只有 3.46:1)。顺序固定, 全部显示(同时充当下面筛选条的图例)。
     chips_html = "".join(
-        f'<span style="background:{VERDICT_CHIP_BG[k]};color:{VERDICT_COLOR[k]}">{k} {n}</span>'
+        f'<span style="background:{VERDICT_CHIP_BG[k]};color:{VERDICT_COLOR[k]}">'
+        f'<span class="mark">{VERDICT_MARK.get(k, "·")}</span>{k} {n}</span>'
         for k, n in zip(VERDICT_ORDER, (pass_n, hold_n, keep_n, pend_n, fail_n, bad_n)))
 
     return f'''<!DOCTYPE html>
@@ -1064,6 +1216,9 @@ def _build_eval_html(data):
 <div class="summary">
 {chips_html}
 </div>
+<p class="hint">截图在同目录的 <code>eval_screenshots/</code> —— 移动/分享报告时请把它一起带走；
+要<b>单文件</b>存档用浏览器「打印 → 另存为 PDF」（打印样式会自动展开所有行、隐藏筛选条）。
+筛选与排序会写进地址栏，刷新/分享都能还原。</p>
 </div>
 {rules_html}
 <div class="card">
@@ -1090,11 +1245,13 @@ def _build_eval_html(data):
 <button id="fclear">清除筛选</button>
 <span id="cnt" class="cnt"></span>
 </div>
+<p class="hint noprint">点任意一行展开截图与词条明细（公式/分位在悬停提示里）；筛选与排序会写进地址栏，可收藏或分享。</p>
 <table>
-<thead><tr><th>#</th><th>截图</th><th>名称</th><th>套装</th><th>COST/主属性</th><th>得分</th><th>判定</th><th>词条明细</th></tr></thead>
+<thead><tr><th>#</th><th>截图</th><th>名称</th><th>套装</th><th>COST/主属性</th><th>得分</th><th>判定</th></tr></thead>
 <tbody id="tbody">{"".join(rows)}</tbody>
 </table>
 </div>
+<p class="hint">报告依赖同目录的 <code>eval_screenshots/</code>，分享时请一并带走。</p>
 <script>const TOTAL={total};
 {_EVAL_JS}</script>
 </body></html>'''

@@ -11,9 +11,9 @@
 > **2026-11-20 会话总结**：`docs/SESSION_2026-11-20.md`（上半场 43→146 的三层根因：滚动 px/格 8→19.7、中途 0 词条=读失败、主属性百分比变体被整只跳过；**下半场 report3→report6**：逐只读套装 / 停用效果原文 / 图标锚定等级框 / +0 收工 / 主属性族通用分 / 报告筛选 / 窄窗口流式卡片。**report6 八项验收全绿（160 条，text 87%，0 失败，20.2 分钟）**，单测 349）。
 > **2026-11-22 界面评审**：`docs/UI_REVIEW_2026-11-22.md`（证据 + 设计方向）+
 > **`docs/UI_FIX_HANDOFF.md`（可执行工单，按 B1~B4 分批；含每项改法/验收/坑）**。
-> **B1 + B2 已落地（补记 74/75）**：`tools/ui_probe.py --strict` **5/5**、单测 **384**；
-> B2 修完运行页双栏/导航展开/模式徽标/穷举动作条/结果表重排/文案/空态/设置页换行。
-> 剩 B3（报告行折叠/可分享可打印/规则文案）、B4（标题层级/InfoBar/暗色层级）。接手从 `docs/UI_FIX_HANDOFF.md` §5 起。
+> **B1 + B2 + B3 已落地（补记 74/75/76）**：`tools/ui_probe.py --strict` **5/5**、单测 **406**、
+> `tools/verify_report_js.py` **11 项全 PASS**；B3 修完报告行折叠/判定 chip/可分享可打印/规则文案。
+> 剩 B4（标题层级 / InfoBar 遮挡 / 关于页 / 开发者页 / 暗色层级）。接手从 `docs/UI_FIX_HANDOFF.md` §6 起。
 
 ## 一、已完成的阶段（阶段二十四~三十已提交并 `push origin main`；阶段三十一在分支 `engine/vendor`，未合并）
 
@@ -31,7 +31,7 @@
 | **三十一** | `09bf8b3`（`engine/vendor`） | **引擎自持**：把 ok-script 1.0.160 精简 vendor 到 `ww_engine/`（75 文件 / 10.2k 物理行），删除 150 文件 / 35.3k 行；不再依赖 `ok-script`、不再打 site-packages 补丁。**未合并 main**，等 P4 真机验收 |
 
 **基线（改东西后必须复跑；环境/提交口径见 `docs/BASELINE.md`）**
-- `python -m unittest discover -s tests` → **384 项**（`OK (skipped=2)`；需 Python **3.10+**；
+- `python -m unittest discover -s tests` → **406 项**（`OK (skipped=2)`；需 Python **3.10+**；
   3.13 / 3.14 已实测通过，见 `docs/BASELINE.md`。引擎已 vendored，不再有缺 `ok` 的 ImportError）
 - `python -c "import ww_engine; print('ok')"` → 引擎可导入（全模块导入 0 错误）；**P2 后 `import ww_engine` ≈0.21 s**
   （根包惰性导入，裸 import 不拉 cv2/qfluentwidgets/PIL/rotypes/pynput/外壳 —— 守卫在 `tests/test_engine_lazy.py`）
@@ -43,6 +43,7 @@
   **⚠ 2026-11 的 Lv5/Lv10 首条改动可能改变「建议强化/不建议强化」两行**；当前仓库无 `logs/eval_debug/`，需在素材机重跑后更新 B2。
 - `python tools/eval_icon_match.py` → 217/219（99.1%）
 - `python tools/ui_probe.py --strict` → 界面缺陷探针 **5/5**（退出码 0；C1~C5 见 `docs/UI_FIX_HANDOFF.md`）
+- `python tools/verify_report_js.py <报告.html>` → 报告交互 **11 项全 PASS**（点击展开/筛选/排序/hash）
 - `python tools/ui_shot.py [--dark]` → 离屏渲染 **7 页**（改 UI 后必跑；深色兜底见下）；
   **最小窗口**（940×620 内容区）用 `python tools/ui_page_shot.py <page> 892x570 out.png [--bottom]`（`ui_shot` 会被离屏屏幕夹成 640×480）
 - `python tools/echo_plan.py --list` → 库存概览（109 只 / 47 个名字 / COST `{1:55, 3:35, 4:19}`）
