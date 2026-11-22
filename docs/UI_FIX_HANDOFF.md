@@ -7,11 +7,11 @@
 >
 > ## ⚠ 进度（2026-11-22 更新）
 >
-> **B1 / B2 / B3 已完成**（补记 74/75/76）：`python tools/ui_probe.py --strict` → **5/5**、
-> `python -m unittest discover -s tests` → **406 项 / OK (skipped=2)**、
-> `python tools/verify_report_js.py <报告.html>` → **11 项全 PASS**。
-> 新增工具：`tests/test_ui_guards.py`（24 项）/ `tests/test_report_layout.py`（22 项）/
-> `tools/ui_page_shot.py` / `tools/verify_report_js.py`。**下一棒从 §6（B4：打磨）开始**。
+> **B1 / B2 / B3 / B4 全部完成**（补记 74/75/76/77）：`python tools/ui_probe.py --strict` → **5/5**、
+> `python -m unittest discover -s tests` → **411 项 / OK (skipped=2)**、
+> `python tools/verify_report_js.py <报告.html>` → **11 项全 PASS**；7 页亮/暗离屏渲染逐页目检。
+> 新增工具：`tests/test_ui_guards.py`（29 项）/ `tests/test_report_layout.py`（22 项）/
+> `tools/ui_page_shot.py` / `tools/verify_report_js.py`。**只剩真机走查**（见 §7 末尾）。
 >
 > B3 实际做法（照原稿做会踩的点）：①**筛选/排序只能遍历 `tr.main`**，旧写法 `querySelectorAll('#tbody tr')`
 > 会把详情行当数据行；②排序搬主行前**先取**配对详情行（`appendChild` 后 `nextElementSibling` 就变了）；
@@ -52,7 +52,7 @@
 python tools/ui_probe.py --strict             # 现在应为 5/5、退出码 0
 
 # 回归基线
-python -m unittest discover -s tests          # Ran 406 tests / OK (skipped=2)
+python -m unittest discover -s tests          # Ran 411 tests / OK (skipped=2)
 ```
 
 ---
@@ -64,7 +64,7 @@ python -m unittest discover -s tests          # Ran 406 tests / OK (skipped=2)
 | 分支 | `engine/vendor`（不要合 main；沿用现有分支策略） |
 | 解释器 | 系统 Python 3.13.16；`pip install -r requirements.txt` 已装齐 |
 | UI 依赖 | **PySide6 6.12.0 + PySide6-Fluent-Widgets 1.11.3**（U-01 的根因组合） |
-| 单测 | `python -m unittest discover -s tests` → **406**（改测试后同步 `docs/BASELINE.md` B1 与 CLAUDE） |
+| 单测 | `python -m unittest discover -s tests` → **411**（改测试后同步 `docs/BASELINE.md` B1 与 CLAUDE） |
 | 页面截图 | `python tools/ui_shot.py --size 1120x760 [--dark] [--eval] --out logs/ui_fix/light` |
 | 单页/最小窗口截图 | `python tools/ui_page_shot.py <page> 892x570 out.png [--bottom]`（B1 新增；`--list` 看可选页） |
 | 报告截图 | `python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024` |
@@ -381,7 +381,7 @@ QVBoxLayout(self)
 ## 6. 陷阱与边界（请先看）
 
 1. **不要升级/降级依赖来解决 U-01**：升级 qfluentwidgets 要回归所有 Fluent 控件；降级 PySide6
-   要重跑 406 项单测 + 真机 OCR。子类方案已验证，风险最小。
+   要重跑 411 项单测 + 真机 OCR。子类方案已验证，风险最小。
 2. **不要改判定/评分/遍历逻辑**：本次只动呈现层；`set_src`、`text+icon` 验收闸、精确模式语义
    都是上一轮刚定的（CHANGELOG 补记 72）。
 3. **离屏截图不等于真机**：SpinBox 的"看不见"是真机也复现的 bug；但反过来，离屏也缺字体
@@ -391,7 +391,7 @@ QVBoxLayout(self)
 5. **QTableWidget 是 QAbstractScrollArea**：写"页面可滚"检查时别把它算进去。
 6. **InfoBar 是叠加层**：截图里会盖住标题；这是真实效果，改布局时给它留出顶部空间或改内联提示。
 7. **改报告 JS 时**：筛选、排序、计数共用 `tr` 集合；加详情行必须同步改三处（筛选/排序/显示计数）。
-8. **每加一个测试/改一个测试，文档里的 406 要同步**（BASELINE B1、CLAUDE 接力状态、handoff）。
+8. **每加一个测试/改一个测试，文档里的 411 要同步**（BASELINE B1、CLAUDE 接力状态、handoff）。
 
 ---
 
@@ -411,6 +411,8 @@ python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024 --out logs/
   穷举首屏有开始按钮、表格数字右对齐且不截断、无 `**`。
 - B3（**已完成**）：报告 1000px 高可见 **9 行**（1440）/ **15 行**（1024）、C5 PASS、
   `tools/verify_report_js.py` 11 项全 PASS。
+- B4（**已完成**）：状态卡只有一个标题、关于页有数据版本+诊断入口、代码框等宽、深色画布/卡片拉开层次
+  （`ui_shot.py --dark` 逐页目检）。
 
 真机（必须一次）：`python mainui.py` → 设备设置/套装配置/运行（评估）各看一遍，重点：
 权重数值、200% DPI 下的间距、暗色、开始评估后计数是否增长。

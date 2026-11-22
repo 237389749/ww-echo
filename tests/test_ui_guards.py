@@ -251,6 +251,74 @@ class TestRunTabLayout(unittest.TestCase):
         self.assertFalse(self.tab.mode_badge.isVisibleTo(self.tab), "强化模式不该显示评估徽标")
 
 
+class TestStatusCardTitle(unittest.TestCase):
+    """U-15: 状态卡只能有**一个**标题（以前卡片头「运行」与 20px 的「强化声骸·渐进式·通用」同级竞争）。"""
+
+    def setUp(self):
+        self.app = _qapp()
+        from PySide6.QtCore import QObject, Signal
+        from PySide6.QtWidgets import QTextEdit
+        from ui.run_tab import RunTab
+
+        class _Bridge(QObject):
+            log_signal = Signal(str)
+
+        self._bridge = _Bridge()
+        self.tab = RunTab(ok_engine=None, log_bridge=self._bridge, log_area=QTextEdit())
+
+    def tearDown(self):
+        _drop(self.tab, self.app)
+
+    def test_status_card_has_no_card_header(self):
+        from qfluentwidgets import HeaderCardWidget, SimpleCardWidget
+        card = self.tab.status_task.parentWidget()
+        self.assertIsInstance(card, SimpleCardWidget)
+        self.assertNotIsInstance(card, HeaderCardWidget, "状态卡又套回了带标题的 HeaderCardWidget")
+
+
+class TestAboutAndDev(unittest.TestCase):
+    """U-17 / U-18: 关于页带数据版本与诊断入口；开发者页代码框用等宽字体。"""
+
+    def setUp(self):
+        self.app = _qapp()          # 构造 QWidget 前必须先有 QApplication
+
+    def test_gamedata_summary_reads_version(self):
+        from ui.about_tab import gamedata_summary
+        text = gamedata_summary()
+        self.assertIn("3.7", text)
+        self.assertIn("229", text)
+
+    def test_about_has_diagnostics_entry(self):
+        from ui.about_tab import AboutTab
+        tab = AboutTab()
+        try:
+            diag = tab._diag_text()
+            self.assertIn("OK-Echo", diag)
+            self.assertIn("数据", diag)
+            self.assertIn("Python", diag)
+        finally:
+            _drop(tab, self.app)
+
+    def test_dev_code_box_is_monospace(self):
+        from ui.dev_tab import DevTab
+        tab = DevTab()
+        try:
+            qss = tab.code_edit.styleSheet()
+            self.assertIn("monospace", qss)
+            self.assertIn("transparent", qss, "深色下必须透明, 否则白底浅字")
+            _pump(self.app, 2)
+        finally:
+            _drop(tab, self.app)
+
+
+class TestDarkModeSurfaces(unittest.TestCase):
+    """U-19: 控件级样式表不能盖掉主题底色（深色下会变白底浅字）。"""
+
+    def test_log_view_keeps_theme_background(self):
+        from ui.main_window import LOG_QSS
+        self.assertIn("background: transparent", LOG_QSS.replace("background:transparent", "background: transparent"))
+
+
 class TestPlanTabTable(unittest.TestCase):
     """U-08 / U-09: 动作条常驻（不在滚动区里）+ 结果表列语义。"""
 

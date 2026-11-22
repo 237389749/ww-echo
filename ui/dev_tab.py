@@ -72,6 +72,10 @@ class DevTab(QWidget):
         body.addWidget(hint)
 
         self.code_edit = PlainTextEdit()
+        # U-18: 代码/输出用等宽字体(与运行页日志同一套, 见 main_window.LOG_QSS)
+        self.code_edit.setStyleSheet(
+            "QPlainTextEdit{font-family:Consolas,'Microsoft YaHei',monospace;font-size:12px;"
+            "background:transparent;border:none;}")
         self.code_edit.setPlaceholderText(
             "# 仅供查看/记录片段(不会执行)\n"
             "# task = og.executor.get_all_tasks()[0]\n"
@@ -95,6 +99,7 @@ class DevTab(QWidget):
 
         self.output_area = PlainTextEdit()
         self.output_area.setReadOnly(True)
+        self.output_area.setStyleSheet(self.code_edit.styleSheet())
         self.output_area.setMinimumHeight(120)
         body.addWidget(self.output_area, 1)
         v.addWidget(card, 1)

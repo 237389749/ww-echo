@@ -987,5 +987,7 @@ class PlanTab(QWidget):
             self._info(False, "导出失败", str(e))
 
     def _info(self, ok: bool, title: str, content: str):
-        (InfoBar.success if ok else InfoBar.error)(title, content, duration=3000,
-                                                   position=InfoBarPosition.TOP_RIGHT, parent=self)
+        """提示条放**底部**(U-16): 本页右上角是「方案摘要」, 顶部弹条会把它盖住。"""
+        (InfoBar.success if ok else InfoBar.error)(
+            title, content, duration=3000,
+            position=InfoBarPosition.BOTTOM_RIGHT, parent=self)

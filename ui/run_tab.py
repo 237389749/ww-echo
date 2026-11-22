@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QSplitter, QVBoxLayout, 
 
 from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF,
                             HeaderCardWidget, IndeterminateProgressBar, InfoBar, InfoBarPosition,
-                            PrimaryPushButton, PushButton, SettingCardGroup,
+                            PrimaryPushButton, PushButton, SettingCardGroup, SimpleCardWidget,
                             SingleDirectionScrollArea, StrongBodyLabel, SubtitleLabel, SwitchButton,
                             ToolTipFilter)
 
@@ -132,14 +132,18 @@ class RunTab(QWidget):
         card.viewLayout.addWidget(body)
         return vb
 
-    def _build_status_card(self) -> HeaderCardWidget:
-        card = HeaderCardWidget()
-        card.setTitle("运行")
+    def _build_status_card(self):
+        # U-15: 以前这里有两个同级"标题" —— 卡片头「运行」(15pt) 与 `SubtitleLabel`「强化声骸·渐进式·通用」
+        # (20px) 抢层级, 而导航项本来就写着"运行"。改成**无卡片头**的 `SimpleCardWidget`: 只留一个标题,
+        # 顺带省掉 48px 的头部留白(570 高的最小窗口里很值)。
+        card = SimpleCardWidget()
         self.status_task = SubtitleLabel()
         self.status_state = CaptionLabel()
         # 模式徽标(U-07): 评估的套装判定模式(图标优先 / 精确)以前只在启动日志里打印一行, 界面上看不出来
         self.mode_badge = CaptionLabel()
-        body = self._card_body(card, (24, 8, 24, 14))
+        body = QVBoxLayout(card)
+        body.setContentsMargins(20, 14, 20, 14)
+        body.setSpacing(8)
         body.addWidget(self.status_task)
         state_row = QHBoxLayout()
         state_row.addWidget(self.status_state)

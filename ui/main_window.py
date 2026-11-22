@@ -26,8 +26,11 @@ from ui.about_tab import AboutTab
 from ui.dev_tab import DevTab
 from ui.widgets import LogView
 
-# 日志视图样式: 等宽 + 中文回退字体(与旧版一致)
-LOG_QSS = "QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px; }"
+# 日志视图样式: 等宽 + 中文回退字体(与旧版一致)。
+# **必须写 background:transparent + border:none**(U-19 实测): 给控件设样式表会**盖掉 qfluentwidgets
+# 给 QTextEdit 的主题底**, 深色下就变成"白底 + 浅字"(几乎看不见)。透明后由所在卡片/画布出底。
+LOG_QSS = ("QTextEdit { font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px;"
+           " background: transparent; border: none; }")
 
 
 def new_log_view(placeholder: str = "") -> QTextEdit:
@@ -175,6 +178,16 @@ class MainWindow(FluentWindow):
             pass
         if remember:
             self._settings.setValue("theme", theme.name)
+        # U-19: 深色下库给的画布 #202020 与卡片 #272727 只差 7 级, 层次看不出来 →
+        # 只把**主栈**(页面画布)压深, 卡片仍由库的样式表画(#272727), 对比从 7 级拉到 20+ 级。
+        # 注意只认 `#mainStack`(调试页里还有一层 QStackedWidget, 别把它的背景也改掉)。
+        try:
+            if self.stackedWidget.objectName() != "mainStack":
+                self.stackedWidget.setObjectName("mainStack")
+            self.stackedWidget.setStyleSheet(
+                "QStackedWidget#mainStack{background:#0F1315;}" if theme is Theme.DARK else "")
+        except Exception:
+            pass
         # 注: 不手动 unpolish/polish 整棵树 —— qfluentwidgets 的 setTheme 会走全局重绘(Gallery 也是实时切换),
         # 手动 repolish 反而在离屏/构造期不稳(实测崩过)。运行中切换后的观感需真机确认一次。
 

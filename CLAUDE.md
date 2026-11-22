@@ -175,6 +175,19 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   (页脚在 160 行表格最底下没人看得到)。
 - **HTML 不认 Markdown**: 报告正文(script/style 之外)不许出现 `**` —— 有单测守着。
 
+### 界面 B4 修复(2026-11-22, 补记 77) — 打磨
+
+- **状态卡是 `SimpleCardWidget`**(不是 HeaderCardWidget): 一页只留一个标题(U-15)。再套 HeaderCardWidget 会
+  又出现"卡片头 + 大标题"两个同级标题, 还白吃 48px。
+- **给 QTextEdit/QPlainTextEdit 设控件级样式表要用 `background:transparent; border:none;`** ——
+  否则会盖掉 qfluentwidgets 的主题底, 深色下变"白底浅字"(U-19 实测; `main_window.LOG_QSS`)。
+- **深色画布**: `apply_theme` 只把 `QStackedWidget#mainStack` 压到 `#0F1315`(卡片仍由库画 `#272727`),
+  **别递归改所有 QStackedWidget**(调试页里还有一层子栈)。
+- **提示条位置不是越统一越好**: 组合穷举页右上角是「方案摘要」→ 该页 `_info` 用 `BOTTOM_RIGHT`;
+  运行页/调试页底部是日志 → 保留 `TOP_RIGHT`(放底部会盖住最新几行)。改之前先看那页的右上/右下有什么。
+- **关于页**: `_version()` 兜 `og.config is None`(引擎未初始化时关于页不能崩); 数据版本读
+  `assets/gamedata/echo_data.json::_source`。
+
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
 
 **分层**(与阶段二十四"判定唯一收口"同一条纪律): `src/echo_panel.py`(计算) → `src/echo_combos.py`(穷举) →
@@ -583,7 +596,7 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**406 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**411 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_probe.py --strict`(界面 5 项缺陷探针, 应 **5/5**)
   + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材) + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`
