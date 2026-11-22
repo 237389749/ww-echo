@@ -134,6 +134,9 @@ def main() -> int:
                 qs.setValue("theme", saved_theme)
             qs.sync()
     win.show()
+    # QSettings 可能把上次的"最大化"一起恢复 —— 离屏屏幕只有 800x800, 最大化后 resize 无效,
+    # 于是所有 --size 都会静默变成 800x800。先还原成普通窗口再 resize。
+    win.showNormal()
     if a.dark:
         # 兜底: 有些环境(受控沙箱/无注册表写权限)QSettings 写不进去 → 上面那次启动即深色会失效,
         # 这里再显式应用一次(不落盘)。每页抓图前都会 update()+processEvents(), 足够整页重绘。
@@ -142,8 +145,9 @@ def main() -> int:
         app.processEvents()
     w, h = (int(x) for x in a.size.lower().split("x"))
     win.resize(w, h)
-    if a.eval:
-        win.run_page.task_combo.setCurrentText("评估声骸")
+    app.processEvents()
+    # 截图必须**可复现**: 运行页的模式是从 QSettings 读的(真机用过评估就会记住), 这里强制成已知状态。
+    win.run_page.task_combo.setCurrentText("评估声骸" if a.eval else "强化声骸")
     app.processEvents()
 
     out = Path(a.out)
