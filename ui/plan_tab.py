@@ -17,11 +17,15 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QFileDialog, QHeaderView, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, EditableComboBox,
+from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, EditableComboBox,
                             FluentIcon as FIF, HeaderCardWidget, IndeterminateProgressBar, InfoBar,
                             InfoBarPosition, MessageBox, PushButton, SettingCardGroup,
-                            SingleDirectionScrollArea, SpinBox, TableWidget, TitleLabel)
+                            SingleDirectionScrollArea, TableWidget, TitleLabel)
 
+# U-01: qfluentwidgets 1.11.3 + PySide6 6.12 的 SpinBox 画不出数值(lineEdit 被压成 1px) →
+# 用本项目修好的子类(别名导入, 调用面不变)。见 ui/widgets._SpinLineEditFix。
+from ui.widgets import NumberDoubleSpinBox as DoubleSpinBox
+from ui.widgets import NumberSpin as SpinBox
 from ui.widgets import FlowLayout, WrapSettingCard
 
 from src.echo_combos import (PlanRequest, candidate_pool, energy_is_damage, instance_tag,
@@ -336,7 +340,7 @@ class PlanTab(QWidget):
         self.corr_value_spin.setRange(-99999, 99999)
         self.corr_value_spin.setDecimals(1)
         self.corr_value_spin.setValue(10.0)
-        self.corr_value_spin.setFixedWidth(110)
+        self.corr_value_spin.setFixedWidth(124)
         self.corr_source_combo = EditableComboBox()          # 库里的 ComboBox 没有 setEditable
         self.corr_source_combo.addItems(list(CORRECTION_SOURCES))
         self.corr_source_combo.setMinimumWidth(150)
@@ -356,17 +360,17 @@ class PlanTab(QWidget):
         self.derive_th_spin.setRange(0, 999)
         self.derive_th_spin.setDecimals(1)
         self.derive_th_spin.setValue(125.0)
-        self.derive_th_spin.setFixedWidth(84)
+        self.derive_th_spin.setFixedWidth(124)
         self.derive_per_spin = DoubleSpinBox()
         self.derive_per_spin.setRange(-99, 99)
         self.derive_per_spin.setDecimals(2)
         self.derive_per_spin.setValue(2.0)
-        self.derive_per_spin.setFixedWidth(78)
+        self.derive_per_spin.setFixedWidth(124)
         self.derive_cap_spin = DoubleSpinBox()
         self.derive_cap_spin.setRange(0, 999)
         self.derive_cap_spin.setDecimals(1)
         self.derive_cap_spin.setValue(50.0)
-        self.derive_cap_spin.setFixedWidth(84)
+        self.derive_cap_spin.setFixedWidth(124)
         self.derive_key_combo = ComboBox()
         self.derive_key_combo.addItems(list(DERIVE_TARGET_KEYS))
         self.derive_key_combo.setFixedWidth(128)

@@ -4,13 +4,30 @@
 > （评审证据与设计方向）。**本文是可执行工单**：每一项都有现象、改法、验收命令、风险。
 >
 > 起点：分支 `engine/vendor`，单测 **360**；证据图在 `docs/ui_review_2026-11-22/`。
+>
+> ## ⚠ 进度（2026-11-22 更新）
+>
+> **B1 已完成**（CHANGELOG 补记 74，提交见 `git log`）：`python tools/ui_probe.py --strict` → **5/5**、
+> `python -m unittest discover -s tests` → **378 项 / OK (skipped=2)**、新增 `tests/test_ui_guards.py`（18 项）
+> 与 `tools/ui_page_shot.py`。**下一棒从 §4（B2）开始**。
+>
+> B1 实际做法与本文原稿的差异（照原文做会踩）：
+> 1. **U-01 的 5 行子类不够**：`RIGHT_RESERVED=74` 会让文字钻到按钮底下 6px；而且"编辑区 ≥20px"≠读得出数值 ——
+>    两个 31px 按钮吃掉 71px，控件 < ~105px 就把 `0.10` 显示成 `0.1C`。现已改成**问布局要预留量**
+>    （`hBoxLayout.sizeHint().width()`），并把 6 个过窄的数值框加宽到 124，验收口径升级成"放得下文本 + 4px"。
+> 2. **C3/C4 原来的静态检查永远 FAIL**：`_function_body` 从"行首+1"切片，正则 `^\s*def` 在字符串开头就命中
+>    函数自己 → 返回 1 字符。已改成**跑真代码**（喂假 task / 假记录看输出），并把纯函数挪到零依赖的
+>    `ui/present.py`（`ui/run_tab.py` 会拉起引擎，离屏建过窗口时退出会段错误 0xC0000005）。
+> 3. **U-02 的调试页还要多修一层**：`QStackedWidget` 按**最高**子页预留高度（截图页预览图 min 200 → OCR 页
+>    也被撑到 419），整页能滚了但日志卡仍被顶出视口；已加 `_fit_stack()` 按当前页定高。
+> 4. **U-11 只做了配色这一半**（否则 C5 不可能 PASS）；行折叠/色点仍在 §5 的 B3。
 
 ---
 
 ## 0. 30 秒版
 
-- 有 **5 个能量出来的缺陷**，已做成探针：`python tools/ui_probe.py --strict` 现在 **0/5 通过**；
-  修完 B1 应 **5/5**。
+- 有 **5 个能量出来的缺陷**，已做成探针：`python tools/ui_probe.py --strict` ——
+  **B1 前 0/5，现已 5/5**（后续批次别把它跑回去）。
 - 按批次做，每批单独提交、单独更新文档：
   **B1（P0，约 1 天）→ B2（结构/易用）→ B3（报告）→ B4（打磨）**。
 - 最要紧的一项：**所有数值输入框看不到数字**（qfluentwidgets 1.11.3 + PySide6 6.12.0 的
@@ -18,10 +35,10 @@
 
 ```powershell
 # 现状自检（应看到 5 个 FAIL）
-python tools/ui_probe.py --strict
+python tools/ui_probe.py --strict             # 现在应为 5/5、退出码 0
 
 # 回归基线
-python -m unittest discover -s tests          # Ran 360 tests / OK (skipped=2)
+python -m unittest discover -s tests          # Ran 378 tests / OK (skipped=2)
 ```
 
 ---
@@ -33,15 +50,16 @@ python -m unittest discover -s tests          # Ran 360 tests / OK (skipped=2)
 | 分支 | `engine/vendor`（不要合 main；沿用现有分支策略） |
 | 解释器 | 系统 Python 3.13.16；`pip install -r requirements.txt` 已装齐 |
 | UI 依赖 | **PySide6 6.12.0 + PySide6-Fluent-Widgets 1.11.3**（U-01 的根因组合） |
-| 单测 | `python -m unittest discover -s tests` → **360**（改测试后同步 `docs/BASELINE.md` B1 与 CLAUDE） |
+| 单测 | `python -m unittest discover -s tests` → **378**（改测试后同步 `docs/BASELINE.md` B1 与 CLAUDE） |
 | 页面截图 | `python tools/ui_shot.py --size 1120x760 [--dark] [--eval] --out logs/ui_fix/light` |
+| 单页/最小窗口截图 | `python tools/ui_page_shot.py <page> 892x570 out.png [--bottom]`（B1 新增；`--list` 看可选页） |
 | 报告截图 | `python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024` |
 | 缺陷探针 | `python tools/ui_probe.py [--strict]` |
 | 评审证据 | `docs/UI_REVIEW_2026-11-22.md` + `docs/ui_review_2026-11-22/*.png` |
 
-**截图限制（重要）**：离屏平台屏幕只有 800×800，顶层窗口会被夹住 —— `--size 940x620` 实际得到
-640×480。1120×760 可用（已修 `showNormal`）。最小窗口的验收**不要靠截图**，用探针的运行时检查，
-或直接抓页面（`logs/tmp/shot_pages_892.py` 是本次用的临时脚本，可迁到 `tools/`）。
+**截图限制（重要）**：离屏平台屏幕只有 800×800，顶层窗口会被夹住 —— `ui_shot.py --size 940x620` 实际得到
+640×480。1120×760 可用（已修 `showNormal`）。最小窗口的验收**用 `tools/ui_page_shot.py`**（B1 已把它
+从临时脚本转正：直接 resize 页面 widget、支持 `--bottom` 滚到底），不要拿 `ui_shot` 的 940 截图下结论。
 
 ---
 
@@ -349,7 +367,7 @@ QVBoxLayout(self)
 ## 6. 陷阱与边界（请先看）
 
 1. **不要升级/降级依赖来解决 U-01**：升级 qfluentwidgets 要回归所有 Fluent 控件；降级 PySide6
-   要重跑 360 项单测 + 真机 OCR。子类方案已验证，风险最小。
+   要重跑 378 项单测 + 真机 OCR。子类方案已验证，风险最小。
 2. **不要改判定/评分/遍历逻辑**：本次只动呈现层；`set_src`、`text+icon` 验收闸、精确模式语义
    都是上一轮刚定的（CHANGELOG 补记 72）。
 3. **离屏截图不等于真机**：SpinBox 的"看不见"是真机也复现的 bug；但反过来，离屏也缺字体
@@ -359,7 +377,7 @@ QVBoxLayout(self)
 5. **QTableWidget 是 QAbstractScrollArea**：写"页面可滚"检查时别把它算进去。
 6. **InfoBar 是叠加层**：截图里会盖住标题；这是真实效果，改布局时给它留出顶部空间或改内联提示。
 7. **改报告 JS 时**：筛选、排序、计数共用 `tr` 集合；加详情行必须同步改三处（筛选/排序/显示计数）。
-8. **每加一个测试/改一个测试，文档里的 360 要同步**（BASELINE B1、CLAUDE 接力状态、handoff）。
+8. **每加一个测试/改一个测试，文档里的 378 要同步**（BASELINE B1、CLAUDE 接力状态、handoff）。
 
 ---
 
@@ -367,14 +385,14 @@ QVBoxLayout(self)
 
 ```powershell
 python -m unittest discover -s tests                  # 期望 OK；数量按实际更新文档
-python tools/ui_probe.py --strict                     # B1 后应 5/5 PASS
+python tools/ui_probe.py --strict                     # 应 5/5 PASS（B1 已达成）
 python tools/ui_shot.py --size 1120x760 --out logs/ui_fix/light
 python tools/ui_shot.py --size 1120x760 --dark --out logs/ui_fix/dark
 python tools/ui_shot.py --size 1120x760 --eval --out logs/ui_fix/eval
 python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024 --out logs/ui_fix/report
 ```
 
-- B1：C1/C2/C3/C4 PASS；套装配置 1120 截图能看到权重；`--eval` 下状态卡文案正确。
+- B1（**已完成**）：C1~C5 PASS；套装配置 1120 截图能看到权重；`--eval` 下状态卡文案正确。
 - B2：目检运行页日志可见、导航有文字、穷举首屏有开始按钮、表格数字右对齐、无 `**`。
 - B3：报告 1000px 高 ≥8 行、判定对比度 C5 PASS、1024 不折成 250px 行。
 
@@ -433,6 +451,8 @@ python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024 --out logs/
 
 ### 9.4 探针当前输出（起点）
 
+**B1 起点（0/5，留作对照）**
+
 ```
 [FAIL] C1 SpinBox 数值可见: 14/14 个 LineEdit 宽 < 20px（首个 1px），首个抓图最暗像素 110
 [FAIL] C2 套装配置/调试页可滚: SetConfigTab 没有页面级滚动容器（表格自身的滚动不算）
@@ -441,4 +461,16 @@ python tools/shot_report.py logs/tmp/replay6.html --widths 1440 1024 --out logs/
 [FAIL] C5 报告判定色对比度 ≥4.5: 最低 pending #ff9800 = 2.16:1（需 ≥4.5）
 
 0/5 通过
+```
+
+**B1 之后（5/5，实测）**
+
+```
+[PASS] C1 SpinBox 数值可见: 0/14 个 LineEdit 宽 < 20px（首个 37px），文本被裁 0 个，首个抓图最暗像素 0
+[PASS] C2 套装配置/调试页可滚: SetConfigTab 页面滚动范围 230px，debug_tab 有滚动容器
+[PASS] C3 评估状态显示评估数量: 评估 → 已记录: 7 / 失败: 2 / 结束: 到达0级尾部；强化口径不变
+[PASS] C4 评估汇总按 verdict_cn 拆分: 10 只 · 达标 2 · 保留 1 · 不建议强化 4 · 不合格 3
+[PASS] C5 报告判定色对比度 ≥4.5: 最低 建议强化 #8A5A00 = 5.93:1（需 ≥4.5）
+
+5/5 通过
 ```

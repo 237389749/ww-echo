@@ -2787,3 +2787,65 @@ B(满级) 另用 `_legacy_threshold` 单独取前后值。
   其余 P0：套装配置最小窗口布局重叠、评估状态卡显示强化计数、汇总把「不合格/不建议强化」合并。
 
 单测 360（无新增：探针是诊断工具，不进 CI；B1 修复时再把 C1 转成单测）。
+
+---
+
+**补记 74（2026-11-22：B1 落地 —— 5 项 P0 全修，`ui_probe` 0/5 → 5/5）**
+
+按 `docs/UI_FIX_HANDOFF.md` 的 B1 批次做完，**探针 5/5、单测 378 / OK (skipped=2)**。
+
+**U-01 数值框看不到数值（功能不可用级）**
+- 根因（已核实）：`qfluentwidgets` 的 `SpinBoxBase` 在 QAbstractSpinBox 上**额外挂了 `QHBoxLayout`**
+  （放两个 31px 上下按钮）+ `setButtonSymbols(NoButtons)`；Qt 6.12 起 QAbstractSpinBox 不再自己摆内部
+  QLineEdit → 几何停在 `QRect(0,1,1,31)`，`text()` 有值但**一个像素都画不出来**（14/14 个，首个 1px）。
+- 改法：`ui/widgets._SpinLineEditFix`（`resizeEvent` 里手动摆编辑区）+ `NumberDoubleSpinBox` / `NumberSpin`
+  两个子类；`set_config_tab` / `plan_tab` 用**别名导入**，13 处构造点一个字没改。
+  预留量**问布局要**（`hBoxLayout.sizeHint().width()` = 71，库换按钮宽度会自动跟着走），不写死 74 ——
+  实测 74 时文字会钻到按钮底下 6px。
+- **工单的 5 行改法不够**：宽度够 20px ≠ 读得出数值。两个 31px 按钮吃掉 71px，控件 < ~105px 就把
+  `0.10` 显示成 `0.1C`。所以同时把 6 个过窄的数值框加宽（95/80/84/78/84/110 → 124），并把验收口径
+  从"编辑区 ≥20px"升级成"**放得下当前文本 + 4px**"（探针 C1 与单测同一口径）。
+
+**U-02 套装配置 / 调试页在最小窗口裁切**
+- 两页都套页面级 `SingleDirectionScrollArea`（`make_scroll_transparent`）；权重表 `setMinimumHeight(260)`
+  （表格内部滚动），日志卡 260。
+- **调试页多修一层**：`QStackedWidget` 的 sizeHint 取**所有**子页最大值（「截图」页预览图 min 200 会把
+  OCR 页也撑到 419）→ 中间空一大片、日志卡被顶出视口。新增 `_fit_stack()` 按**当前页** sizeHint 定高，
+  切页重算。892×570 下日志卡从"60px 且被裁"变成 **379px / 17 行可见**。
+
+**U-03 评估状态卡显示强化计数**
+- 评估链补三个键：`评估数量`（原有）/ `评估失败`（`_register_fail` 累加，只统计"点了没读到"、不含重复）/
+  `评估结束原因`（0级尾部/到底/受阻/用户停止/完成）；`_start` 里按模式把三格归零。
+- `status_texts(task, is_eval)` 纯函数出文案：评估 = 已记录 / 失败 / 结束原因，强化口径原样保留。
+
+**U-04 汇总把「不合格 / 不建议强化」合并**
+- `count_verdicts(results)` 按 `verdict_cn` 拆六档（`fail` 一个码里装两档；旧报告无该字段才退回 verdict 码），
+  `summary_text()` 出汇总行；**汇总卡与报告摘要共用这一份**（报告里 6 个计数也换成它）。
+
+**U-11 判定色（只做了配色这一半，行折叠留 B3）**
+- `VERDICT_COLOR` 旧值对白底只有 2.16~3.68:1（`#ff9800` 2.16 最差），换成 5.93~10.47:1；
+  键改成**中文档位**（按 verdict 码配色根本分不开 fail 的两档），摘要 chips 配 `VERDICT_CHIP_BG`
+  同一套色（旧的「建议强化」那对只有 3.46:1）。报告行内用 `verdict_color(vcn, code)`。
+
+**新增 `ui/present.py`（分层）**
+- 判定文案/配色/计数 + 状态卡文案抽成**零依赖**模块。为什么值得单开一个：`ui/run_tab.py` 顶部
+  `from ww_engine import og`，而**进程里 import 过 ww_engine 且 show() 过 Fluent 顶层窗口时，解释器退出会
+  段错误**（0xC0000005，实测 6 次里 4 次）—— 探针为了跑 C3/C4 的真代码被迫把 Qt+引擎都拉进来就中招。
+  纯函数搬出来后探针/单测直接 import，不再碰引擎。
+
+**工具**
+- `tools/ui_probe.py`：C3/C4 从"grep 源码"改成**跑真代码**（喂假 task / 假记录看输出）。
+  **顺带修掉一个真 bug**：`_function_body` 从"行首+1"切片，`^\\s*def` 在字符串开头就命中函数自己 →
+  返回 1 字符，于是 C3/C4 **永远 FAIL**（工单里"修完应 5/5"根本做不到的根因）。C5 改读 `ui/present.py`。
+  QApplication 改挂模块级 + 用完 `deleteLater()`（局部变量持有实例会让销毁落在退出期 → 段错误）。
+- 新增 `tools/ui_page_shot.py`：按**页面内容区**尺寸抓单页（`ui_shot` 走 MainWindow，离屏屏幕 800×800
+  会把 `--size 940x620` 夹成 640×480），支持 `--bottom` 滚到底再抓 —— 最小窗口布局从此能看图验收。
+- `.gitignore` 加 `.scratch/`（一次性试验脚本，留下的进 `tools/`）。
+
+**测试**：新增 `tests/test_ui_guards.py` 18 项（SpinBox 几何 + 文本放得下 + 抓图有字 / 两页可滚 /
+调试页日志卡可见 + 子页定高 / status_texts 两模式 / count_verdicts 六档 + 旧报告回退 / 判定色对比度）。
+`tests/test_eval_smoke.py` 的假 task 补上 `info` 字典与 `info_set/info_incr/info_get`（与引擎 Task 同形）。
+360 → **378**。
+
+**真机待验**：200% DPI 下 `python mainui.py` → 套装配置/组合穷举看数值、开始评估后计数是否增长、
+结束原因是否显示。**未动**判定/评分/遍历逻辑（只加计数键与 `info_set`）。

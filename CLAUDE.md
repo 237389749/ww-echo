@@ -125,6 +125,28 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   横向滚动条 0；`python tools/ui_shot.py --size 940x620` 可直接看效果。
 - **已知待办**: 传统模式选项那一块仍是紧凑控件(仅在「传统」策略下出现); 套装配置的表单校验只有 JSON 解析级。
 
+### 界面 B1 修复(2026-11-22, 补记 74) — 勿回退
+
+- **数值框必须用 `ui.widgets.NumberDoubleSpinBox` / `NumberSpin`**(别名导入成 `DoubleSpinBox`/`SpinBox`)。
+  **不要直接 import qfluentwidgets 的 SpinBox**: 库在 QAbstractSpinBox 上多挂了一个放按钮的 `QHBoxLayout`,
+  Qt 6.12 起内部 QLineEdit 的几何停在 `1×31px` → `text()` 有值但**一个像素都画不出来**(用户只看到上下箭头)。
+  子类在 `resizeEvent` 里手动摆编辑区, 预留量问 `hBoxLayout.sizeHint()`(71px) 而不是写死。
+  **新增数值框时控件宽 ≥ ~124px**, 否则两个 31px 按钮把文字挤掉(实测 95px 时 `0.10` 显示成 `0.1C`)。
+  守卫: `tests/test_ui_guards.py`(几何 + 文本放得下 + 抓图有字) 与 `tools/ui_probe.py` C1。
+- **页面级滚动容器**: 内容比视口高的页(套装配置 / 调试工具)必须套 `SingleDirectionScrollArea`
+  + `make_scroll_transparent`, 表格/日志这类自带滚动的给 `setMinimumHeight(260)`。
+  守卫: 探针 C2 + `test_ui_guards.TestPageScrolls`。
+- **`QStackedWidget` 会按最高子页预留高度**(调试页的「截图」页预览图 min 200 → OCR 页也被撑到 419,
+  中间空一大片、日志卡被顶出去)。调试页用 `_fit_stack()` 按**当前页** sizeHint 定高, 切页重算。
+- **纯展示逻辑放 `ui/present.py`**(判定文案/配色/六档计数/状态卡文案), 它**只 import 标准库**。
+  **别把它挪回 `ui/run_tab.py`**: run_tab 顶部 `from ww_engine import og`, 而"进程里 import 过 ww_engine +
+  show() 过 Fluent 顶层窗口"在解释器退出时会**段错误 0xC0000005**(实测 6 次里 4 次) ——
+  探针/单测要跑这些纯函数的真代码, 就得能在不碰引擎的前提下 import。
+- **判定色按中文档位取**(`VERDICT_COLOR` 的键是「达标/保留/…/不合格」, 不是 verdict 码):
+  `fail` 一个码里装「不合格 / 不建议强化」两档, 按码配色分不开。对白底对比度全部 ≥4.5(旧值 2.16~3.68)。
+- **最小窗口布局验收别用 `ui_shot.py`**: 它走 MainWindow, 离屏屏幕 800×800 会把 `--size 940x620`
+  夹成 640×480。用 `python tools/ui_page_shot.py <page> 892x570 out.png [--bottom]` 直接抓页面内容区。
+
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
 
 **分层**(与阶段二十四"判定唯一收口"同一条纪律): `src/echo_panel.py`(计算) → `src/echo_combos.py`(穷举) →
@@ -533,9 +555,9 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**360 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
-  代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材)
-  + `tools/echo_plan.py --list`
+- 改动后跑: `python -m unittest discover -s tests`(**378 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+  代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_probe.py --strict`(界面 5 项缺陷探针, 应 **5/5**)
+  + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材) + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`
   (条数 160±2 / 完全重复 0 / **`text+icon` ≥85%**(icon 与 text 同为一等信号) / **面板回顶失败 0** / **缺 COST 0** / **词条缺失 0** /
   **无 `持有数量` 假主属性** / 每屏重复 8~14 / 无重叠守卫·受阻·过滚; 有问题退出码 1。

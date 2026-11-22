@@ -70,6 +70,7 @@ class TestEvaluateOnlySmoke(unittest.TestCase):
                 self.logs = []
                 self.clicks = []
                 self.keys = []
+                self.info = {}                          # 引擎 Task 的计数字典(info_set/info_incr 用)
                 self._stop_event = threading.Event()   # stop_requested() 用它
 
             # `executor`/`frame`/`handler`/`width`/`height` 在 Task 上是只读 property,
@@ -111,8 +112,15 @@ class TestEvaluateOnlySmoke(unittest.TestCase):
                 self.keys.append(str(key))
                 return True
 
-            def info_set(self, *a, **k):
-                return None
+            # 计数 API 与 ww_engine.task.task.Task 同形(U-03 的 评估数量/评估失败 走这几个)
+            def info_set(self, key, value):
+                self.info[key] = value
+
+            def info_incr(self, key, inc=1):
+                self.info[key] = self.info.get(key, 0) + inc
+
+            def info_get(self, *a, **k):
+                return self.info.get(*a, **k)
 
             def _check_set_keys(self, set_name):
                 return True, ''

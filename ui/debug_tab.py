@@ -13,9 +13,11 @@ from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import (CaptionLabel, FluentIcon as FIF, HeaderCardWidget, ImageLabel, InfoBar,
                             InfoBarPosition, PushSettingCard, SegmentedWidget, SettingCardGroup,
-                            SwitchSettingCard)
+                            SingleDirectionScrollArea, SwitchSettingCard)
 
 from ww_engine import og, communicate
+
+from ui.widgets import make_scroll_transparent
 
 
 def _card_body(card: HeaderCardWidget) -> QVBoxLayout:
@@ -38,7 +40,13 @@ class DebugTab(QWidget):
 
     # ══════════════════ UI ══════════════════
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        # **页面级滚动容器**(U-02): 620 高的最小窗口下, 分页头 + 子页 + 日志卡放不下 —— 日志卡会被压到
+        # 60px 并被裁掉。套 `SingleDirectionScrollArea` 后整页可滚, 日志卡另有最小高度(见下)。
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        view = QWidget()
+        layout = QVBoxLayout(view)
         layout.setContentsMargins(16, 12, 16, 16)
         layout.setSpacing(12)
 
@@ -53,17 +61,39 @@ class DebugTab(QWidget):
             self.segmented.addItem(key, text)
             self.stack.addWidget(page)
         self.segmented.setCurrentItem(self._routes[0])
-        self.segmented.currentItemChanged.connect(
-            lambda k: self.stack.setCurrentIndex(self._routes.index(k)))
+        self.segmented.currentItemChanged.connect(self._on_route_changed)
         layout.addWidget(self.segmented)
         layout.addWidget(self.stack)
+        self._fit_stack()
 
         # ── 运行日志(与运行页同一日志流的第二份视图) ──
         log_card = HeaderCardWidget()
         log_card.setTitle("运行日志")
+        self.log_card = log_card
+        log_card.setMinimumHeight(260)      # 日志卡自己的滚动条管内容, 页面滚动管整页
         body = _card_body(log_card)
         body.addWidget(self.log_area, 1)
-        layout.addWidget(log_card, 1)
+        layout.addWidget(log_card, 1)      # 多余高度给日志卡(子页已不抢空间)
+
+        scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(view)
+        outer.addWidget(scroll, 1)
+
+    def _on_route_changed(self, key: str):
+        self.stack.setCurrentIndex(self._routes.index(key))
+        self._fit_stack()
+
+    def _fit_stack(self):
+        """子页高度跟着**当前页**走。
+
+        `QStackedWidget` 的 sizeHint 取**所有**子页的最大值 —— 「截图」页的预览图有 min 200,
+        会把只有一张卡的 OCR 页也撑到 419px, 于是中间空一大片、日志卡被顶到视口外面
+        (U-02 实测 892×570)。这里按当前页的 sizeHint 固定高度, 切页时重算。
+        """
+        page = self.stack.currentWidget()
+        if page is not None:
+            self.stack.setFixedHeight(page.sizeHint().height())
 
     def _page_ocr(self) -> QWidget:
         page = QWidget()

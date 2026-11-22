@@ -9,13 +9,18 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QFileDialog, QHeaderView, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, DoubleSpinBox, FluentIcon as FIF, InfoBar,
-                            InfoBarPosition, MessageBox, PushButton, SettingCardGroup, SpinBox,
-                            TableWidget, TitleLabel)
+from qfluentwidgets import (CaptionLabel, CheckBox, ComboBox, FluentIcon as FIF, InfoBar,
+                            InfoBarPosition, MessageBox, PushButton, SettingCardGroup,
+                            SingleDirectionScrollArea, TableWidget, TitleLabel)
 
-from ui.widgets import WrapSettingCard
 from src.echo_set_templates import STAT_ORDER
 from src.echo_stats import DEFAULT_WEIGHTS
+
+# U-01: qfluentwidgets 1.11.3 + PySide6 6.12 的 SpinBox 画不出数值(lineEdit 被压成 1px) →
+# 用本项目修好的子类。别名导入, 下面 13 处构造点一个字都不用改。见 ui/widgets._SpinLineEditFix。
+from ui.widgets import NumberDoubleSpinBox as DoubleSpinBox
+from ui.widgets import NumberSpin as SpinBox
+from ui.widgets import WrapSettingCard, make_scroll_transparent
 
 TEMPLATE_PATH = os.path.join("assets", "echo_set_templates.json")
 
@@ -33,7 +38,14 @@ class SetConfigTab(QWidget):
         self._load_sets()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        # **页面级滚动容器**(U-02): 整页内容(模板卡 + 13 行权重表 + 首条门槛 + 规则说明)在 940×620
+        # 最小窗口下比视口高, 纯 QVBoxLayout 会把卡片互相压叠、表格只露 1 行。
+        # 套上 `SingleDirectionScrollArea` 后: 内层按 sizeHint 长高、放不下就滚动(与「设备设置」同款)。
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        view = QWidget()
+        layout = QVBoxLayout(view)
         layout.setContentsMargins(16, 12, 16, 16)
         layout.setSpacing(12)
 
@@ -87,6 +99,8 @@ class SetConfigTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setBorderVisible(True)
         self.table.setBorderRadius(8)
+        # 表格自己有滚动条(13 行 × 36px), 给个最小高度让它别跟固定卡片抢高度 —— 页面滚动归滚动容器管
+        self.table.setMinimumHeight(260)
         self.table.setRowCount(len(ALL_STATS))
 
         for row, name in enumerate(ALL_STATS):
@@ -110,7 +124,7 @@ class SetConfigTab(QWidget):
             cb_core.stateChanged.connect(lambda s, r=row: self._on_core_check(r, s))
             self.table.setCellWidget(row, 3, cb_core)
 
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.table)
 
         # ── 首条判定(可选, 按套装): 低权重首条门槛 ──
         g_first = SettingCardGroup("首条判定 (Lv5 / Lv10)", self)
@@ -121,11 +135,11 @@ class SetConfigTab(QWidget):
         self.low_first_below.setSingleStep(0.05)
         self.low_first_below.setDecimals(2)
         self.low_first_below.setValue(0.10)
-        self.low_first_below.setFixedWidth(95)
+        self.low_first_below.setFixedWidth(124)   # 两个 31px 按钮占 71px, 再窄文字会被裁(U-01)
         self.low_first_top = SpinBox()
         self.low_first_top.setRange(1, 8)
         self.low_first_top.setValue(2)
-        self.low_first_top.setFixedWidth(80)
+        self.low_first_top.setFixedWidth(124)
         self.low_first_card = WrapSettingCard(
             FIF.FILTER, "低权重首条门槛",
             "首条权重 ≤ 阈值时, 必须达到该词条的前 N 档(默认关; 典型只给轻云出月这类占位键套装启用)", self)
@@ -160,6 +174,11 @@ class SetConfigTab(QWidget):
             rb.addWidget(lbl)
         self.rules_box.setVisible(False)
         layout.addWidget(self.rules_box)
+
+        scroll = make_scroll_transparent(SingleDirectionScrollArea(orient=Qt.Vertical))
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(view)
+        outer.addWidget(scroll, 1)
 
     def _toggle_rules(self):
         show = not self.rules_box.isVisible()

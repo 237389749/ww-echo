@@ -522,6 +522,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         stopped = False            # 用户点「停止」→ 不生成报告, 直接收尾
         results: list[dict] = []
         evaluated = 0
+        # 评估链自己的计数器(U-03): 运行页状态卡以前读的是**强化**的 成功/失败/得分, 评估跑 12 分钟
+        # 也一直显示「成功: 0 / 失败: 0 / 得分: -」。评估的语义不同(只读遍历), 单独给三个键:
+        #   评估数量 = 已记录只数(每记录一只写一次, 见下方 info_set)
+        #   评估失败 = 点了却读不到属性的格数(_register_fail 里累加; 与"重复"区分开)
+        #   评估结束原因 = 为什么停(0级尾部/到底/受阻/用户停止), 写进状态卡便于事后核对
+        self.info_set('评估数量', 0)
+        self.info_set('评估失败', 0)
+        self.info_set('评估结束原因', '')
         tmp_dir = tempfile.mkdtemp(prefix="okecho_eval_")
         ss_dir = os.path.join(tmp_dir, "screenshots")
         os.makedirs(ss_dir, exist_ok=True)
@@ -935,6 +943,7 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             click_fail += 1
             click_fail_total += 1
             miss += 1
+            self.info_incr('评估失败')      # U-03: 状态卡「失败: N」—— 只统计"点了没读到", 不含重复
             if why:
                 # 读不干净的**面板**存一张(不是整屏): 下次复发能直接看到当时面板长什么样
                 try:
@@ -1713,9 +1722,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 self.sleep(1.2)
 
             if stopped:
+                self.info_set('评估结束原因', '用户停止')
                 self.log_info(f'评估已停止, 本次已记录 {evaluated} 个声骸(不生成报告/不打开报告)', notify=True)
                 shutil.rmtree(tmp_dir, ignore_errors=True)
                 return
+            # U-03: 结束原因进状态卡(与下面日志里那句同源, 免得只看到一个条数不知道为啥停)
+            self.info_set('评估结束原因', stop_reason or '完成')
             # 汇总 JSON(顶层 set = 本次评估的 config 套装; 逐条的 set/set_src 见 resolve_set_name)
             output_set = self.config.get('当前套装', '通用')
             src_stat = Counter(r.get('set_src') or 'default' for r in results)

@@ -4,7 +4,7 @@ UI 共享小工具(Fluent 页面里重复用到、且各页踩过同一坑的东
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import (QLayout, QScrollArea, QSizePolicy, QTextEdit, QWidget)
 
-from qfluentwidgets import SettingCard
+from qfluentwidgets import DoubleSpinBox, SettingCard, SpinBox
 
 
 class FlowLayout(QLayout):
@@ -151,6 +151,52 @@ class LogView(QTextEdit):
 
     def minimumSizeHint(self) -> QSize:
         return QSize(120, 60)
+
+
+class _SpinLineEditFix:
+    """让 qfluentwidgets 的 SpinBox 真的把数值画出来（U-01）。
+
+    **根因**（2026-11-22 评审定位）: `qfluentwidgets.components.widgets.spin_box.SpinBoxBase`
+    在 QAbstractSpinBox 上**额外挂了一个 `QHBoxLayout`**（放上/下两个 31px 按钮）并调了
+    `setButtonSymbols(NoButtons)`。Qt 6.12 起 QAbstractSpinBox 不再自己摆内部的 QLineEdit，
+    于是它的几何停在 `QRect(0, 1, 1, 31)` —— `lineEdit().text()` 有值，但**一个像素都画不出来**。
+    用户看到的是"输入框只有上下箭头、数字看不见、键盘输入也看不见"（14/14 个全中，首个 1px）。
+
+    **改法**: `resizeEvent` 里手动把编辑区摆到左侧、右侧让出按钮。预留量**问布局要**
+    （`hBoxLayout.sizeHint().width()` = 右边距 4 + 31 + 间距 5 + 31 = 71），不写死像素 ——
+    库里按钮宽度一变就自动跟着走；拿不到布局时才退回 `FALLBACK_RESERVE`（=74，当前版本的实测值）。
+    留 `GAP` 空隙，否则文字会钻到按钮底下（实测 74 时有 6px 重叠）。
+
+    **为什么用子类**（而不是改 site-packages / 升降依赖）: 项目纪律要求依赖只读；降级 PySide6 6.12
+    会波及 OCR/引擎，得重跑全部单测与真机验证。子类只影响本项目的两个页面。
+    """
+
+    LEFT = 9                  # 编辑区左边距(与 Fluent 样式的文字起点一致)
+    GAP = 3                   # 编辑区右缘与上/下按钮之间的空隙
+    FALLBACK_RESERVE = 74     # 拿不到布局时的预留(两个 31px 按钮 + 边距)
+
+    def _reserve_width(self) -> int:
+        layout = getattr(self, 'hBoxLayout', None)
+        if layout is None:
+            return self.FALLBACK_RESERVE
+        hint = layout.sizeHint().width()
+        return hint if hint > 0 else self.FALLBACK_RESERVE
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        edit = self.lineEdit()
+        if edit is None:
+            return
+        width = max(20, self.width() - self.LEFT - self._reserve_width() - self.GAP)
+        edit.setGeometry(self.LEFT, 1, width, self.height() - 2)
+
+
+class NumberDoubleSpinBox(_SpinLineEditFix, DoubleSpinBox):
+    """看得见数值的 DoubleSpinBox（U-01）。用法与 qfluentwidgets.DoubleSpinBox 完全一致。"""
+
+
+class NumberSpin(_SpinLineEditFix, SpinBox):
+    """看得见数值的 SpinBox（U-01）。用法与 qfluentwidgets.SpinBox 完全一致。"""
 
 
 def make_scroll_transparent(scroll: QScrollArea) -> QScrollArea:

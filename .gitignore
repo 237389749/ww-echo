@@ -20,6 +20,9 @@ offline_eval.html
 offline_eval.json
 pic.html
 
+# 临时试验脚本(一次性验证用; 要留下来的进 tools/ 或 tools/analysis/)
+.scratch/
+
 # .NET 构建产物(tools/icon_export)
 tools/icon_export/bin/
 tools/icon_export/obj/

@@ -23,6 +23,8 @@ from ww_engine import og
 
 from src.echo_stats import DEFAULT_WEIGHTS
 from src.echo_set_templates import get_set_weights
+from ui.present import (VERDICT_CHIP_BG, VERDICT_CN, VERDICT_COLOR, VERDICT_ORDER,
+                        count_verdicts, status_texts, summary_text, verdict_color)
 from ui.widgets import make_scroll_transparent
 
 
@@ -471,13 +473,10 @@ class RunTab(QWidget):
         if task is None:
             return
         try:
-            self.success_label.setText(f"成功: {task.info_get('成功声骸数量') or 0}")
-            self.fail_label.setText(f"失败: {task.info_get('失败声骸数量') or 0}")
-            score = task.info_get('声骸得分')
-            self.score_label.setText(f"得分: {score}" if score is not None else "得分: -")
-            eval_count = task.info_get('评估数量')
-            if eval_count:
-                self.score_label.setText(f"评估: {eval_count}个")
+            first, second, third = status_texts(task, "评估" in self.task_combo.currentText())
+            self.success_label.setText(first)
+            self.fail_label.setText(second)
+            self.score_label.setText(third)
         except Exception:
             pass
 
@@ -526,6 +525,10 @@ class RunTab(QWidget):
             self._running = True
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
+            # 评估的计数从 0 起(状态卡三格读的是评估链的键, 与强化不同 —— 见 status_texts)
+            self.success_label.setText("已记录: 0")
+            self.fail_label.setText("失败: 0")
+            self.score_label.setText("")
             self._append_log("══════════ 开始评估 ══════════")
             self._append_log("评估按面板套装信息(图标/环色/合鸣效果明文)或声骸名自动映射套装权重, 仅打分, 不修改声骸")
             self._append_log("套装模式: " + ("精确模式(总是下滑读明文)" if task.config.get('套装精确模式')
@@ -658,18 +661,15 @@ class RunTab(QWidget):
             self._append_log("══════════ 评估结束 ══════════")
 
     def _update_eval_summary(self, data: dict):
-        """报告数据 → 「上次评估结果」卡: 判定分布 + 平均完成度(同套装内跨件可比)。"""
+        """报告数据 → 「上次评估结果」卡: 判定分布 + 平均完成度(同套装内跨件可比)。
+
+        判定分布走 `summary_text` → `count_verdicts`（六档、按 `verdict_cn` 拆分），与报告摘要
+        **同一份口径** —— 以前这里按 verdict 码把「不合格 / 不建议强化」并成一个数（U-04）。
+        """
         results = data.get("results") or []
         if not results:
             return
-        names = {"pass": "达标", "hold": "保留", "keep": "建议重铸",
-                 "pending": "建议强化", "fail": "不合格", "zero": "0级"}
-        counts: dict = {}
-        for r in results:
-            counts[r.get("verdict")] = counts.get(r.get("verdict"), 0) + 1
-        parts = [f"{names.get(k, k)} {counts[k]}" for k in
-                 ("pass", "hold", "keep", "pending", "fail", "zero") if counts.get(k)]
-        self.sum_verdicts.setText(f"{len(results)} 只 · " + " · ".join(parts))
+        self.sum_verdicts.setText(summary_text(results))
         try:
             from src.echo_score_sim import completeness
             comps = [c for c in (completeness(r.get("set"), r.get("score", 0)) for r in results)
@@ -698,13 +698,8 @@ class RunTab(QWidget):
             return None
 
 
-# 判定档位的中文名与配色。**权威文案来自判定层** —— JSON 记录里的 `verdict_cn`(judge_echo 产出);
-# 这两张表只在旧报告缺 `verdict_cn` 字段时兜底。曾用它在渲染时**覆盖**记录里的文案,
-# 导致阶段二十三的「建议强化 / 不建议强化」在报告里根本显示不出来(审阅 A 类问题)。
-VERDICT_CN = {"pass": "达标", "hold": "保留", "keep": "建议重铸",
-              "pending": "建议强化", "fail": "不建议强化", "zero": "0级/无词条"}
-VERDICT_COLOR = {"pass": "#4caf50", "hold": "#009688", "keep": "#2196f3",
-                 "pending": "#ff9800", "fail": "#f44336", "zero": "#9e9e9e"}
+# 判定档位的中文名/配色/计数/状态卡文案都在 `ui/present.py`（纯展示逻辑, 无 Qt/引擎依赖:
+# 报告 HTML、汇总卡、状态卡共用同一份口径; 也让 tools/ui_probe.py 与单测能直接跑真代码验收）。
 
 # 评估报告样式: 词条按档位(档位/均值)着色, 筛选区样式
 _EVAL_CSS = """
@@ -897,22 +892,18 @@ def _build_eval_html(data):
     results = data.get("results", [])
     ts = data.get("evaluated_at", "")
 
-    pass_n = sum(1 for r in results if r["verdict"] == "pass")
-    pend_n = sum(1 for r in results if r["verdict"] == "pending")
-    # fail 一个码里有两档文案(满级"不合格" / 未满级"不建议强化") —— 按 verdict_cn 拆开统计,
-    # 报告筛选也给两个独立选项(旧报告没有 verdict_cn 时都归"不建议强化")
-    bad_n = sum(1 for r in results if r["verdict"] == "fail"
-                and "不合格" in (r.get("verdict_cn") or ""))
-    fail_n = sum(1 for r in results if r["verdict"] == "fail") - bad_n
-    keep_n = sum(1 for r in results if r["verdict"] == "keep")
-    hold_n = sum(1 for r in results if r["verdict"] == "hold")
+    # 判定计数走**共享**的 count_verdicts(与「上次评估结果」卡同一份口径, 见 U-04):
+    # fail 一个码里装了两档(满级"不合格" / 未满级"不建议强化"), 必须按 verdict_cn 拆开。
+    vcounts = count_verdicts(results)
+    pass_n, hold_n, keep_n = vcounts["达标"], vcounts["保留"], vcounts["建议重铸"]
+    pend_n, fail_n, bad_n = vcounts["建议强化"], vcounts["不建议强化"], vcounts["不合格"]
 
     rows = []
     for r in results:
         v = r["verdict"]
-        color = VERDICT_COLOR.get(v, "#888")
         # 判定文案**以记录里的 verdict_cn 为准**(判定层产出); 旧报告缺该字段时才用 VERDICT_CN 兜底
         vcn = r.get("verdict_cn") or VERDICT_CN.get(v, "")
+        color = verdict_color(vcn, v)     # U-11: 按中文档位配色(fail 的两档才分得开, 且对比度 ≥4.5)
         stat_lines = []
         for s in r.get("stats", []):
             detail = s.get("detail") or f"{s.get('name')}={s.get('value')}"
@@ -1021,6 +1012,11 @@ def _build_eval_html(data):
         f'<option value="{n}">{n}（{c}）</option>'
         for n, c in sorted(set_counts.items(), key=lambda kv: -kv[1]))
     rules_html = _build_rules_html(results)
+    # 六档摘要 chips: 与行内判定文字**同一套色**(U-11 —— 以前这里是另一套 #2e7d32/#e65100…,
+    # 建议强化 那对只有 3.46:1)。顺序固定, 全部显示(同时充当下面筛选条的图例)。
+    chips_html = "".join(
+        f'<span style="background:{VERDICT_CHIP_BG[k]};color:{VERDICT_COLOR[k]}">{k} {n}</span>'
+        for k, n in zip(VERDICT_ORDER, (pass_n, hold_n, keep_n, pend_n, fail_n, bad_n)))
 
     return f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1031,12 +1027,7 @@ def _build_eval_html(data):
 <div class="card">
 <p>评估时间: {ts} | 共 <b>{total}</b> 个</p>
 <div class="summary">
-<span style="background:#e8f5e9;color:#2e7d32">达标 {pass_n}</span>
-<span style="background:#e0f2f1;color:#00695c">保留 {hold_n}</span>
-<span style="background:#e3f2fd;color:#1565c0">建议重铸 {keep_n}</span>
-<span style="background:#fff3e0;color:#e65100">建议强化 {pend_n}</span>
-<span style="background:#ffebee;color:#c62828">不建议强化 {fail_n}</span>
-<span style="background:#ffebee;color:#b71c1c">不合格 {bad_n}</span>
+{chips_html}
 </div>
 </div>
 {rules_html}
