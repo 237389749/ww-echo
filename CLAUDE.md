@@ -235,7 +235,7 @@ tools/analysis/           复现脚本入库区(约定: 文件头写"输入→�
   `write_json_file` 是 `tmp + os.replace`; `BitBltCaptureMethod.close()` 真释放 GDI; `prevent_sleeping` 有 `finally`。
 
 C 批(17 个 🟢, 补记 80)里值得记的一句: **`get_set_weights` 返回副本**、**`cap==inf` 不写进 JSON**、
-**`_pair_props` 两侧数量相等时按行序配对**、**生成物 `_source` 不写绝对路径**、
+**`_pair_props` 一直用最近邻贪心、不要改成"数量相等就 zip"**(rep7 #136/#137: 名/值各多一个噪声时数量会凑巧相等，zip 会把整列错开一格，见补记 81)、**生成物 `_source` 不写绝对路径**、
 **预设的 `specialty_src` 分清 explicit/template**(模板推断的专伤换套装后不钉死)。详见 CHANGELOG 补记 80。
 
 ## 组合穷举(阶段二十九: 面板聚合 + 伤害排名)
@@ -646,7 +646,7 @@ report5 的 140 张面板离线回归 **123/140 = 87.9%**（4 只绿熔蜥被图
 
 - **判定链权威说明**: `eval_rules.md`(分类矩阵/数学依据/已评估不改项 E1~E7); 判定单测 `tests/test_judge_rules.py`
 - **分支**: 阶段三十一起在 `engine/vendor`(未合并 `main`, 等真机验收); 其余已在 `main`
-- 改动后跑: `python -m unittest discover -s tests`(**464 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
+- 改动后跑: `python -m unittest discover -s tests`(**465 项**, 需 Python **3.10+** —— 下界是 openvino/PySide6 要的,
   代码语法 3.8 即可, 3.13/3.14 已实测) + `python tools/ui_probe.py --strict`(界面 5 项缺陷探针, 应 **5/5**)
   + `python tools/ui_shot.py` + `tools/offline_eval_report.py`(需 eval_debug 素材) + `tools/echo_plan.py --list`
 - **真机评估验收 = 一条命令**: `python tools/analysis/verify_eval_run.py <保存的报告>.json --log logs/ok-echo.log --check --expect 160`

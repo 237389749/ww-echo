@@ -17,7 +17,7 @@
 | 显示器/分辨率 | **任意窗口比例**（1024x768 起；`supported_resolution.ratio=None` 时按帧宽高线性映射） | 真机评估需要游戏在"背包声骸列表"界面；只有"全屏+黑边"才需显式设 `ratio='16:9'` |
 
 > **本机当前状态（2026-11-22 复核）**：`requirements.txt` 已按钉死版本装进**系统 Python 3.13.16**
-> （`python -m pip install -r requirements.txt`，**464** 项单测在该解释器上全绿、`import mainui` 通过），
+> （`python -m pip install -r requirements.txt`，**465** 项单测在该解释器上全绿、`import mainui` 通过），
 > 因此 `python mainui.py` / `run.cmd`（无 `.venv` 时回落到 PATH 的 `python`）可直接跑。
 > `%TEMP%\ww-echo-venv313` 是 2026-11-13 旧会话遗留的临时环境（约 1.1GB），**已不被引用，可删**。
 
@@ -31,7 +31,7 @@ python -c "import ww_engine, cv2, numpy; print('ok')"   # 任一失败 = 环境�
 
 | # | 命令 | 期望输出 | 依赖 |
 |---|---|---|---|
-| B1 | `python -m unittest discover -s tests` | **464 项**（`Ran 464 tests` / `OK (skipped=2)`；无素材时个别用例 `skipTest`，总数不变）。2026-11-22 B1 起含 `tests/test_ui_guards.py` 29 项（SpinBox 几何/文本放得下/抓图有字、两页可滚、调试页日志卡、运行页日志卡+最小宽+模式徽标、穷举动作条/列语义、status_texts、count_verdicts、判定色对比度）\n与 `tests/test_report_layout.py` 22 项（主行/详情行配对、筛排只认主行、打印样式、hash、chip 与符号、规则文案、正文无 `**`）\n与 `tests/test_backend_guards.py` 6 项（2026-11-22 后端审查 A 批：产品面不许裸 `cv2.imwrite` / 中文目录真能出图 / 写失败返回 `''`、`destroy()` 在 `finally` 里 / `evaluate_only` 捕 `BaseException`；`tests/test_char_profiles.py` 另加 6 项：坏预设文件拒绝覆盖 + 提交前校验、预设门槛必须进请求） | 仅代码 |
+| B1 | `python -m unittest discover -s tests` | **465 项**（`Ran 465 tests` / `OK (skipped=2)`；无素材时个别用例 `skipTest`，总数不变）。2026-11-22 B1 起含 `tests/test_ui_guards.py` 29 项（SpinBox 几何/文本放得下/抓图有字、两页可滚、调试页日志卡、运行页日志卡+最小宽+模式徽标、穷举动作条/列语义、status_texts、count_verdicts、判定色对比度）\n与 `tests/test_report_layout.py` 22 项（主行/详情行配对、筛排只认主行、打印样式、hash、chip 与符号、规则文案、正文无 `**`）\n与 `tests/test_backend_guards.py` 6 项（2026-11-22 后端审查 A 批：产品面不许裸 `cv2.imwrite` / 中文目录真能出图 / 写失败返回 `''`、`destroy()` 在 `finally` 里 / `evaluate_only` 捕 `BaseException`；`tests/test_char_profiles.py` 另加 6 项：坏预设文件拒绝覆盖 + 提交前校验、预设门槛必须进请求） | 仅代码 |
 | B1c | `python tools/verify_report_js.py <报告.html>` | **11 项全 PASS**（退出码 0）：点可见主行→详情展开 / 被筛掉的行点开不展开 / 排序后 160 组配对 0 断开 / `#hash` 还原筛选 / 筛掉已展开的行时详情跟着藏 | 需要一份报告 + QtWebEngine（离屏） |
 | B1b | `python tools/ui_probe.py --strict` | **5/5 通过**（退出码 0）。C1 SpinBox 数值可见（0/14 窄、0 个文本被裁）/ C2 页面滚动范围 >0 / C3 评估计数 / C4 六档拆分 / C5 判定色 ≥4.5:1 | 仅代码（离屏 Qt） |
 | B2 | `python tools/offline_eval_report.py` | 入报告 **109 只**（满级 90 / 未满级 19）；判定分布 `达标 38 / 保留 35 / 建议重铸 0 / 建议强化 7 / 不建议强化 12 / 不合格 17`（粗分桶 `pass 38 / hold 35 / keep 0 / pending 7 / fail 29`）；**主属性数值可疑 0 条**；套装来源 `{icon:108, name:1}`。⚠ 旧的 `39/38/1/7/12/12` 是**听唤语义之愿权重调整前**的产物；**2026-11 的 Lv5/Lv10 首条判定改动后「建议强化/不建议强化」可能变化，需在素材机上重跑本表** | `logs/eval_debug/20260911_110817/`（**未入库**，见 §3） |

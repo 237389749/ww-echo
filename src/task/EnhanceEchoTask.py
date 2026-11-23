@@ -233,16 +233,15 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         """按 y 坐标(相对行序, 分辨率无关)配对待属性名和数值, 返回 [(name, value_str), ...].
         先对两侧按 y 排序: OCR 返回顺序不保证有序, 不排序则"前 2 行=主属性"等行序语义会错。
 
-        **两侧数量相等时按序配对**(正常面板: 一行一个值), 只在数量不等(多/少一条噪声行)时
-        才退回"最近邻贪心"—— 贪心会让某个值被上一行抢走、后面整片错位(C6)。
+        **一直用"最近邻 + 未用集合"**(贪心), **不要**改成"数量相等时按行序 zip":
+        rep7 的 #136/#137 就是反例 —— 面板是 +20/4 词条, 技能描述行被挤进了 detail 区(多一个**名**),
+        同时 OCR 把 `COST 3` 拆成两个框、裸 `3` 被当成**值**(多一个值), 名/值数量**凑巧相等**,
+        zip 于是把整列错开一格(冷凝 25.2 → 记成 3.0, 主属性/词条全错; 见 CHANGELOG 补记 81)。
+        贪心在这种情况下是对的: 每个名都拿离自己最近的值, 多出来的噪声值落到尾部噪声行。
         """
-        props = sorted(properties, key=lambda p: p.y)
-        vals = sorted(values, key=lambda v: v.y)
-        if len(props) == len(vals):
-            return [(p.name, v.name) for p, v in zip(props, vals)]
         paired = []
-        unmatched = list(vals)
-        for prop in props:
+        unmatched = sorted(values, key=lambda v: v.y)
+        for prop in sorted(properties, key=lambda p: p.y):
             v_text = "0"
             if unmatched:
                 closest = min(unmatched, key=lambda v: abs(prop.y - v.y))
@@ -1390,6 +1389,12 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 if m:
                     p.name = m.group()
             values = self.find_boxes(texts, match=number_pattern)
+            # **表头噪声先剔掉**: COST 角标与等级都在第一行属性名的**上方**。OCR 有时把 `COST 3`
+            # 拆成两个框，那个裸 `3` 也会被 `number_pattern` 当成"数值" —— 它一进 values 就可能与
+            # 属性名错配一格(rep7 #136/#137: 冷凝 25.2 被记成 3.0, 整列右移)。
+            if properties:
+                value_floor = properties[0].y - 8
+                values = [v for v in values if v.y >= value_floor]
             level = self.parse_level(texts)
             level_box = self.level_box(texts)      # 图标锚点(套装图标跟在等级文字右侧)
             if not properties:

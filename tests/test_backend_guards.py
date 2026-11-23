@@ -179,10 +179,12 @@ class TestCaptureClose(unittest.TestCase):
 
 
 class TestPairProps(unittest.TestCase):
-    """C6：`_pair_props` 在数量相等时按**行序**配对。
+    """`_pair_props` 必须**一直**用"最近邻 + 未用集合"（贪心）。
 
-    旧实现是"最近邻贪心"：某个值先被上一行抢走，后面的行整体错位 ——
-    正常面板（N 个属性名 + N 个数值）用行序比"最近"更稳。
+    2026-11-23 的 rep7 真机报告把这条钉死了：当时试过"数量相等就按行序 zip"，结果 #136/#137
+    （+20/4 词条）名/值各多一个噪声（技能描述行 + `COST 3` 拆出来的裸 `3`）**凑巧数量相等** →
+    zip 把整列错开一格：截图上是 `冷凝伤害加成 25.2% / 攻击 84 / 攻击 8.6% / 暴击 6.3%`，
+    记录成了 `冷凝 3.0 / 攻击 25.2 / 暴击 8.6 / 生命 6.3`。
     """
 
     @staticmethod
@@ -190,13 +192,29 @@ class TestPairProps(unittest.TestCase):
         from types import SimpleNamespace
         return SimpleNamespace(name=name, y=y)
 
-    def test_equal_counts_pair_in_order(self):
+    def test_normal_panel_pairs_in_order(self):
         props = [self._box("攻击", 100), self._box("暴击", 200)]
         vals = [self._box("150", 110), self._box("6.3%", 190)]
         self.assertEqual(EnhanceEchoTask._pair_props(props, vals),
                          [("攻击", "150"), ("暴击", "6.3%")])
 
-    def test_unequal_counts_fall_back_to_nearest_and_fill_zero(self):
+    def test_rep7_shift_case(self):
+        """rep7 #136 的真实几何：7 个名（含尾部署性描述行）+ 7 个值（含表头 `COST 3` 的裸 3）。"""
+        props = [self._box("冷凝伤害加成", 250), self._box("攻击", 285),
+                 self._box("攻击", 320), self._box("暴击", 355),
+                 self._box("生命", 390), self._box("普攻伤害加成", 425),
+                 self._box("使用声骸技能，召唤车刃镰", 600)]
+        vals = [self._box("3", 110), self._box("25.2%", 265), self._box("84", 300),
+                self._box("8.6%", 335), self._box("6.3%", 370),
+                self._box("8.6%", 405), self._box("9.4%", 440)]
+        paired = EnhanceEchoTask._pair_props(props, vals)
+        self.assertEqual(paired[0], ("冷凝伤害加成", "25.2%"))    # ← 错位时这里是 ("冷凝伤害加成", "3")
+        self.assertEqual(paired[1], ("攻击", "84"))
+        self.assertEqual(paired[3], ("暴击", "6.3%"))
+        self.assertEqual(paired[5], ("普攻伤害加成", "9.4%"))
+        self.assertEqual(paired[6], ("使用声骸技能，召唤车刃镰", "3"))   # 噪声行吃掉表头噪声值
+
+    def test_fewer_values_than_props_fills_zero(self):
         props = [self._box("攻击", 100), self._box("暴击", 200), self._box("声骸技能", 300)]
         vals = [self._box("150", 110), self._box("6.3%", 190)]
         self.assertEqual(EnhanceEchoTask._pair_props(props, vals),
