@@ -566,7 +566,10 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         #   1920x1200 帧换算参考: 名字 y≈0.10, COST y≈0.21, 主属性 y≈0.37/0.42, 词条 y≈0.45..0.61(第5条),
         #   "声骸技能"行 y≈0.62 由 read_detail 按行过滤; "前 2 行=主属性"是相对行序判断, 不依赖帧高
         grid_box = GRID_BOX
-        detail_box = (0.66, 0.10, 0.995, 0.635)
+        # 上边界 0.10 → 0.085: **名字行在 0.092~0.116**(rep7 #78 截图实测, 帧 1254x889),
+        # 原来 0.10 正好从名字字高的 1/3 处切下去 —— OCR 多数时候能从残字认出, 偶尔只吐 1 个字 →
+        # 被 property_pattern 的 {2,} 过滤掉 → 名字为空(rep7 #78/#79/#96~99)。
+        detail_box = (0.66, 0.085, 0.995, 0.635)
         # 找套装要读**整块**详情面板(含最下面的合鸣效果区) —— `detail_box` 只到 0.635，
         # 套装名在面板下半截，会漏。**归一化比例**(self.ocr 的入参口径; 别传像素, 见 _effect_box_px)
         EFFECT_BOX = (0.66, 0.08, 0.995, 0.95)
@@ -1349,6 +1352,25 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                     return True
             return False
 
+        def _read_echo_name_retry() -> str:
+            """名字读空时的兜底: 把上边界放到 0.05 再读一遍, 只取最上面那行中文。
+
+            为什么不只靠 ①: 面板在不同分辨率/缩放下名字行的 y 会漂几像素, 一次裁切不可能对全部帧都稳;
+            这里只在**已经读空**时付一次 OCR(rep7 是 9/139), 拿到名字就够(不碰属性行)。
+            """
+            try:
+                texts = self.ocr(0.66, 0.05, 0.995, 0.22)
+            except Exception as e:                 # noqa: BLE001 - 兜底失败不影响其余读数
+                self.log_debug(f'名字兜底读取失败: {e}')
+                return ''
+            boxes = [b for b in self.find_boxes(texts, match=property_pattern)
+                     if str(getattr(b, 'name', '')).strip() not in ('声骸技能', 'COST', 'Z', 'C')]
+            if not boxes:
+                return ''
+            boxes.sort(key=lambda b: b.y)
+            m = property_pattern.search(str(boxes[0].name))
+            return m.group() if m else ''
+
         def read_detail():
             """OCR 右侧详情面板。返回 (echo_name, paired_all, detail_sig, cost, level, level_box):
               echo_name  声骸名(面板顶部唯一中文行, y < 0.28*fh; 用于签名唯一性)
@@ -1385,6 +1407,8 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
                 # 面板顶部第一个中文行(归一化 y<0.28, 分辨率无关) = 声骸名, 提出来不进 properties(避免与数值错配)
                 echo_name = properties[0].name
                 properties = properties[1:]
+            if not echo_name:
+                echo_name = _read_echo_name_retry()
             for p in properties:
                 m = property_pattern.search(p.name)
                 if m:
