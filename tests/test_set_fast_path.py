@@ -43,7 +43,7 @@ def synth_frame(tpl_path, size=(1200, 1920)):
 
 
 class TestQuickSetFromHeader(unittest.TestCase):
-    """`quick_set_from_header` 是"不滚面板"的唯一入口：图标 → 环色，都不行才返回 None。"""
+    """`quick_set_from_header` 是"不滚面板"的唯一入口：图标命中才返回, 环色只收窄(返回 None 去滚面板)。"""
 
     def setUp(self):
         self.task = EnhanceEchoTask.__new__(EnhanceEchoTask)   # 只用纯逻辑, 不跑 __init__
@@ -88,7 +88,8 @@ class TestQuickSetFromHeader(unittest.TestCase):
         self.assertIsNotNone(a, '模板环色没有两组不同色组?')
         self.task._executor.frame = np.zeros((1200, 1920, 3), np.uint8)    # 图标不可用
         got = self.task.quick_set_from_header('甲', (hues[a], True), [b, a], self._box())
-        self.assertEqual(got, (a, 'hue'))
+        # **环色不再定案**(2026-11-23 用户核对 rep7: 13 条 hue 里错 2 条) → 交调用方滚面板读明文
+        self.assertIsNone(got)
 
 
 class TestWiring(unittest.TestCase):

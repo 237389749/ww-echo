@@ -16,7 +16,7 @@ r"""一次真机评估的验收：条数 / 去重 / 套装来源 / 回顶·COST�
       / `effect` 出现即 **WARN**（不计入硬门槛：停用后新报告应为 0，>0 只提示不判失败 ——
       旧报告兼容，见 2026-11-22 后端审查 B5）/ 面板回顶失败 = 0 / 缺 COST = 0 / 词条缺失 = 0 /
       完全重复 0 / 报告里没有
-      `持有数量` 这类假主属性 / **主属性数值可疑 = 0**（读 `main_values_check` 的 `ok is False`；
+      `持有数量` 这类假主属性 / **名字读空 ≤ `--max-noname`(默认 0)** / **主属性数值可疑 = 0**（读 `main_values_check` 的 `ok is False`；
       2026-11-22 B4 修掉了写错的字段名 `main_prop_check`，那让这项检查恒为 0）。`--expect` 缺省不再写死（旧默认 144 会误杀 160 的报告），
       真机验收一律显式给 `--expect 160`（见 `docs/BASELINE.md` B7）
   - `docs/BASELINE.md` 的「真机评估」验收口径
@@ -249,6 +249,8 @@ def main() -> int:
     ap.add_argument('--min-panel-pct', '--min-text-pct', dest='min_text_pct', type=float, default=85.0,
                     help='text+icon 至少占比(%%)，低于则告警（2026-11-20：图标升为一等信号；旧名 --min-text-pct）')
     ap.add_argument('--screens', action='store_true', help='打印每一屏')
+    ap.add_argument('--max-noname', type=int, default=0,
+                    help='允许的「名字读空」条数（默认 0；名字行不在 OCR 裁框里就会读空，见补记 83）')
     ap.add_argument('--check', action='store_true', help='有问题时退出码 1')
     args = ap.parse_args()
 
@@ -381,6 +383,19 @@ def main() -> int:
         # **字段名是 `main_values_check`**, 元素是 `{name, value, ok, expect, tol}`(evaluate_one 写的),
         # 没有 `status` 键。旧代码读的是不存在的 `main_prop_check`/`status` → 这项**恒为 0**,
         # 于是"主属性数值可疑"永远不会报警(2026-11-22 后端审查 B4, 有复现)。
+        # **名字读空**: 以前完全静默(rep7 有 9 条, 用户是逐条看截图才发现的)。
+        # 根因是名字行被 OCR 裁框切掉上沿 1/3 → 见补记 83; 修完应恒为 0, 所以默认就是硬闸。
+        n_noname = sum(1 for r in rows if not str(r.get('name') or '').strip())
+        if n_noname:
+            print(f'\n[名字] 读空 {n_noname} 条  -> '
+                  f'{"WARN" if n_noname <= args.max_noname else "FAIL"}（允许 {args.max_noname} 条）')
+            if n_noname > args.max_noname:
+                problems.append(f'名字读空 {n_noname} 条（允许 {args.max_noname}）')
+            else:
+                warns.append(f'名字读空 {n_noname} 条')
+        else:
+            print('\n[名字] 0 条读空  -> PASS')
+
         mp_bad = sum(1 for r in rows
                      if any(m.get('ok') is False for m in (r.get('main_values_check') or [])))
         if mp_bad:

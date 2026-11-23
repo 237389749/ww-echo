@@ -521,9 +521,14 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
         if len(cands) > 1 and badge is not None:
             narrowed = filter_by_set_hue(cands, badge[0], badge[1])
             if len(narrowed) == 1:
-                self.log_info(f'[套装环色] {echo_name} → {narrowed[0]}'
-                              f' (候选 {cands} 按环色 {hue_group(badge[0])} 过滤, 不滚面板)')
-                return narrowed[0], 'hue'
+                # **环色只收窄、不定案**(2026-11-23 用户核对 rep7): 13 条 hue 定案里错了 2 条
+                # (#49 双极·渊陨重锋 应为听唤、#84 莳植熊蜂 应为流金)。环色是 8 个粗色组 + 无彩色组,
+                # 同组内多套无法区分 → 独中也可能只是"这一组里只有一个候选"。
+                # 返回 None 让调用方**滚面板读套装名明文**; 明文也读不到时, resolve_set_name 仍会用
+                # hue 兜底(那条路排在 text/icon 之后, 不再抢跑)。
+                self.log_info(f'[套装环色] {echo_name} 候选 {cands} 收窄到 {narrowed[0]} '
+                              f'(环色 {hue_group(badge[0])}) —— 环色不定案, 滚面板读明文确认')
+                return None
         self.log_debug(f'[套装快速] {echo_name} 图标未达置信线'
                        f'(s1={score:.3f}/{MIN_SCORE} margin={margin:.3f}/{MIN_MARGIN}) → 滚面板读明文')
         return None
