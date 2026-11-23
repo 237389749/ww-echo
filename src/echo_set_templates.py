@@ -565,6 +565,85 @@ def echo_set_counts() -> dict[str, int]:
     return {name: len(info.get("sets") or []) for name, info in echoes.items()}
 
 
+_COST_KEYS_ORDER = ("4c", "3c", "1c")
+
+
+def echoes_of_set(set_name: str | None, cost: int | None = None) -> list[str]:
+    """套装包含的声骸名（来自官方生成物 `sets[名].echoes`，可按 COST 过滤）。
+
+    这是「以套装反推声骸名」的数据基础：**名字→套装的多义（229 个里 158 个属 ≥2 套）在反方向不存在** ——
+    每套只有 6~18 个名字、按 COST 一档只剩 1~11 个，且套装内不重名。
+    """
+    info = get_set_echoes(set_name) or {}
+    if cost in (1, 3, 4):
+        return list(info.get(f"{cost}c") or [])
+    return [n for k in _COST_KEYS_ORDER for n in (info.get(k) or [])]
+
+
+def _cjk_chars(text: str) -> set[str]:
+    return {ch for ch in (text or "") if "\u4e00" <= ch <= "\u9fff"}
+
+
+def _best_in_pool(name: str, pool: list[str]) -> tuple[str | None, int]:
+    """在**小池子**里找最像的名字 → (唯一最佳 | None, 共享汉字数)。
+
+    评分 = (共享汉字数, LCS 长度)。**必须唯一**（并列就返回 None，宁缺毋滥）。
+    为什么不用全局那套 LCS≥3：OCR 常把 2~3 字的名字读错 1 个字（`晶蟹蝎`→`晶螯蝎`、`呼麻淋`→`呼咻咻`），
+    LCS 只有 1~2；但在"套装已知 + COST 已知"的小池子里，共享汉字往往是唯一的。
+    """
+    if not name or not pool:
+        return None, 0
+    name_cjk = "".join(_cjk_chars(name))
+    if not name_cjk:
+        return None, 0
+    scored = []
+    for cand in pool:
+        shared = len(_cjk_chars(name) & _cjk_chars(cand))
+        if not shared:
+            continue
+        scored.append(((shared, _lcs_len(name_cjk, cand)), cand))
+    if not scored:
+        return None, 0
+    scored.sort(reverse=True)
+    best_key, best = scored[0]
+    if len(scored) > 1 and scored[1][0] == best_key:
+        return None, best_key[0]          # 并列 → 不猜
+    return best, best_key[0]
+
+
+def verify_echo_name(name: str, set_name: str | None, cost: int | None = None,
+                     set_src: str = "") -> dict:
+    """用**高置信套装**反查/核验声骸名 → `{name, src, candidates, how}`。
+
+    只在 `set_src in ("text", "icon")` 时才动（这两个来源是面板上的硬信号）；
+    `hue` / `name` / `default` 的套装本身可疑，拿它改名字只会把两个错误串起来。
+    返回的 `src`:
+      - `ocr`    没核验（套装不够硬 / 该套装没有清单）
+      - `set-ok` 名字本来就在该套装清单里
+      - `set-fix` 名字被**唯一**候选纠正（`how` 说明依据）
+      - `set-only` 名字读空且该套装该 COST 只有 1 个候选 → 直接采用
+      - `ambiguous` 名字读空/对不上，且候选不止一个 → 只回候选清单，**不改**
+    """
+    out = {"name": name or "", "src": "ocr", "candidates": [], "how": ""}
+    if set_src not in ("text", "icon") or not set_name or set_name == "通用":
+        return out
+    pool = echoes_of_set(set_name, cost)
+    if not pool:
+        return out
+    if name and name in pool:
+        out["src"] = "set-ok"
+        return out
+    hit, shared = _best_in_pool(name, pool)
+    if hit:
+        out.update(name=hit, src="set-fix", how=f"共享 {shared} 字")
+        return out
+    if not name and len(pool) == 1:
+        out.update(name=pool[0], src="set-only", how="该套装该 COST 唯一候选")
+        return out
+    out.update(src="ambiguous", candidates=pool)
+    return out
+
+
 def get_set_by_echo(echo_name: str, prefer: str | None = None) -> str | None:
     """声骸名 → 套装名(评估时按声骸名选套装配置)。未录入返回 None(调用方回退通用)。
     多套装声骸: prefer 在候选内则取其(尊重调用方语境), 否则取声明顺序首个。"""

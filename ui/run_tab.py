@@ -1134,10 +1134,19 @@ def _build_eval_html(data):
                              f'{names}</span></div>')
         stats_html = "".join(stat_rows) or '<div class="srow invalid">未强化/无词条</div>'
         name = r.get("name", "")
-        name_esc = _esc(name)
+        name_esc = _esc(name) if name else ("?" if r.get("name_candidates") else "")
         # OCR 原文与规范名不同(错字已被容错匹配纠正)时, 把原文放进 title 供追溯
         name_raw = r.get("name_raw") or name
-        name_title = f' title="OCR 识别为: {_esc(name_raw)}"' if name_raw != name else ''
+        # 名字来源: OCR / 套装反查纠正 / 只有候选(读空) —— 都放进 title, 表格里不占宽度
+        title_bits = []
+        if name_raw != name:
+            title_bits.append(f"OCR 识别为: {name_raw}")
+        if r.get("name_src") in ("set-fix", "set-only"):
+            title_bits.append(f'套装反查纠正({"共享汉字" if r.get("name_how") else ""})'
+                              if not r.get("name_how") else f'套装反查纠正({r["name_how"]})')
+        if r.get("name_candidates"):
+            title_bits.append("候选: " + " / ".join(str(x) for x in r["name_candidates"]))
+        name_title = f' title="{_esc(" · ".join(title_bits))}"' if title_bits else ''
         # 套装来源(resolve_set_name): text=合鸣效果区的套装名明文 / effect=合鸣效果原文反查 /
         # icon=详情面板图标 / hue=卡片徽章环色 / name=声骸名候选兜底 / default=通用; 旧报告无字段 → "—"
         set_name = r.get("set") or "—"

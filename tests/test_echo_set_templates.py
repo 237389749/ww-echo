@@ -186,6 +186,58 @@ class TestTemplateValidation(unittest.TestCase):
                 T._TEMPLATE_PATH, T._template_cache, T._cache_mtime, T._echo_index = old
 
 
+class TestVerifyNameBySet(unittest.TestCase):
+    """用**高置信套装**反查声骸名（2026-11-23 用户口径，rep7 实测）。
+
+    名字层 229 个里 158 个属 ≥2 套 + OCR 错字 → 单看名字几乎不可分；
+    反方向"套装→名字"每套只有 6~18 个、按 COST 一档只剩 1~11 个 → 小池子里唯一最佳即可纠正。
+    所有用例的名字/套装都来自 rep7 的真实记录。
+    """
+
+    def _v(self, name, set_name, cost, src="icon"):
+        return T.verify_echo_name(name, set_name, cost, src)
+
+    def test_typo_names_are_fixed_by_set(self):
+        self.assertEqual(self._v("晶蟹蝎", "轻云出月", 1)["name"], "晶螯蝎")
+        self.assertEqual(self._v("呼麻淋", "轻云出月", 1)["name"], "呼咻咻")
+        self.assertEqual(self._v("阿丝磁", "轻云出月", 1)["name"], "阿嗞嗞")
+        self.assertEqual(self._v("游七蝶", "隐世回光", 1)["name"], "游弋蝶")
+        self.assertEqual(self._v("双极·渊重锋", "听唤语义之愿", 3)["name"], "双极·渊陨重锋")
+        # 息界同调之律: 3C=梦魇·青羽鹭 / 1C=梦魇·咕咕河豚·梦魇·啾啾河豚 —— COST 决定候选池, 两条都对
+        self.assertEqual(self._v("梦魔·啾啾河豚", "息界同调之律", 1)["name"], "梦魇·啾啾河豚")
+        self.assertEqual(self._v("梦庵·肯羽莺", "息界同调之律", 3)["name"], "梦魇·青羽鹭")
+
+    def test_tie_is_not_guessed(self):
+        """`咔際際` 在隐世回光 1C 里同时像 `咔嚓嚓`/`呜咔咔` → 并列, 只回候选不改名。"""
+        got = self._v("咔際際", "隐世回光", 1)
+        self.assertEqual(got["name"], "咔際際")
+        self.assertEqual(got["src"], "ambiguous")
+        self.assertIn("咔嚓嚓", got["candidates"])
+        self.assertIn("呜咔咔", got["candidates"])
+
+    def test_empty_name_lists_candidates(self):
+        got = self._v("", "听唤语义之愿", 1)
+        self.assertEqual(got["name"], "")
+        self.assertEqual(got["src"], "ambiguous")
+        self.assertEqual(sorted(got["candidates"]), sorted(["噼啪啪", "矿岩熊蜂", "莳植熊蜂"]))
+
+    def test_empty_name_with_single_candidate_is_used(self):
+        """听唤语义之愿 的 4C 只有一个名字 → 空名字也能定。"""
+        got = self._v("", "听唤语义之愿", 4)
+        self.assertEqual((got["name"], got["src"]), ("无铭探索者", "set-only"))
+
+    def test_weak_set_sources_are_ignored(self):
+        """hue/name/default 的套装本身可疑, 不许拿它改名（rep7 #49 就是 hue 判错）。"""
+        for src in ("hue", "name", "default", ""):
+            got = self._v("晶蟹蝎", "轻云出月", 1, src)
+            self.assertEqual(got["name"], "晶蟹蝎", src)
+            self.assertEqual(got["src"], "ocr", src)
+
+    def test_name_already_in_pool_is_verified(self):
+        got = self._v("噼啪啪", "听唤语义之愿", 1)
+        self.assertEqual((got["name"], got["src"]), ("噼啪啪", "set-ok"))
+
+
 class TestLowFirst(unittest.TestCase):
     """低权重首条门槛 `_low_first`: **按套装可选** —— 只有轻云出月这类带 0.1 占位键的套装需要。"""
 

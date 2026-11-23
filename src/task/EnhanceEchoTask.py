@@ -17,7 +17,8 @@ from src.echo_stats import (snap_to_tier, get_mean, is_stat_match,
 from src.echo_main_prop import check_main_values
 from src.echo_set_templates import (STAT_ORDER, get_all_set_names, get_set_weights, match_set_text,
                                     get_set_core_first, get_set_low_first, has_heading, name_own_line,
-                                    get_sets_by_echo, echo_set_counts, normalize_echo_name, load_gamedata)
+                                    get_sets_by_echo, echo_set_counts, normalize_echo_name, load_gamedata,
+                                    verify_echo_name)
 from src.echo_icon_match import (match_icon, icon_box_at_level, MIN_MARGIN, MIN_SCORE,
                                  badge_hue, filter_by_set_hue, hue_group)
 from src.task.BaseEchoTask import BaseEchoTask
@@ -2370,6 +2371,19 @@ class EnhanceEchoTask(BaseEchoTask, FindFeature):
             bad = [m for m in check_main_values(main_props, tier) if m.get("ok") is False]
             if bad:
                 rec["main_values_check"] = bad
+        # **用高置信套装反查声骸名**(2026-11-23 用户口径): 名字层 229 个里 158 个属 ≥2 套、还常带 OCR 错字;
+        # 反方向"套装→名字"每套只有 6~18 个、按 COST 一档只剩 1~11 个 → 小池子里唯一最佳即可纠正。
+        # 只在 text/icon 套装上做(hue/name/default 的套装本身可疑, 拿它改名只会把两个错误串起来);
+        # 并列就只回候选清单、不改名。全部字段都是**新增**的, 旧报告与离线重放不受影响。
+        check = verify_echo_name(rec["name"], set_name, cost, set_src)
+        if check["name"] and check["name"] != rec["name"]:
+            rec["name"] = check["name"]
+        if check["src"] != "ocr":
+            rec["name_src"] = check["src"]
+            if check["how"]:
+                rec["name_how"] = check["how"]
+        if check["candidates"]:
+            rec["name_candidates"] = check["candidates"]
         return rec
 
     @staticmethod
