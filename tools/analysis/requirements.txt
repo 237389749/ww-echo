@@ -1,0 +1,10 @@
+# 分析脚本的额外依赖（运行时应用不需要这些）
+#
+# 主依赖见仓库根 requirements.txt（cv2 / PySide6 等）；
+# 这里的两个只有 tools/analysis/ 下的脚本用：
+#
+#   openpyxl    team_panel_xlsx.py / team_plan_xlsx.py 生成 xlsx
+#   （cv2 来自主 requirements.txt；team_plan.py 要它）
+#
+# 装：pip install -r tools/analysis/requirements.txt
+openpyxl==3.1.5

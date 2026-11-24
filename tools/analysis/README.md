@@ -26,7 +26,8 @@
 | `verify_eval_run.py <评估json> [--log …]` | 评估 JSON + 运行日志 → 一条命令出真机验收表（2026-11-19 口径：条数 **144±2**、完全重复、`set_src=text` **≥85%**、**面板回顶失败 0**、**缺 COST 0**、**无 `持有数量` 假主属性**、每屏重叠、无重叠守卫/受阻/过滚）；`--check` 有问题退出码 1（旧报告没有 `cost` 字段时该项 SKIP） | `docs/SESSION_2026-11-19.md` §9 的四个数；`docs/BASELINE.md` §2 |
 | `replay_panel_scroll.py [目录]` | 评估时存的 `logs/panel_debug/<ts>/` → 逐只重放「找套装」：线上结论 vs 离线（第几步命中）、回顶是否成功、长图尺寸；`--stitch` 补长图、`--steps` 每步 OCR、`--check` 有漏读/回顶失败退出码 1 | CHANGELOG 补记 47/48；`CLAUDE.md` 评估遍历·面板数据集 |
 | `team_plan.py [--no-gates] [--swap4c]` / `team_plan_xlsx.py` | `eval_report6.json` + 7 角色输入 → `logs/analysis/team_plan_20261124/` 的 JSON/Markdown/CSV/XLSX（各角色 Top 10、队伍合计、评分法对照）。默认口径乘共效循环系数、暴击稳定性系数关（可无限重开，波折不构成成本）；`--no-gates` 全关、`--crit-gate` 开暴击惩罚、`--swap4c` 4C 主词条换暴伤、`--swap3c key,…` 3C 主词条换攻击% 的假设枚举 | 本次：7 角色声骸组合、仇远 3+2 vs 轻云 5、五件最高分能否替代穷举 |
-| `team_panel_xlsx.py [team_plan.json] [out.xlsx]` | `team_plan.json` → `team_panel.xlsx`（9 页：角色基础/补正明细/面板汇总/配队/最优组合/E 与 43311/4C 主属性/纯伤害口径/说明与校验）：`补正明细` 38 条为唯一事实源，`面板汇总` 用 SUMPRODUCT 从明细现算并与文档 §3 实时比对（\|Δ\|≤0.05）；`最优组合` 给出 5 只的实例编号 | `docs/TEAM_PANEL_SUMMARY_2026-11-24.md` §8；面板账本 / 三种目标的归属核对 |
+| `build_team_panel.py [--skip-data] [--check] [--values-only] [--py-data/--py-xlsx 路径]` | **一键复现入口**：跑 4 份 `team_plan`（默认 / --no-gates / --swap4c / --swap3c）+ 两个工作簿；自带 `cv2`/`openpyxl` 依赖探测（本仓库需要两个解释器），`--check` 只验环境 | `docs/TEAM_PANEL_SUMMARY_2026-11-24.md` §10.6 |
+| `team_panel_xlsx.py [team_plan.json] [out.xlsx] [--values-only]` | `team_plan.json` → `team_panel.xlsx`（9 页：角色基础/补正明细/面板汇总/配队/最优组合/E 与 43311/4C 主属性/纯伤害口径/说明与校验）：`补正明细` 38 条为唯一事实源，`面板汇总` 用 SUMPRODUCT 从明细现算并与文档 §3 实时比对（\|Δ\|≤0.05）；`最优组合` 给出 5 只的实例编号 | `docs/TEAM_PANEL_SUMMARY_2026-11-24.md` §8；面板账本 / 三种目标的归属核对 |
 
 > 本次面板/补正口径的交接总结：`docs/TEAM_PANEL_SUMMARY_2026-11-24.md`（含攻击白值拆分、5 词条来源、自身/全队/给主C 三种目标、Excel 建表建议）。
 

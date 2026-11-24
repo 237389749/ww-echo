@@ -368,6 +368,16 @@ def panel(code: str) -> dict:
 GATE_ENERGY = (120.0, 0.30, 0.85)   # 目标 / 斜率 / 最低
 GATE_CRIT = (100.0, 0.40, 0.80)
 
+# `--values-only`：不写公式、直接写算好的数。
+# openpyxl 写公式不会带缓存值，用不支持重算的查看器（或某些预览/转换链）打开会显示空白；
+# 这个开关给那种场景兜底。默认仍写公式（改明细汇总会跟着变）。
+VALUES_ONLY = False
+
+
+def num_or_formula(value, formula):
+    """默认写公式；`--values-only` 时写数值。"""
+    return value if VALUES_ONLY else formula
+
 
 def _gap_factor(value: float, target: float, slope: float, floor: float) -> float:
     """与 src/echo_combos.gap_factor 同一公式：max(最低, 1 − 斜率×(目标−值)/目标)。"""
@@ -484,7 +494,8 @@ def build(data: dict, dst: Path) -> None:
     ]
     for i, b in enumerate(basics, 5):
         name, role, elem, base, flat, energy, crit, cdmg, bonus, detail, defpct, codes = b
-        body(ws, i, [name, role, elem, base, flat, f"=D{i}+E{i}", energy, crit, cdmg, bonus,
+        body(ws, i, [name, role, elem, base, flat, num_or_formula(base + flat, f"=D{i}+E{i}"),
+                     energy, crit, cdmg, bonus,
                      f"{defpct}%", codes],
              formats=["", "", "", "#,##0", "#,##0", "#,##0.0", "0.0", "0.0", "0.0", "0.0", "", ""],
              align=["left", "center", "center", "right", "right", "right", "right", "right",
@@ -547,15 +558,18 @@ def build(data: dict, dst: Path) -> None:
     for k, p in enumerate(PLANS):
         r = first + k
         br = base_row[p.code]
+        pn = panel(p.code)
         body(ws, r, [p.code, p.label, p.teams_text(),
-                     f"=角色基础!D{br}", f"=角色基础!E{br}",
-                     f"={sumifs_stat(p.code, '攻击%')}",
-                     f"=D{r}*(1+F{r}/100)+E{r}",
-                     f"=角色基础!G{br}+{sumifs_stat(p.code, '共效')}",
-                     f"=角色基础!H{br}+{sumifs_stat(p.code, '暴击')}",
-                     f"=角色基础!I{br}+{sumifs_stat(p.code, '暴伤')}",
-                     f"=角色基础!J{br}+{sumifs_stat(p.code, '增伤')}",
-                     f"=SUMPRODUCT(--ISNUMBER(SEARCH(\"{p.code}\",{det_ben})))",
+                     num_or_formula(p.bare_attack, f"=角色基础!D{br}"),
+                     num_or_formula(p.bare_flat, f"=角色基础!E{br}"),
+                     num_or_formula(pn["pct"], f"={sumifs_stat(p.code, '攻击%')}"),
+                     num_or_formula(pn["attack"], f"=D{r}*(1+F{r}/100)+E{r}"),
+                     num_or_formula(pn["energy"], f"=角色基础!G{br}+{sumifs_stat(p.code, '共效')}"),
+                     num_or_formula(pn["crit"], f"=角色基础!H{br}+{sumifs_stat(p.code, '暴击')}"),
+                     num_or_formula(pn["cdmg"], f"=角色基础!I{br}+{sumifs_stat(p.code, '暴伤')}"),
+                     num_or_formula(pn["bonus"], f"=角色基础!J{br}+{sumifs_stat(p.code, '增伤')}"),
+                     num_or_formula(len(pn["rows"]),
+                                    f"=SUMPRODUCT(--ISNUMBER(SEARCH(\"{p.code}\",{det_ben})))"),
                      p.note],
              formats=["", "", "", "#,##0", "#,##0", "0.0", "#,##0.0", "0.0", "0.0", "0.0", "0.0",
                       "0", ""],
@@ -959,10 +973,20 @@ def build(data: dict, dst: Path) -> None:
     for p in PLANS:
         exp = EXPECTED[p.code]
         src_row = first + [x.code for x in PLANS].index(p.code)
-        body(ws, r, [p.label, exp[0], f"=面板汇总!G{src_row}", f"=C{r}-B{r}",
-                     f"=面板汇总!H{src_row}-{exp[1]}", f"=面板汇总!I{src_row}-{exp[2]}",
-                     f"=面板汇总!J{src_row}-{exp[3]}", f"=面板汇总!K{src_row}-{exp[4]}",
-                     f"=IF(MAX(ABS(D{r}),ABS(E{r}),ABS(F{r}),ABS(G{r}),ABS(H{r}))<=0.05,\"✓ 一致\",\"⚠ 有差异\")"],
+        got = panel(p.code)
+        d = [got["attack"] - exp[0], got["energy"] - exp[1], got["crit"] - exp[2],
+             got["cdmg"] - exp[3], got["bonus"] - exp[4]]
+        ok = max(abs(x) for x in d) <= 0.05
+        body(ws, r, [p.label, exp[0],
+                     num_or_formula(got["attack"], f"=面板汇总!G{src_row}"),
+                     num_or_formula(d[0], f"=C{r}-B{r}"),
+                     num_or_formula(d[1], f"=面板汇总!H{src_row}-{exp[1]}"),
+                     num_or_formula(d[2], f"=面板汇总!I{src_row}-{exp[2]}"),
+                     num_or_formula(d[3], f"=面板汇总!J{src_row}-{exp[3]}"),
+                     num_or_formula(d[4], f"=面板汇总!K{src_row}-{exp[4]}"),
+                     num_or_formula("✓ 一致" if ok else "⚠ 有差异",
+                                    f"=IF(MAX(ABS(D{r}),ABS(E{r}),ABS(F{r}),ABS(G{r}),"
+                                    f"ABS(H{r}))<=0.05,\"✓ 一致\",\"⚠ 有差异\")")],
              formats=["", "#,##0.0", "#,##0.0", "+0.000;-0.000", "+0.0;-0.0", "+0.0;-0.0",
                       "+0.0;-0.0", "+0.0;-0.0", ""],
              align=["left", "right", "right", "right", "right", "right", "right", "right", "center"],
@@ -1053,13 +1077,20 @@ def self_check() -> None:
 
 
 def main() -> None:
-    src = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_JSON
-    dst = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_XLSX
+    global VALUES_ONLY
+    argv = [a for a in sys.argv[1:] if a != "--values-only"]
+    VALUES_ONLY = "--values-only" in sys.argv
+    src = Path(argv[0]) if len(argv) > 0 else DEFAULT_JSON
+    dst = Path(argv[1]) if len(argv) > 1 else DEFAULT_XLSX
     data = load_plan_json(src)
-    print(f"ledger {len(LEDGER)} 条 / plans {len(PLANS)} 个")
+    print(f"ledger {len(LEDGER)} 条 / plans {len(PLANS)} 个"
+          + ("（--values-only：写数值不写公式）" if VALUES_ONLY else ""))
     self_check()
     build(data, dst)
     print(f"wrote {dst}")
+    if not VALUES_ONLY:
+        print("  提示：openpyxl 写的公式没有缓存值，用 Excel/WPS/LibreOffice 打开一次会重算；"
+              "若要在不支持重算的查看器里看，加 --values-only 重跑。")
     wb = load_workbook(dst)
     for name in wb.sheetnames:
         s = wb[name]

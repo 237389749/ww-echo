@@ -491,6 +491,9 @@ E  = 攻击总值 × (1 + min(暴击,100)/100 × 暴伤/100) × (1 + 增伤/100)
 
 ## 9. 文件
 
+- **一键复现**：[tools/analysis/build_team_panel.py](../../tools/analysis/build_team_panel.py)
+- 输入数据：[eval_report6.json](../../eval_report6.json)（评估产物，已入库）
+- 分析依赖：[tools/analysis/requirements.txt](../../tools/analysis/requirements.txt)（openpyxl）
 - 计算脚本：[tools/analysis/team_plan.py](../../tools/analysis/team_plan.py)
   （默认乘共效系数、暴击惩罚关；`--no-gates` 全关、`--crit-gate` 开暴击惩罚、`--swap4c`/`--swap3c key,…` 主词条假设）
 - 分析工作簿生成：[tools/analysis/team_plan_xlsx.py](../../tools/analysis/team_plan_xlsx.py)
@@ -560,20 +563,33 @@ E  = 攻击总值 × (1 + min(暴击,100)/100 × 暴伤/100) × (1 + 增伤/100)
 ### 10.6 复现命令
 
 ```bash
-# 1) 四份数据（需要系统 Python，有 cv2）
+# 一条命令全量重建（推荐）
+python tools/analysis/build_team_panel.py --py-data <有 cv2 的解释器> --py-xlsx <有 openpyxl 的解释器>
+
+# 只重出工作簿 / 只检查环境 / 账本写数值不写公式
+python tools/analysis/build_team_panel.py --skip-data ...
+python tools/analysis/build_team_panel.py --check ...
+python tools/analysis/build_team_panel.py --values-only ...
+```
+
+等价的展开版（driver 内部就是跑这些）：
+
+```bash
 python tools/analysis/team_plan.py            --out logs/analysis/team_plan_20261124
 python tools/analysis/team_plan.py --no-gates --out logs/analysis/team_plan_20261124/pure
 python tools/analysis/team_plan.py --swap4c   --out logs/analysis/team_plan_20261124/swap4c
 python tools/analysis/team_plan.py --swap3c sigrika32,sigrika5 --out logs/analysis/team_plan_20261124/swap3c
-
-# 2) 工作簿（需要 openpyxl，用 DSH bundled python）
 python tools/analysis/team_panel_xlsx.py
 python tools/analysis/team_plan_xlsx.py logs/analysis/team_plan_20261124/team_plan.json \
     logs/analysis/team_plan_20261124/team_plan.xlsx
 ```
 
-**两个解释器**：`team_plan.py` 依赖 `cv2`（系统 Python 3.13）；`team_panel_xlsx.py` 依赖 `openpyxl`
-（DSH bundled python）。混用会 ModuleNotFoundError。
+**两个解释器**：`team_plan.py` 依赖 `cv2`（主 requirements.txt）；`*_xlsx.py` 依赖 `openpyxl`
+（`tools/analysis/requirements.txt`）。driver 会自动探测并通过 `--py-data/--py-xlsx` 指定，
+混用会 ModuleNotFoundError。
+
+**重算**：openpyxl 写的公式不带缓存值 —— 用 Excel/WPS/LibreOffice 打开一次即重算；
+给不支持重算的查看器用时加 `--values-only`（直接写算好的数）。
 
 ### 10.7 遗留 / 下次可做
 
